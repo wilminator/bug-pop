@@ -8,9 +8,10 @@ import { InputManager, type InputFrame, type Nav } from './input';
 import { computeLayout, LEAVE_MS, render, thumbnail, type Layout, type Leaver } from './render';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
 import { inSeason, loadSprites, testSkin, type Skin } from './skin';
+import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings } from './storage';
 
-type Mode = 'menu' | 'offer' | 'playing' | 'paused' | 'result';
+type Mode = 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'result';
 type SiteConfig = { skin?: string; api?: string };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -73,6 +74,7 @@ async function main() {
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   requestPersistence();
+  cleanUpdateMarker();
   // Read-only handle for debugging and automated browser tests.
   Object.defineProperty(window, 'bugpop', { value: { get state() { return state; }, get mode() { return mode; }, get cell() { return layout.cell; } } });
   audio.soundOn = settings.sound;
@@ -134,11 +136,12 @@ async function main() {
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { menu: $('menu'), offer: $('offer'), paused: $('paused'), result: $('result') };
+  const overlays = { menu: $('menu'), offer: $('offer'), update: $('update'), paused: $('paused'), result: $('result') };
   const show = (m: Mode) => {
     mode = m;
     overlays.menu.hidden = m !== 'menu';
     overlays.offer.hidden = m !== 'offer';
+    overlays.update.hidden = m !== 'update';
     overlays.paused.hidden = m !== 'paused';
     overlays.result.hidden = m !== 'result';
     input.capture = m === 'playing';
@@ -219,9 +222,25 @@ async function main() {
     show('paused');
   };
 
-  const resume = () => {
+  // ---- New version check: before a game starts or resumes. Single player may skip it. ----
+  let keepPlaying: (() => void) | null = null;
+  const updateGate = async () => {
+    if (!(await shouldOffer())) return;
+    const back = mode;
+    show('update');
+    await new Promise<void>(res => { keepPlaying = () => { decline(); show(back); res(); }; });
+  };
+  $('updateLater').addEventListener('click', () => keepPlaying?.());
+  $('updateNow').addEventListener('click', () => {
+    if (unfinished(state)) { saveGame(state); upload(); } // reopens paused, right where it was
+    void updateNow();
+  });
+
+  const resume = async () => {
     if (!state) return;
     audio.unlock();
+    await updateGate();
+    if (!state) return;
     audio.startMusic();
     show('playing');
   };
@@ -253,6 +272,7 @@ async function main() {
   const singlePlayer = async () => {
     audio.unlock();
     readForm();
+    await updateGate();
     const rec = await findSave();
     const s = rec && recordState(rec);
     if (rec && s) showOffer(rec, s);
@@ -274,8 +294,8 @@ async function main() {
   $('quit').addEventListener('click', toMenu);
   $('toMenu').addEventListener('click', () => { state = null; clearGame(); toMenu(); });
   // Play again repeats the level with the score it started with; Next level keeps the score.
-  $('retry').addEventListener('click', () => newGame(state?.config.level, state?.config.startScore));
-  $('nextLevel').addEventListener('click', () => newGame(Math.min(MAX_LEVEL, (state?.config.level ?? 0) + 1), state?.score));
+  $('retry').addEventListener('click', async () => { const s = state; await updateGate(); newGame(s?.config.level, s?.config.startScore); });
+  $('nextLevel').addEventListener('click', async () => { const s = state; await updateGate(); newGame(Math.min(MAX_LEVEL, (s?.config.level ?? 0) + 1), s?.score); });
 
   const finish = (won: boolean) => {
     if (!state) return;
