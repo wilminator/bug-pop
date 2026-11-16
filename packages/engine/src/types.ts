@@ -29,9 +29,16 @@ export type Speed = 0 | 1 | 2;
 
 export type GameConfig = {
   seed: number;
-  level: number; // 0 .. 20
+  level: number; // 0 .. 99 (the menu starts at 0 .. 20; later levels are reached by playing on)
   speed: Speed; // 0 low, 1 medium, 2 high
   colors: number; // 2 .. 5
+  /**
+   * Score carried in from earlier levels of the same run (default 0). It is part of
+   * the config, so replay() still reproduces the final score exactly. To verify a
+   * multi-level run, replay each level and check its startScore equals the previous
+   * level's verified final score.
+   */
+  startScore?: number;
 };
 
 export type Phase = 'falling' | 'clearing' | 'settling' | 'won' | 'lost';

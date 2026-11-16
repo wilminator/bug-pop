@@ -16,14 +16,18 @@ const SPAWN_X = 3;
 const BASE_INTERVAL = [40, 25, 15] as const; // ticks per row at low / medium / high
 const MIN_INTERVAL = 6;
 const SPEED_MULTIPLIER = [1, 2, 3] as const;
+export const MAX_LEVEL = 99;
+/** The board is full of bugs by level 20; after that, every 4 levels pieces fall a little faster. */
+const OVERTIME_FROM = 20, OVERTIME_EVERY = 4;
 
 export function normalizeConfig(c: GameConfig): GameConfig {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.floor(v)));
   return {
     seed: c.seed >>> 0,
-    level: clamp(c.level, 0, 20),
+    level: clamp(c.level, 0, MAX_LEVEL),
     speed: clamp(c.speed, 0, 2) as GameConfig['speed'],
     colors: clamp(c.colors, 2, 5),
+    ...(c.startScore ? { startScore: Math.max(0, Math.floor(c.startScore)) } : {}),
   };
 }
 
@@ -44,7 +48,7 @@ export function createGame(config: GameConfig): GameState {
     clearing: [],
     piecesSpawned: 0,
     bugsLeft: 0,
-    score: 0,
+    score: cfg.startScore ?? 0,
     dropBugs: 0,
     chain: 0,
     log: [],
@@ -61,7 +65,8 @@ function randomPair(s: GameState) {
 
 /** Ticks per row for the current piece; the game speeds up every 10 pieces. */
 export function gravityInterval(s: GameState): number {
-  return Math.max(MIN_INTERVAL, BASE_INTERVAL[s.config.speed] - Math.floor(s.piecesSpawned / 10));
+  const overtime = Math.floor(Math.max(0, s.config.level - OVERTIME_FROM) / OVERTIME_EVERY);
+  return Math.max(MIN_INTERVAL, BASE_INTERVAL[s.config.speed] - overtime - Math.floor(s.piecesSpawned / 10));
 }
 
 function spawn(s: GameState, events: GameEvent[]) {

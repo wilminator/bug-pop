@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, bugCount, createGame, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, bugCount, createGame, gravityInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
 } from '../src';
 
@@ -126,6 +126,26 @@ describe('save and replay', () => {
     play(live, 60 * 120);
     const rebuilt = replay(cfg, live.log, live.tick);
     expect(serialize(rebuilt)).toBe(serialize(live));
+  });
+
+  it('a carried-over score starts the next level and replays exactly', () => {
+    const next = { ...cfg, level: 1, startScore: 1200 };
+    expect(createGame(next).score).toBe(1200);
+    expect(createGame(cfg).score).toBe(0);
+    const live = createGame(next);
+    play(live, 60 * 120);
+    expect(live.score).toBeGreaterThanOrEqual(1200);
+    expect(serialize(replay(next, live.log, live.tick))).toBe(serialize(live));
+    // Claiming a bigger carry-in than the run had changes the replayed result.
+    expect(replay({ ...next, startScore: 5000 }, live.log, live.tick).score).not.toBe(live.score);
+  });
+
+  it('plays on past level 20: same full board, pieces fall a little faster', () => {
+    const l20 = createGame({ ...cfg, level: 20 }), l90 = createGame({ ...cfg, level: 90 });
+    expect(l90.config.level).toBe(90);
+    expect(l90.bugsLeft).toBe(l20.bugsLeft);
+    expect(gravityInterval(l90)).toBeLessThan(gravityInterval(l20));
+    expect(createGame({ ...cfg, level: 500 }).config.level).toBe(99);
   });
 
   it('a forged log does not reproduce the score', () => {

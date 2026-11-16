@@ -1,7 +1,7 @@
 // App shell: menus, the fixed-rate game loop, saving, and wiring input,
 // rendering and sound together.
 
-import { createGame, step, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
+import { createGame, step, MAX_LEVEL, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
@@ -168,9 +168,10 @@ async function main() {
   look.addEventListener('change', () => { settings.look = look.value as Settings['look']; saveSettings(settings); location.reload(); });
   fillForm();
 
-  const newGame = (lvl = settings.level) => {
+  /** startScore carries the score over when moving on to the next level. */
+  const newGame = (lvl = settings.level, startScore = 0) => {
     const seed = crypto.getRandomValues(new Uint32Array(1))[0]!;
-    state = createGame({ seed, level: lvl, speed: settings.speed, colors: settings.colors });
+    state = createGame({ seed, level: lvl, speed: settings.speed, colors: settings.colors, startScore });
     input.reset(); // a fresh game starts with soft drop off
     pendingActions = [];
     saveGame(state);
@@ -245,8 +246,9 @@ async function main() {
   $('resume').addEventListener('click', resume);
   $('quit').addEventListener('click', toMenu);
   $('toMenu').addEventListener('click', () => { state = null; clearGame(); toMenu(); });
-  $('retry').addEventListener('click', () => newGame(state?.config.level));
-  $('nextLevel').addEventListener('click', () => newGame(Math.min(20, (state?.config.level ?? 0) + 1)));
+  // Play again repeats the level with the score it started with; Next level keeps the score.
+  $('retry').addEventListener('click', () => newGame(state?.config.level, state?.config.startScore));
+  $('nextLevel').addEventListener('click', () => newGame(Math.min(MAX_LEVEL, (state?.config.level ?? 0) + 1), state?.score));
 
   const finish = (won: boolean) => {
     if (!state) return;
@@ -258,17 +260,17 @@ async function main() {
     $('resultText').textContent = won
       ? `Level ${state.config.level} cleared. Score ${state.score}.`
       : `${state.bugsLeft} bugs left on level ${state.config.level}. Score ${state.score}.`;
-    $('nextLevel').hidden = !won;
+    $('nextLevel').hidden = !won || state.config.level >= MAX_LEVEL;
     show('result');
     // Auto-advance: a short beat to see "Cleared!", then the next level starts by itself.
     // Any button on the result screen still works and cancels it.
-    if (won && settings.autoNext && state.config.level < 20) {
+    if (won && settings.autoNext && state.config.level < MAX_LEVEL) {
       const next = state.config.level + 1;
       const startedFor = state;
       $('resultText').textContent += ` Level ${next} starts in a moment...`;
       setTimeout(() => {
         // Skip if the player already chose something, or switched away (it would start unseen).
-        if (mode === 'result' && state === startedFor && !document.hidden) newGame(next);
+        if (mode === 'result' && state === startedFor && !document.hidden) newGame(next, startedFor.score);
       }, AUTO_NEXT_MS);
     }
   };
