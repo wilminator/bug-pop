@@ -290,7 +290,7 @@ async function main() {
       menuInput(input.poll(null));
     }
     if (leavers.length) leavers = leavers.filter(l => now - l.t0 < LEAVE_MS);
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, bugExit: settings.exit || undefined });
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, hidden: mode === 'paused', bugExit: settings.exit || undefined });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);

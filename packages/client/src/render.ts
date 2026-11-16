@@ -15,6 +15,8 @@ export type RenderOptions = {
   time: number;
   images: SpriteImages | null;
   leavers: Leaver[];
+  /** Hide the board's contents (while paused, so pausing can't be used to plan). */
+  hidden?: boolean;
   /** Player's choice of exit effect for bugs; overrides the skin's when set. */
   bugExit?: ExitStyle;
 };
@@ -162,6 +164,13 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
   for (let y = 1; y < H; y++) { ctx.moveTo(bx, by + y * c + 0.5); ctx.lineTo(bx + W * c, by + y * c + 0.5); }
   ctx.stroke();
 
+  if (opt.hidden) {
+    ctx.fillStyle = skin.textDim;
+    ctx.textAlign = 'center';
+    ctx.font = `600 ${Math.round(c * 0.6)}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    ctx.fillText('Paused', bx + (c * W) / 2, by + (c * H) / 2);
+    return;
+  }
   const clearing = new Set(s.clearing);
   const flashOn = s.phase === 'clearing' && Math.floor(s.phaseTimer / 4) % 2 === 0;
   for (let y = 0; y < H; y++) {
