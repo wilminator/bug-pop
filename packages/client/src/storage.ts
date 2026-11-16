@@ -5,8 +5,10 @@
 
 import { deserialize, serialize, type GameState, type Speed } from '@bug-pop/engine';
 import type { ExitStyle } from './skin';
+import { deviceName, type SaveRecord } from './cloud';
 
 const SAVE_KEY = 'bugpop.save.v1';
+const SAVED_AT_KEY = 'bugpop.save.at.v1';
 const SETTINGS_KEY = 'bugpop.settings.v1';
 
 export type Settings = {
@@ -37,7 +39,19 @@ function write(key: string, value: string | null): boolean {
 }
 
 export function saveGame(s: GameState): boolean {
-  return write(SAVE_KEY, serialize(s));
+  const json = serialize(s);
+  // Only a real change gets a new timestamp. Otherwise a device sitting paused
+  // in the background would look "newer" than progress made on another device.
+  if (read(SAVE_KEY) === json) return true;
+  write(SAVED_AT_KEY, String(Date.now()));
+  return write(SAVE_KEY, json);
+}
+
+/** The local save as a record, so it can be compared with the cloud copy. */
+export function loadRecord(): SaveRecord | null {
+  const state = read(SAVE_KEY);
+  if (!state) return null;
+  return { state, savedAt: Number(read(SAVED_AT_KEY)) || 0, device: deviceName() };
 }
 
 export function loadGame(): GameState | null {
@@ -48,6 +62,7 @@ export function loadGame(): GameState | null {
 
 export function clearGame() {
   write(SAVE_KEY, null);
+  write(SAVED_AT_KEY, null);
 }
 
 export function loadSettings(): Settings {

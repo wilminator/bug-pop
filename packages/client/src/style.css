@@ -104,3 +104,5 @@ input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent);
 .help { color: var(--dim); font-size: 14px; }
 .help summary { cursor: pointer; color: var(--text); }
 .help p { margin: 6px 0; }
+.shot { display: flex; justify-content: center; }
+.shot canvas { border-radius: 10px; border: 1px solid var(--edge); }

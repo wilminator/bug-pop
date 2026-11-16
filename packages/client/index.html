@@ -29,7 +29,6 @@
       <div class="card">
         <h1>Bug Pop</h1>
         <p class="tag">Match four of a color to pop the bugs.</p>
-        <button id="continue" class="primary" hidden>Continue game</button>
         <label>Look
           <select id="look"><option value="site">Default</option><option value="test">Test pattern</option></select>
         </label>
@@ -50,7 +49,7 @@
           <label class="check"><input type="checkbox" id="sound" /> Sound effects</label>
           <label class="check"><input type="checkbox" id="music" /> Music</label>
         </form>
-        <button id="newGame" class="primary" data-primary>New game</button>
+        <button id="newGame" class="primary" data-primary>Single player</button>
         <details class="help">
           <summary>Controls</summary>
           <p><b>Keyboard:</b> ← → move, ↓ drop faster, ↑ or X turn right, Z turn left, Esc or P pause.</p>
@@ -58,7 +57,18 @@
           <p><b>Gamepad or joystick:</b> d-pad or stick moves and drops, A / Y turn right, B / X turn left, Start pauses.</p>
           <p><b>Touch:</b> the buttons under the board.</p>
         </details>
-        <p class="fine">Your game saves every time a piece lands and whenever you switch apps.</p>
+        <p class="fine">Your game saves every time a piece lands and whenever you switch apps. Signed in, it follows you to your other devices.</p>
+      </div>
+    </section>
+
+    <section id="offer" class="overlay" hidden>
+      <div class="card">
+        <h2>Pick up where you left off?</h2>
+        <div id="offerShot" class="shot"></div>
+        <p id="offerText" class="tag"></p>
+        <button id="offerResume" class="primary" data-primary>Resume</button>
+        <button id="offerNew">Start a new game</button>
+        <button id="offerBack">Back</button>
       </div>
     </section>
 

@@ -288,3 +288,22 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     stat('SCORE', String(s.score), x, by + c * 9.2);
   }
 }
+
+/**
+ * A still picture of a saved game, for the "Resume or start new?" screen.
+ * Drawn from the saved state with this device's skin, so no image has to be
+ * uploaded with the save.
+ */
+export function thumbnail(s: GameState, skin: Skin, images: SpriteImages | null, shapesOnPieces: boolean, cssW = 150): HTMLCanvasElement {
+  const cssH = Math.round(cssW * 1.95);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(cssW * devicePixelRatio);
+  canvas.height = Math.round(cssH * devicePixelRatio);
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  const ctx = canvas.getContext('2d')!;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  // time 0 and reduced motion give a calm, repeatable picture.
+  render(ctx, s, skin, computeLayout(cssW, cssH, 0), { shapesOnPieces, reducedMotion: true, time: 0, images, leavers: [] });
+  return canvas;
+}

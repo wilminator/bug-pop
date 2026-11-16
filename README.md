@@ -28,6 +28,17 @@ Things worth knowing:
 - **Pause:** hides the board so it cannot be used to plan. Competitive (versus) modes will have no pause.
 - **Accessibility:** the default palette is Okabe-Ito (colorblind-safe) and every color also has its own shape. Reduced-motion is respected.
 
+## Saving and cloud save
+
+The game is written to `localStorage` every time a piece lands and the moment
+the page is hidden, so iOS closing the app never loses a game.
+
+When a deployment's `config.json` names an `api` and the player is signed in,
+single player also copies the game to their account each time it pauses
+(`packages/client/src/cloud.ts`). Choosing Single player on any device offers
+the newest save, with a picture of the board, to resume or start over. Other
+modes never touch it. Without an `api` (this repo's default) cloud save is off.
+
 ## Skins
 
 A skin is a `skin.json` plus art and sound files. A deployment picks one with a `config.json` beside the page: `{"skin": "skins/code-bugs/skin.json"}`. Skins can animate bugs (two frames), carry a `season` window (holiday skins) and a `tier` (`supporter` skins).

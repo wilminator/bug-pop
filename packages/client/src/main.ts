@@ -5,23 +5,30 @@ import { createGame, step, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type G
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
-import { computeLayout, LEAVE_MS, render, type Layout, type Leaver } from './render';
+import { computeLayout, LEAVE_MS, render, thumbnail, type Layout, type Leaver } from './render';
+import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
 import { inSeason, loadSprites, testSkin, type Skin } from './skin';
-import { clearGame, loadGame, loadSettings, requestPersistence, saveGame, saveSettings, type Settings } from './storage';
+import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings } from './storage';
 
-type Mode = 'menu' | 'playing' | 'paused' | 'result';
+type Mode = 'menu' | 'offer' | 'playing' | 'paused' | 'result';
 type SiteConfig = { skin?: string; api?: string };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 
-/** A deployment can drop a config.json next to the page to pick a skin. */
-async function loadSkin(): Promise<Skin> {
-  if (loadSettings().look === 'test' || new URLSearchParams(location.search).get('skin') === 'test') return testSkin;
+/** A deployment can drop a config.json next to the page to pick a skin and a server. */
+async function loadConfig(): Promise<SiteConfig> {
   try {
     const res = await fetch('config.json', { cache: 'no-cache' });
-    if (!res.ok) return testSkin;
-    const cfg = (await res.json()) as SiteConfig;
+    return res.ok ? ((await res.json()) as SiteConfig) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function loadSkin(cfg: SiteConfig): Promise<Skin> {
+  if (loadSettings().look === 'test' || new URLSearchParams(location.search).get('skin') === 'test') return testSkin;
+  try {
     if (!cfg.skin) return testSkin;
     const skinUrl = new URL(cfg.skin, location.href);
     const skin = (await (await fetch(skinUrl)).json()) as Skin;
@@ -40,8 +47,14 @@ async function loadSkin(): Promise<Skin> {
   }
 }
 
+const unfinished = (s: GameState | null): s is GameState => !!s && s.phase !== 'won' && s.phase !== 'lost';
+
 async function main() {
-  const loaded = await loadSkin();
+  const cfg = await loadConfig();
+  // No server configured (the open-source build): cloud save is simply off.
+  const cloud: CloudSave = cfg.api ? httpCloud(cfg.api) : noCloud;
+  const signIn = cloud.check(); // runs while the skin loads
+  const loaded = await loadSkin(cfg);
   const skin = inSeason(loaded) ? loaded : testSkin;
   const images = await loadSprites(skin);
   let leavers: Leaver[] = [];
@@ -93,10 +106,11 @@ async function main() {
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { menu: $('menu'), paused: $('paused'), result: $('result') };
+  const overlays = { menu: $('menu'), offer: $('offer'), paused: $('paused'), result: $('result') };
   const show = (m: Mode) => {
     mode = m;
     overlays.menu.hidden = m !== 'menu';
+    overlays.offer.hidden = m !== 'offer';
     overlays.paused.hidden = m !== 'paused';
     overlays.result.hidden = m !== 'result';
     input.capture = m === 'playing';
@@ -105,6 +119,8 @@ async function main() {
   };
 
   const save = () => { if (state && (mode === 'playing' || mode === 'paused')) saveGame(state); };
+  /** Single player only: copy the game to the player's account so another device can pick it up. */
+  const upload = () => { if (state && cloud.signedIn) cloud.put(makeRecord(state)); };
 
   // ---- Settings form ----
   const level = $<HTMLInputElement>('level'), levelOut = $<HTMLOutputElement>('levelOut');
@@ -153,6 +169,7 @@ async function main() {
     input.reset(); // a fresh game starts with soft drop off
     pendingActions = [];
     saveGame(state);
+    upload(); // the new game replaces the old save everywhere
     audio.play('select');
     audio.startMusic(true);
     show('playing');
@@ -163,6 +180,7 @@ async function main() {
     pendingActions.push(...input.reset());
     $('pausedNote').textContent = note;
     save();
+    upload();
     audio.pauseMusic();
     audio.play('pause');
     show('paused');
@@ -178,12 +196,47 @@ async function main() {
   const toMenu = () => {
     save();
     audio.stopMusic();
-    $('continue').hidden = !(state && (state.phase !== 'won' && state.phase !== 'lost'));
     show('menu');
   };
 
-  $('newGame').addEventListener('click', () => { audio.unlock(); readForm(); newGame(); });
-  $('continue').addEventListener('click', resume);
+  // ---- Single player: offer the newest saved game (this device's or the cloud's) ----
+  let offered: SaveRecord | null = null;
+  const showOffer = (rec: SaveRecord, s: GameState) => {
+    offered = rec;
+    const shot = $('offerShot');
+    shot.replaceChildren(thumbnail(s, skin, images, settings.shapesOnPieces));
+    const where = loadRecord()?.savedAt === rec.savedAt ? 'on this device' : `on your ${rec.device}`;
+    $('offerText').textContent = `Level ${s.config.level}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
+    show('offer');
+  };
+  const findSave = async (): Promise<SaveRecord | null> => {
+    const local = loadRecord();
+    const remote = await cloud.get();
+    const best = newest(local, remote);
+    if (best && unfinished(recordState(best))) return best;
+    const other = best === local ? remote : local; // the newest was damaged or finished
+    return other && unfinished(recordState(other)) ? other : null;
+  };
+  const singlePlayer = async () => {
+    audio.unlock();
+    readForm();
+    const rec = await findSave();
+    const s = rec && recordState(rec);
+    if (rec && s) showOffer(rec, s);
+    else newGame();
+  };
+  $('newGame').addEventListener('click', () => void singlePlayer());
+  $('offerResume').addEventListener('click', () => {
+    const s = offered && recordState(offered);
+    if (!s) { newGame(); return; }
+    state = s;
+    if (offered!.savedAt !== loadRecord()?.savedAt) saveGame(state); // keep a local copy of a cloud save
+    input.reset();
+    pendingActions = [];
+    resume();
+  });
+  $('offerNew').addEventListener('click', () => newGame());
+  $('offerBack').addEventListener('click', () => show('menu'));
   $('resume').addEventListener('click', resume);
   $('quit').addEventListener('click', toMenu);
   $('toMenu').addEventListener('click', () => { state = null; clearGame(); toMenu(); });
@@ -193,6 +246,7 @@ async function main() {
   const finish = (won: boolean) => {
     if (!state) return;
     clearGame();
+    if (cloud.signedIn) cloud.remove(); // a finished game is nothing to resume
     audio.stopMusic();
     audio.play(won ? 'win' : 'lose');
     $('resultTitle').textContent = won ? 'Cleared!' : 'Game over';
@@ -299,8 +353,28 @@ async function main() {
   };
   requestAnimationFrame(frame);
 
+  /** If the account holds a newer game than this device (played elsewhere), offer it. */
+  const offerNewerCloud = async (): Promise<boolean> => {
+    const local = loadRecord();
+    const remote = await cloud.get();
+    const remoteState = remote && recordState(remote);
+    if (!remote || !unfinished(remoteState) || newest(local, remote) !== remote || remote.savedAt === local?.savedAt) return false;
+    if (mode !== 'menu' && mode !== 'paused') return false; // the player started something meanwhile
+    state = null;
+    audio.stopMusic();
+    showOffer(remote, remoteState);
+    return true;
+  };
+  // Coming back to an app left open: the game may have moved on on another device.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && cloud.signedIn) void offerNewerCloud(); });
+
   // ---- Start: an unfinished game opens paused, right where it was left ----
-  if (state && state.phase !== 'won' && state.phase !== 'lost') {
+  // If the player's account holds a newer game from another device, offer that instead.
+  await signIn;
+  mode = 'menu';
+  if (await offerNewerCloud()) {
+    // showing the offer
+  } else if (unfinished(state)) {
     mode = 'playing';
     pause('Welcome back. Your game is right where you left it.');
   } else {
