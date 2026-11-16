@@ -1,0 +1,19 @@
+{
+  "name": "bug-pop",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "npm run dev -w @bug-pop/client",
+    "build": "npm run build -w @bug-pop/client",
+    "preview": "npm run preview -w @bug-pop/client",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/engine && tsc -p packages/client"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}
