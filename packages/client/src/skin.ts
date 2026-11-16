@@ -45,4 +45,16 @@ export const testSkin: Skin = {
   text: '#eef1f6',
   textDim: '#9aa3b5',
   accent: '#56B4E9',
+  sounds: {
+    move: 'audio/sfx/move.mp3',
+    rotate: 'audio/sfx/rotate.mp3',
+    lock: 'audio/sfx/lock.mp3',
+    pop: 'audio/sfx/pop.mp3',
+    chain: 'audio/sfx/chain.mp3',
+    win: 'audio/sfx/win.mp3',
+    lose: 'audio/sfx/lose.mp3',
+    select: 'audio/sfx/select.mp3',
+    pause: 'audio/sfx/pause.mp3',
+  },
+  music: ['audio/music/music-upbeat.mp3', 'audio/music/music-calm.mp3'],
 };

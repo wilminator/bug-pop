@@ -22,8 +22,7 @@ const GENERATED: Record<SoundName, Blip> = {
 export class AudioManager {
   private ctx: AudioContext | null = null;
   private buffers = new Map<SoundName, AudioBuffer>();
-  private musicEl: HTMLAudioElement | null = null;
-  private musicIndex = 0;
+  private musicIndex = -1; // the first new game advances this to track 0
   soundOn = true;
   musicOn = true;
 
@@ -80,25 +79,63 @@ export class AudioManager {
     });
   }
 
-  /** Start (or keep playing) background music; each new game moves to the next track. */
+  // ---- Music: decoded once and looped through Web Audio, which loops without a gap ----
+  private musicBuffers = new Map<string, Promise<AudioBuffer | null>>();
+  private musicSource: AudioBufferSourceNode | null = null;
+  private musicGain: GainNode | null = null;
+  private musicStartedAt = 0; // ctx time when the current loop position was 0
+  private musicOffset = 0; // seconds into the track when paused
+  private musicToken = 0;
+
+  private trackBuffer(url: string): Promise<AudioBuffer | null> {
+    const ctx = this.ctx!;
+    let p = this.musicBuffers.get(url);
+    if (!p) {
+      p = fetch(url).then(r => r.arrayBuffer()).then(d => ctx.decodeAudioData(d)).catch(() => null);
+      this.musicBuffers.set(url, p);
+    }
+    return p;
+  }
+
+  /** Start or resume background music; nextTrack moves on to the next song. */
   startMusic(nextTrack = false) {
     const tracks = this.skin.music ?? [];
-    if (!this.musicOn || tracks.length === 0) return;
-    if (nextTrack || !this.musicEl) {
-      this.stopMusic();
-      if (nextTrack) this.musicIndex = (this.musicIndex + 1) % tracks.length;
-      this.musicEl = new Audio(tracks[this.musicIndex]);
-      this.musicEl.loop = true;
-      this.musicEl.volume = 0.45;
-    }
-    void this.musicEl.play().catch(() => undefined);
+    const ctx = this.ctx;
+    if (!this.musicOn || !ctx || tracks.length === 0) return;
+    if (nextTrack) { this.stopMusic(); this.musicIndex = (this.musicIndex + 1) % tracks.length; }
+    if (this.musicSource) return;
+    if (this.musicIndex < 0) this.musicIndex = 0;
+    const token = ++this.musicToken;
+    void this.trackBuffer(tracks[this.musicIndex]!).then(buf => {
+      if (!buf || token !== this.musicToken || !this.musicOn) return;
+      this.musicGain ??= ctx.createGain();
+      this.musicGain.gain.value = 0.45;
+      this.musicGain.connect(ctx.destination);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.connect(this.musicGain);
+      const offset = this.musicOffset % buf.duration;
+      src.start(0, offset);
+      this.musicStartedAt = ctx.currentTime - offset;
+      this.musicSource = src;
+    });
   }
 
   pauseMusic() {
-    this.musicEl?.pause();
+    if (this.musicSource && this.ctx) this.musicOffset = this.ctx.currentTime - this.musicStartedAt;
+    this.haltSource();
   }
 
   stopMusic() {
-    if (this.musicEl) { this.musicEl.pause(); this.musicEl.src = ''; this.musicEl = null; }
+    this.haltSource();
+    this.musicOffset = 0;
+  }
+
+  private haltSource() {
+    this.musicToken++;
+    try { this.musicSource?.stop(); } catch { /* already stopped */ }
+    this.musicSource?.disconnect();
+    this.musicSource = null;
   }
 }

@@ -1,0 +1,12 @@
+// Cloudflare Worker for the open-source dev build (see docs/cloudflare-setup.md).
+// It has no code of its own: it serves the files `npm run build` writes to
+// packages/client/dist. Cloudflare runs the build, then `npx wrangler deploy`
+// reads this file to know what to upload and where.
+{
+  "name": "bug-pop-dev", // must match the Worker's name in the Cloudflare dashboard
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./packages/client/dist"
+  },
+  "routes": [{ "pattern": "bugpop-dev.wilminator.com", "custom_domain": true }]
+}
