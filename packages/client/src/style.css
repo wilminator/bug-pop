@@ -34,7 +34,7 @@ body {
 
 .touch {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 0.7fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 8px 10px 12px;
   touch-action: none;
@@ -53,6 +53,14 @@ body {
 }
 .touch button:active { background: #2c3240; }
 .touch .small { font-size: 16px; }
+
+/* Pause sits at the top, away from the move and turn buttons, so it isn't hit by accident. */
+.topbar { display: flex; justify-content: flex-end; padding: 6px 10px 0; }
+.topbar[hidden] { display: none; }
+.topbar button {
+  padding: 6px 14px; font-size: 15px; border-radius: 10px;
+  border: 1px solid var(--edge); background: var(--card); color: var(--text); touch-action: none;
+}
 
 .overlay {
   position: fixed;

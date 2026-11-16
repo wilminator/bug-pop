@@ -14,6 +14,9 @@
     <title>Bug Pop</title>
   </head>
   <body>
+    <div id="topBar" class="topbar" hidden>
+      <button data-input="pause" aria-label="Pause">❚❚ Pause</button>
+    </div>
     <div id="stage">
       <canvas id="board" aria-label="Game board"></canvas>
       <div id="touchHint" class="touch-hint" hidden aria-hidden="true">
@@ -27,11 +30,10 @@
 
     <div id="touch" class="touch" hidden>
       <button data-input="left" aria-label="Move left">◀</button>
-      <button data-input="down" aria-label="Drop faster">▼</button>
-      <button data-input="right" aria-label="Move right">▶</button>
       <button data-input="rotCCW" aria-label="Turn left">⟲</button>
+      <button data-input="down" aria-label="Drop faster">▼</button>
       <button data-input="rotCW" aria-label="Turn right">⟳</button>
-      <button data-input="pause" aria-label="Pause" class="small">❚❚</button>
+      <button data-input="right" aria-label="Move right">▶</button>
     </div>
 
     <section id="menu" class="overlay" hidden>
@@ -65,7 +67,7 @@
           <p><b>Keyboard:</b> ← → move, ↓ drop faster, ↑ or X turn right, Z turn left, Esc or P pause.</p>
           <p><b>Mouse:</b> the piece follows the pointer. Left click or wheel turns, hold right button to drop.</p>
           <p><b>Gamepad or joystick:</b> d-pad or stick moves and drops, A / Y turn right, B / X turn left, Start pauses.</p>
-          <p><b>Touch:</b> drag on the board to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left. The buttons under the board work too.</p>
+          <p><b>Touch:</b> buttons under the board: ◀ ⟲ ▼ ⟳ ▶ (move left, turn left, drop, turn right, move right); Pause is at the top. Or drag on the board to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left.</p>
         </details>
         <p class="fine">Your game saves every time a piece lands and whenever you switch apps. Signed in, it follows you to your other devices.</p>
       </div>

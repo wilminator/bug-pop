@@ -93,11 +93,15 @@ async function main() {
   resize();
 
   // ---- Touch controls appear once the device shows it is touch-first ----
-  const showTouch = (on: boolean) => { touchBar.hidden = !on; };
+  const topBar = $('topBar');
+  let touchOn = false;
+  // The pause button only shows during play; menus have their own buttons.
+  const showTouch = (on: boolean) => { touchOn = on; touchBar.hidden = !on; topBar.hidden = !(on && mode === 'playing'); };
   showTouch(matchMedia('(pointer: coarse)').matches);
   input.onDevice = kind => { if (kind === 'touch') showTouch(true); else if (kind === 'keyboard' || kind === 'gamepad') showTouch(false); };
   window.addEventListener('touchstart', () => showTouch(true), { passive: true });
   input.attachTouchButtons(touchBar);
+  input.attachTouchButtons(topBar);
   input.attachSwipe(canvas, () => layout.cell);
 
   // Touch players get a reminder of the gestures over the board for their first few
@@ -147,6 +151,7 @@ async function main() {
     overlays.menu.hidden = m !== 'menu';
     overlays.offer.hidden = m !== 'offer';
     overlays.update.hidden = m !== 'update';
+    topBar.hidden = !(touchOn && m === 'playing');
     overlays.paused.hidden = m !== 'paused';
     overlays.result.hidden = m !== 'result';
     input.capture = m === 'playing';
