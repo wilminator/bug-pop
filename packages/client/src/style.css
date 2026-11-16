@@ -118,3 +118,4 @@ input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent);
 .touch-hint[hidden] { display: none; }
 .touch-hint.fade { opacity: 0; }
 .touch-hint span { display: block; color: var(--text); font-weight: 700; font-size: 17px; }
+.touch-hint .hint-go { grid-column: 1 / -1; margin: 2px 0 0; color: var(--accent); font-weight: 700; font-size: 16px; }

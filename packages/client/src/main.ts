@@ -98,8 +98,10 @@ async function main() {
   input.attachSwipe(canvas, () => layout.cell);
 
   // Touch players get a reminder of the gestures over the board for their first few
-  // games. It fades after their first touch on the board, or after a few seconds.
+  // games. The game waits while it is up; the first touch anywhere dismisses it
+  // (and is swallowed, so it doesn't also turn or move the piece).
   const hint = $('touchHint');
+  let hintUp = false;
   const HINT_KEY = 'bugpop.touchHints.v1';
   const showHint = () => {
     let shown = 0;
@@ -108,9 +110,17 @@ async function main() {
     try { localStorage.setItem(HINT_KEY, String(shown + 1)); } catch { /* ignore */ }
     hint.classList.remove('fade');
     hint.hidden = false;
-    const hide = () => { hint.classList.add('fade'); setTimeout(() => { hint.hidden = true; }, 400); canvas.removeEventListener('pointerdown', hide); };
-    canvas.addEventListener('pointerdown', hide);
-    setTimeout(hide, 6000);
+    hintUp = true;
+    const hide = (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+      window.removeEventListener('pointerdown', hide, true);
+      hintUp = false;
+      pendingActions.push(...input.reset());
+      hint.classList.add('fade');
+      setTimeout(() => { hint.hidden = true; }, 400);
+    };
+    window.addEventListener('pointerdown', hide, true);
   };
   input.attachMouse(canvas, clientX => {
     const rect = canvas.getBoundingClientRect();
@@ -365,7 +375,7 @@ async function main() {
   const frame = (now: number) => {
     const dt = Math.min(now - last, 250); // after a stall, don't fast-forward the game
     last = now;
-    if (mode === 'playing' && state) {
+    if (mode === 'playing' && state && !hintUp) {
       acc += dt;
       while (acc >= TICK_MS && mode === 'playing') {
         const f = input.poll(state);

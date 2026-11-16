@@ -11,8 +11,10 @@ import { ACTIONS, SAVE_VERSION, type Action, type GameConfig, type GameEvent, ty
 export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
 export const SETTLE_TICKS = 8; // ticks per row while loose halves fall
-export const LAND_TICKS = 20; // beat after a piece lands, before the next appears (the landing sound is 1/3 s)
-export const AFTER_CLEAR_TICKS = 60; // longer beat after a clear: 1.5 gravity steps at low speed
+// Beats before the next piece appears. Both are whole soft-drop steps (SOFT_DROP_TICKS),
+// so they line up with the rhythm of a held "down".
+export const LAND_TICKS = 24; // after a piece lands: 0.4 s, just past the 1/3 s landing sound
+export const AFTER_CLEAR_TICKS = 74; // after a clear: about 1.23 s
 export const SOFT_DROP_TICKS = 2; // ticks per row while soft drop is held
 const SPAWN_X = 3;
 const BASE_INTERVAL = [40, 25, 15] as const; // ticks per row at low / medium / high
