@@ -3,7 +3,7 @@
 Every push to `main` in this repo publishes the open-source build to
 **https://bugpop-dev.wilminator.com**. It is a Cloudflare **Worker with static assets**: a Worker with
 no code of its own that serves the files `npm run build` writes to `packages/client/dist`.
-(The official site, `bugpop.wilminator.com`, and its staging copy, `bugpop-test.wilminator.com`, are
+(The official site, `bugpop.wilminator.com`, and its staging copy, `bugpop-staging.wilminator.com`, are
 built from the private `bug-pop-server` repo, which adds the website skin and the server.)
 
 ## How a deploy works
