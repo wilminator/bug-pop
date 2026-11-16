@@ -16,7 +16,8 @@ CC0: https://creativecommons.org/publicdomain/zero/1.0/
 |---|---|---|---|---|---|---|
 | sfx/move.mp3 | Interface Sounds, `tick_004.ogg` | Kenney (kenney.nl) | https://kenney.nl/assets/interface-sounds | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None (optional: "Kenney, www.kenney.nl") | Yes |
 | sfx/rotate.mp3 | Interface Sounds, `toggle_001.ogg` | Kenney (kenney.nl) | https://kenney.nl/assets/interface-sounds | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
-| sfx/lock.mp3 | Impact Sounds, `impactSoft_medium_000.ogg` | Kenney (kenney.nl) | https://kenney.nl/assets/impact-sounds | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
+| sfx/lock.mp3 | Impact Sounds, `impactWood_medium_000.ogg` | Kenney (kenney.nl) | https://kenney.nl/assets/impact-sounds | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
+| sfx/fall.mp3 | Impact Sounds, `impactGeneric_light_001.ogg` | Kenney (kenney.nl) | https://kenney.nl/assets/impact-sounds | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
 | sfx/pop.mp3 | 3 Pop Sounds, `pop1.ogg` | wubitog | https://opengameart.org/content/3-pop-sounds | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None (page says "No Attribution Required") | Yes |
 | sfx/chain.mp3 | 3 Pop Sounds, `pop1.ogg`, pitched up 5 semitones | wubitog | https://opengameart.org/content/3-pop-sounds | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
 | sfx/win.mp3 | Win Jingle, `WinPizzicato.wav` (from winjingle.zip) | Fupi | https://opengameart.org/content/win-jingle | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |

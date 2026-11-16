@@ -48,7 +48,7 @@ export type Skin = {
 /** Images decoded from Skin.sprites, attached at load time (not part of skin.json). */
 export type SpriteImages = { bug: HTMLImageElement[]; bugAlt: HTMLImageElement[]; half: HTMLImageElement[] };
 
-export type SoundName = 'move' | 'rotate' | 'lock' | 'pop' | 'chain' | 'win' | 'lose' | 'select' | 'pause';
+export type SoundName = 'move' | 'rotate' | 'lock' | 'fall' | 'pop' | 'chain' | 'win' | 'lose' | 'select' | 'pause';
 
 /**
  * The test skin: plain shapes on a dark board. The palette is Okabe-Ito,
@@ -76,6 +76,7 @@ export const testSkin: Skin = {
     move: 'audio/sfx/move.mp3',
     rotate: 'audio/sfx/rotate.mp3',
     lock: 'audio/sfx/lock.mp3',
+    fall: 'audio/sfx/fall.mp3',
     pop: 'audio/sfx/pop.mp3',
     chain: 'audio/sfx/chain.mp3',
     win: 'audio/sfx/win.mp3',

@@ -41,7 +41,8 @@ export type GameConfig = {
   startScore?: number;
 };
 
-export type Phase = 'falling' | 'clearing' | 'settling' | 'won' | 'lost';
+/** 'waiting' is the short beat after things land, before the next piece appears. */
+export type Phase = 'falling' | 'clearing' | 'settling' | 'waiting' | 'won' | 'lost';
 
 export type Action = 'left' | 'right' | 'rotCW' | 'rotCCW' | 'softOn' | 'softOff';
 export const ACTIONS: readonly Action[] = ['left', 'right', 'rotCW', 'rotCCW', 'softOn', 'softOff'];
@@ -76,6 +77,7 @@ export type GameEvent =
   | { type: 'move' }
   | { type: 'rotate' }
   | { type: 'lock' }
+  | { type: 'fall' } // loose halves dropped one row
   | { type: 'match'; cells: number[]; bugs: number; chain: number }
   | { type: 'cleared'; bugs: number }
   | { type: 'won' }

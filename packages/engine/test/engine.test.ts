@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, bugCount, createGame, gravityInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, bugCount, createGame, gravityInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
 } from '../src';
 
@@ -82,6 +82,33 @@ describe('play', () => {
     expect(s.board.some(c => c?.t === 'half')).toBe(true);
   });
 
+  it('waits a beat after a landing, and longer after a clear, before the next piece', () => {
+    const s = createGame({ ...cfg, level: 0 });
+    s.board = emptyBoard();
+    s.board[idx(7, 15)] = { t: 'bug', c: 2 }; s.bugsLeft = 1;
+    s.piece = { x: 0, y: 14, rot: 0, a: 0, b: 1 };
+    let t = 0; const events: string[] = [];
+    while (s.phase === 'falling' && t++ < 500) events.push(...step(s).map(e => e.type));
+    expect(s.phase).toBe('waiting');
+    let wait = 0;
+    while ((s.phase as string) === 'waiting') { step(s); wait++; }
+    expect(wait).toBe(LAND_TICKS);
+    // Now a clear: three halves and a piece that completes four, plus a loose half that falls.
+    s.board = emptyBoard();
+    s.board[idx(7, 15)] = { t: 'bug', c: 2 };
+    for (const y of [15, 14, 13]) s.board[idx(0, y)] = { t: 'half', c: 1, l: null };
+    s.board[idx(3, 9)] = { t: 'half', c: 0, l: null }; // floating, so it falls once the board settles
+    s.bugsLeft = 1;
+    s.piece = { x: 0, y: 8, rot: 1, a: 1, b: 1 }; // vertical, lands on the three: five in a column
+    const seen: string[] = [];
+    for (let i = 0; i < 2000 && (s.phase as string) !== 'waiting'; i++) seen.push(...step(s).map(e => e.type));
+    expect(seen).toContain('match');
+    expect(seen).toContain('fall');
+    wait = 0;
+    while ((s.phase as string) === 'waiting') { step(s); wait++; }
+    expect(wait).toBe(AFTER_CLEAR_TICKS);
+  });
+
   it('ends in a loss when the spawn point is blocked', () => {
     const s = createGame(cfg);
     // Block the cells under the spawn point: the piece locks at the top,
@@ -89,7 +116,7 @@ describe('play', () => {
     s.board[idx(3, 1)] = { t: 'half', c: 0, l: null };
     s.board[idx(4, 1)] = { t: 'half', c: 1, l: null };
     const events = [];
-    for (let i = 0; i < 200 && s.phase === 'falling'; i++) events.push(...step(s));
+    for (let i = 0; i < 300 && (s.phase === 'falling' || s.phase === 'waiting'); i++) events.push(...step(s));
     expect(s.phase).toBe('lost');
     expect(events.map(e => e.type)).toContain('lost');
   });

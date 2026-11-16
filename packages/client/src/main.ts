@@ -96,6 +96,22 @@ async function main() {
   window.addEventListener('touchstart', () => showTouch(true), { passive: true });
   input.attachTouchButtons(touchBar);
   input.attachSwipe(canvas, () => layout.cell);
+
+  // Touch players get a reminder of the gestures over the board for their first few
+  // games. It fades after their first touch on the board, or after a few seconds.
+  const hint = $('touchHint');
+  const HINT_KEY = 'bugpop.touchHints.v1';
+  const showHint = () => {
+    let shown = 0;
+    try { shown = Number(localStorage.getItem(HINT_KEY)) || 0; } catch { /* private mode */ }
+    if (touchBar.hidden || shown >= 3) return;
+    try { localStorage.setItem(HINT_KEY, String(shown + 1)); } catch { /* ignore */ }
+    hint.classList.remove('fade');
+    hint.hidden = false;
+    const hide = () => { hint.classList.add('fade'); setTimeout(() => { hint.hidden = true; }, 400); canvas.removeEventListener('pointerdown', hide); };
+    canvas.addEventListener('pointerdown', hide);
+    setTimeout(hide, 6000);
+  };
   input.attachMouse(canvas, clientX => {
     const rect = canvas.getBoundingClientRect();
     const col = Math.floor((clientX - rect.left - layout.boardX) / layout.cell);
@@ -176,6 +192,7 @@ async function main() {
     pendingActions = [];
     saveGame(state);
     upload(); // the new game replaces the old save everywhere
+    showHint();
     audio.play('select');
     audio.startMusic(true);
     show('playing');
@@ -281,6 +298,7 @@ async function main() {
         case 'move': audio.play('move'); break;
         case 'rotate': audio.play('rotate'); break;
         case 'lock': audio.play('lock'); save(); break;
+        case 'fall': audio.play('fall'); break;
         case 'match': {
           audio.play(e.chain > 1 ? 'chain' : 'pop', 1 + Math.min(e.chain - 1, 4) * 0.12);
           const now = performance.now();

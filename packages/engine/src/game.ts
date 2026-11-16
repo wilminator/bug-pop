@@ -11,6 +11,8 @@ import { ACTIONS, SAVE_VERSION, type Action, type GameConfig, type GameEvent, ty
 export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
 export const SETTLE_TICKS = 8; // ticks per row while loose halves fall
+export const LAND_TICKS = 20; // beat after a piece lands, before the next appears (the landing sound is 1/3 s)
+export const AFTER_CLEAR_TICKS = 60; // longer beat after a clear: 1.5 gravity steps at low speed
 export const SOFT_DROP_TICKS = 2; // ticks per row while soft drop is held
 const SPAWN_X = 3;
 const BASE_INTERVAL = [40, 25, 15] as const; // ticks per row at low / medium / high
@@ -118,7 +120,11 @@ function lock(s: GameState, events: GameEvent[]) {
 /** After anything lands or falls: start a clear, or hand over to the next piece. */
 function resolve(s: GameState, events: GameEvent[]) {
   const cells = findMatches(s.board);
-  if (cells.length === 0) { spawn(s, events); return; }
+  if (cells.length === 0) {
+    s.phase = 'waiting';
+    s.phaseTimer = s.chain > 0 ? AFTER_CLEAR_TICKS : LAND_TICKS;
+    return;
+  }
   s.chain++;
   s.clearing = cells;
   s.phase = 'clearing';
@@ -187,8 +193,12 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
     }
     case 'settling': {
       if (--s.phaseTimer > 0) break;
-      if (settleStep(s.board)) s.phaseTimer = SETTLE_TICKS;
+      if (settleStep(s.board)) { s.phaseTimer = SETTLE_TICKS; events.push({ type: 'fall' }); }
       else resolve(s, events);
+      break;
+    }
+    case 'waiting': {
+      if (--s.phaseTimer <= 0) spawn(s, events);
       break;
     }
   }

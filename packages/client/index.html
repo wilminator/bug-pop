@@ -14,7 +14,15 @@
     <title>Bug Pop</title>
   </head>
   <body>
-    <div id="stage"><canvas id="board" aria-label="Game board"></canvas></div>
+    <div id="stage">
+      <canvas id="board" aria-label="Game board"></canvas>
+      <div id="touchHint" class="touch-hint" hidden aria-hidden="true">
+        <div><span>◀ drag ▶</span>move</div>
+        <div><span>drag ▼</span>drop faster</div>
+        <div><span>tap</span>turn right ⟳</div>
+        <div><span>flick ▲</span>turn left ⟲</div>
+      </div>
+    </div>
 
     <div id="touch" class="touch" hidden>
       <button data-input="left" aria-label="Move left">◀</button>

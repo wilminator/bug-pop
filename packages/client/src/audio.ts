@@ -11,6 +11,7 @@ const GENERATED: Record<SoundName, Blip> = {
   move: { wave: 'square', from: 520, to: 520, dur: 0.04, vol: 0.05 },
   rotate: { wave: 'square', from: 640, to: 900, dur: 0.06, vol: 0.05 },
   lock: { wave: 'triangle', from: 220, to: 110, dur: 0.09, vol: 0.18 },
+  fall: { wave: 'triangle', from: 330, to: 260, dur: 0.05, vol: 0.10 },
   pop: { wave: 'sine', from: 500, to: 1400, dur: 0.12, vol: 0.2 },
   chain: { wave: 'sine', from: 700, to: 2000, dur: 0.14, vol: 0.2 },
   win: { wave: 'square', from: 0, to: 0, dur: 0.12, vol: 0.08, notes: [523, 659, 784, 1047] },

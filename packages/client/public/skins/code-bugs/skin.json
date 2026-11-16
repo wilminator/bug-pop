@@ -68,6 +68,7 @@
     "move": "../../audio/sfx/move.mp3",
     "rotate": "../../audio/sfx/rotate.mp3",
     "lock": "../../audio/sfx/lock.mp3",
+    "fall": "../../audio/sfx/fall.mp3",
     "pop": "../../audio/sfx/pop.mp3",
     "chain": "../../audio/sfx/chain.mp3",
     "win": "../../audio/sfx/win.mp3",
