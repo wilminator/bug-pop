@@ -1,12 +1,12 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
 import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, type GameState, type Link } from '@bug-pop/engine';
-import type { ShapeKind, Skin, SpriteImages } from './skin';
+import { DEFAULT_EXITS, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
 
 /** A cleared bug on its way off the screen (bugs leave; they are never destroyed). */
-export type Leaver = { x: number; y: number; c: number; t0: number; dir: 1 | -1 };
+export type Leaver = { kind: ObjectKind; x: number; y: number; c: number; t0: number; dir: 1 | -1 };
 export const LEAVE_MS = 1100;
 
 export type RenderOptions = {
@@ -15,6 +15,8 @@ export type RenderOptions = {
   time: number;
   images: SpriteImages | null;
   leavers: Leaver[];
+  /** Player's choice of exit effect for bugs; overrides the skin's when set. */
+  bugExit?: ExitStyle;
 };
 
 const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
@@ -58,8 +60,10 @@ function shapePath(ctx: CanvasRenderingContext2D, kind: ShapeKind, cx: number, c
   }
 }
 
+const drawBug = (...a: Parameters<typeof drawBugArt>) => drawBugArt(...a);
+
 /** A bug: its color's shape with eyes and feelers, wiggling gently. */
-function drawBug(ctx: CanvasRenderingContext2D, skin: Skin, color: number, x: number, y: number, s: number, wiggle: number, images: SpriteImages | null, time: number) {
+function drawBugArt(ctx: CanvasRenderingContext2D, skin: Skin, color: number, x: number, y: number, s: number, wiggle: number, images: SpriteImages | null, time: number) {
   if (images) {
     const alt = images.bugAlt[color];
     const frame = ready(alt) && Math.floor(time / (skin.frameMs ?? 400)) % 2 === 1 ? alt : images.bug[color];
@@ -196,14 +200,49 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     for (const h of pieceCells(s.piece)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, opt.shapesOnPieces, 1, opt.images);
   }
 
-  // Bugs that were matched fly away up and off the screen.
+  // Cleared objects leave the board, each kind in the skin's chosen style.
+  const boardBottom = by + H * c;
+  const styleFor = (kind: ObjectKind): ExitStyle =>
+    opt.reducedMotion ? 'fade' : (kind === 'bug' ? opt.bugExit : undefined) ?? skin.exits?.[kind] ?? DEFAULT_EXITS[kind];
   for (const l of opt.leavers) {
+    const style = styleFor(l.kind);
     const t = Math.min(1, (opt.time - l.t0) / LEAVE_MS);
-    const startY = by + l.y * c;
-    const lift = (startY + c * 1.5) * t * t; // accelerate upward until off screen
-    const drift = opt.reducedMotion ? 0 : Math.sin(t * Math.PI * 3) * c * 0.35 + l.dir * t * c * 1.2;
-    ctx.globalAlpha = opt.reducedMotion ? 1 - t : 1;
-    drawBug(ctx, skin, l.c, bx + l.x * c + drift, startY - lift, c, 0, opt.images, opt.time * 3);
+    const px = bx + l.x * c, py = by + l.y * c;
+    const drawBug = (_ctx: CanvasRenderingContext2D, _skin: Skin, color: number, x: number, y: number, size: number, wiggle: number, images: SpriteImages | null, time: number) =>
+      l.kind === 'bug' ? drawBugArt(ctx, skin, color, x, y, size, wiggle, images, time) : drawHalf(ctx, skin, color, null, x, y + wiggle, size, opt.shapesOnPieces, ctx.globalAlpha, images);
+    if (style === 'fade') {
+      ctx.globalAlpha = 1 - t;
+      drawBug(ctx, skin, l.c, px, py, c, 0, opt.images, opt.time);
+    } else if (style === 'fly') {
+      const lift = (py + c * 1.5) * t * t; // accelerate upward until off screen
+      const drift = Math.sin(t * Math.PI * 3) * c * 0.35 + l.dir * t * c * 1.2;
+      drawBug(ctx, skin, l.c, px + drift, py - lift, c, 0, opt.images, opt.time * 3);
+    } else if (style === 'fall') {
+      // Hop up out of the grid, then tumble down past the bottom.
+      const v0 = c * 6, g = (boardBottom - py + c * 8) * 2;
+      const y = py - v0 * t + g * t * t;
+      ctx.save();
+      ctx.translate(px + c / 2 + l.dir * t * c * 2, y + c / 2);
+      ctx.rotate(l.dir * t * Math.PI * 2);
+      drawBug(ctx, skin, l.c, -c / 2, -c / 2, c, 0, opt.images, opt.time);
+      ctx.restore();
+    } else {
+      // explode: the bug swells and vanishes in a burst of its color.
+      const cx = px + c / 2, cy = py + c / 2;
+      if (t < 0.25) {
+        const k = 1 + t * 1.6;
+        drawBug(ctx, skin, l.c, cx - (c * k) / 2, cy - (c * k) / 2, c * k, 0, opt.images, opt.time);
+      }
+      ctx.fillStyle = skin.pieces[l.c]!.color;
+      ctx.globalAlpha = 1 - t;
+      for (let k = 0; k < 10; k++) {
+        const ang = (k / 10) * Math.PI * 2 + l.x;
+        const dist = c * (0.3 + t * 1.8);
+        ctx.beginPath();
+        ctx.arc(cx + Math.cos(ang) * dist, cy + Math.sin(ang) * dist, c * 0.12 * (1 - t * 0.6), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     ctx.globalAlpha = 1;
   }
 

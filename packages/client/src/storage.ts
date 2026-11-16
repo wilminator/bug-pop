@@ -4,6 +4,7 @@
 // before iOS can freeze or kill the page.
 
 import { deserialize, serialize, type GameState, type Speed } from '@bug-pop/engine';
+import type { ExitStyle } from './skin';
 
 const SAVE_KEY = 'bugpop.save.v1';
 const SETTINGS_KEY = 'bugpop.settings.v1';
@@ -15,9 +16,11 @@ export type Settings = {
   shapesOnPieces: boolean;
   sound: boolean;
   music: boolean;
+  exit: ExitStyle | '';
+  look: 'site' | 'test';
 };
 
-export const defaultSettings: Settings = { level: 0, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true };
+export const defaultSettings: Settings = { level: 0, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site' };
 
 function read(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }

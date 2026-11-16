@@ -1,0 +1,82 @@
+{
+  "id": "code-bugs",
+  "name": "Code Bugs",
+  "pieces": [
+    {
+      "color": "#D55E00",
+      "shape": "circle",
+      "name": "Vermilion beetle"
+    },
+    {
+      "color": "#56B4E9",
+      "shape": "triangle",
+      "name": "Sky beetle"
+    },
+    {
+      "color": "#F0E442",
+      "shape": "square",
+      "name": "Yellow beetle"
+    },
+    {
+      "color": "#009E73",
+      "shape": "diamond",
+      "name": "Green beetle"
+    },
+    {
+      "color": "#CC79A7",
+      "shape": "star",
+      "name": "Pink beetle"
+    }
+  ],
+  "background": "#0F1420",
+  "boardFill": "#161D2E",
+  "boardEdge": "#2E3A55",
+  "grid": "#1F2940",
+  "text": "#D8E1F0",
+  "textDim": "#7D8AA6",
+  "accent": "#56B4E9",
+  "connector": "#8FA3C7",
+  "sprites": {
+    "bug": [
+      "bug-0.svg",
+      "bug-1.svg",
+      "bug-2.svg",
+      "bug-3.svg",
+      "bug-4.svg"
+    ],
+    "bugAlt": [
+      "bug-0b.svg",
+      "bug-1b.svg",
+      "bug-2b.svg",
+      "bug-3b.svg",
+      "bug-4b.svg"
+    ],
+    "half": [
+      "half-0.svg",
+      "half-1.svg",
+      "half-2.svg",
+      "half-3.svg",
+      "half-4.svg"
+    ]
+  },
+  "frameMs": 350,
+  "exits": {
+    "bug": "fall",
+    "piece": "explode"
+  },
+  "sounds": {
+    "move": "../../audio/sfx/move.mp3",
+    "rotate": "../../audio/sfx/rotate.mp3",
+    "lock": "../../audio/sfx/lock.mp3",
+    "pop": "../../audio/sfx/pop.mp3",
+    "chain": "../../audio/sfx/chain.mp3",
+    "win": "../../audio/sfx/win.mp3",
+    "lose": "../../audio/sfx/lose.mp3",
+    "select": "../../audio/sfx/select.mp3",
+    "pause": "../../audio/sfx/pause.mp3"
+  },
+  "music": [
+    "../../audio/music/music-upbeat.mp3",
+    "../../audio/music/music-calm.mp3"
+  ]
+}

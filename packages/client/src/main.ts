@@ -17,6 +17,7 @@ const TICK_MS = 1000 / TICKS_PER_SECOND;
 
 /** A deployment can drop a config.json next to the page to pick a skin. */
 async function loadSkin(): Promise<Skin> {
+  if (loadSettings().look === 'test' || new URLSearchParams(location.search).get('skin') === 'test') return testSkin;
   try {
     const res = await fetch('config.json', { cache: 'no-cache' });
     if (!res.ok) return testSkin;
@@ -108,6 +109,7 @@ async function main() {
   // ---- Settings form ----
   const level = $<HTMLInputElement>('level'), levelOut = $<HTMLOutputElement>('levelOut');
   const speed = $<HTMLSelectElement>('speed'), colors = $<HTMLSelectElement>('colors');
+  const exitSel = $<HTMLSelectElement>('exit');
   const shapes = $<HTMLInputElement>('shapes'), sound = $<HTMLInputElement>('sound'), music = $<HTMLInputElement>('music');
   const fillForm = () => {
     level.value = String(settings.level);
@@ -117,6 +119,7 @@ async function main() {
     shapes.checked = settings.shapesOnPieces;
     sound.checked = settings.sound;
     music.checked = settings.music;
+    exitSel.value = settings.exit;
   };
   const readForm = () => {
     settings = {
@@ -126,6 +129,8 @@ async function main() {
       shapesOnPieces: shapes.checked,
       sound: sound.checked,
       music: music.checked,
+      exit: exitSel.value as Settings['exit'],
+      look: settings.look,
     };
     levelOut.value = level.value;
     audio.soundOn = settings.sound;
@@ -134,6 +139,12 @@ async function main() {
     saveSettings(settings);
   };
   $('settings').addEventListener('input', readForm);
+  // Changing the look reloads the page; the game in progress is saved first.
+  const look = $<HTMLSelectElement>('look');
+  look.value = settings.look;
+  if (skin === testSkin && settings.look !== 'test') look.querySelector('option[value="site"]')!.textContent = 'Default (test pattern)';
+  else look.querySelector('option[value="site"]')!.textContent = skin.name;
+  look.addEventListener('change', () => { settings.look = look.value as Settings['look']; saveSettings(settings); location.reload(); });
   fillForm();
 
   const newGame = (lvl = settings.level) => {
@@ -203,7 +214,9 @@ async function main() {
           const now = performance.now();
           matchedBugs = e.cells.flatMap(i => {
             const cell = state!.board[i];
-            return cell?.t === 'bug' ? [{ x: i % BOARD_WIDTH, y: Math.floor(i / BOARD_WIDTH), c: cell.c, t0: now, dir: (i % 2 ? 1 : -1) as 1 | -1 }] : [];
+            if (!cell) return [];
+            const kind = cell.t === 'bug' ? 'bug' as const : 'piece' as const;
+            return [{ kind, x: i % BOARD_WIDTH, y: Math.floor(i / BOARD_WIDTH), c: cell.c, t0: now, dir: (i % 2 ? 1 : -1) as 1 | -1 }];
           });
           break;
         }
@@ -277,7 +290,7 @@ async function main() {
       menuInput(input.poll(null));
     }
     if (leavers.length) leavers = leavers.filter(l => now - l.t0 < LEAVE_MS);
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers });
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, bugExit: settings.exit || undefined });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);

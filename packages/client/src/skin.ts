@@ -2,6 +2,10 @@
 // The engine only knows "color 2"; the skin decides that color 2 is a yellow
 // triangle. Skins carry no code, so art can be licensed apart from the GPL code.
 
+export type ExitStyle = 'fly' | 'fall' | 'explode' | 'fade';
+export type ObjectKind = 'bug' | 'piece' | 'powerup';
+export const DEFAULT_EXITS: Record<ObjectKind, ExitStyle> = { bug: 'fly', piece: 'explode', powerup: 'explode' };
+
 export type ShapeKind = 'circle' | 'triangle' | 'square' | 'diamond' | 'star';
 
 export type Skin = {
@@ -23,6 +27,13 @@ export type Skin = {
    * bugAlt is a second frame; bugs alternate between the frames (animation).
    */
   sprites?: { bug: string[]; bugAlt?: string[]; half: string[] };
+  /**
+   * How each kind of object leaves the board when it is cleared. Each kind
+   * can differ (bugs fly off, piece halves burst...). Defaults: bug 'fly',
+   * piece 'explode'; power-ups (coming later) default to 'explode'.
+   * 'fade' is used for everything when the player asks for reduced motion.
+   */
+  exits?: Partial<Record<ObjectKind, ExitStyle>>;
   /** Milliseconds per animation frame for bugAlt (default 400). */
   frameMs?: number;
   /** Who may pick this skin. Absent = everyone. */

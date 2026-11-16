@@ -30,6 +30,9 @@
         <h1>Bug Pop</h1>
         <p class="tag">Match four of a color to pop the bugs.</p>
         <button id="continue" class="primary" hidden>Continue game</button>
+        <label>Look
+          <select id="look"><option value="site">Default</option><option value="test">Test pattern</option></select>
+        </label>
         <form id="settings">
           <label>Level <output id="levelOut">0</output>
             <input type="range" id="level" min="0" max="20" step="1" />
@@ -39,6 +42,9 @@
           </label>
           <label>Colors
             <select id="colors"><option>2</option><option>3</option><option>4</option><option>5</option></select>
+          </label>
+          <label>Bugs leave by
+            <select id="exit"><option value="">Skin's choice</option><option value="fly">Flying away</option><option value="fall">Falling off</option><option value="explode">Exploding</option><option value="fade">Fading out</option></select>
           </label>
           <label class="check"><input type="checkbox" id="shapes" /> Shapes on pieces</label>
           <label class="check"><input type="checkbox" id="sound" /> Sound effects</label>
