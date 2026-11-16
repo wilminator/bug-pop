@@ -25,6 +25,7 @@ export type DeviceKind = 'keyboard' | 'mouse' | 'gamepad' | 'touch';
 export class InputManager {
   private held = new Map<string, Held>(); // per source
   private presses: Press[] = [];
+  private steps: ('left' | 'right')[] = []; // one-column moves from swipes
   private tapped = new Set<keyof Held>();
   private leftTicks = 0;
   private rightTicks = 0;
@@ -122,6 +123,51 @@ export class InputManager {
     }, { passive: false });
   }
 
+  // ---- Swipes on the board: drag to steer, drag down to drop, tap to turn ----
+  // Dragging sideways moves the piece one column for every column-width the finger
+  // travels, so the piece stays under the finger. Dragging down holds soft drop until
+  // the finger lifts. A quick tap turns right; a quick flick up turns left.
+  attachSwipe(el: HTMLElement, cellSize: () => number) {
+    let id: number | null = null;
+    let x0 = 0, y0 = 0, lastX = 0, t0 = 0, moved = false, dropping = false;
+    el.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse' || id !== null || !this.capture) return;
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      id = e.pointerId;
+      x0 = lastX = e.clientX; y0 = e.clientY; t0 = e.timeStamp;
+      moved = dropping = false;
+      this.use('touch');
+    });
+    el.addEventListener('pointermove', e => {
+      if (e.pointerId !== id) return;
+      const c = Math.max(12, cellSize());
+      const dx = e.clientX - x0, dy = e.clientY - y0;
+      // Sideways: one step per column crossed since the last step.
+      if (!dropping) {
+        while (e.clientX - lastX >= c) { this.steps.push('right'); lastX += c; moved = true; }
+        while (lastX - e.clientX >= c) { this.steps.push('left'); lastX -= c; moved = true; }
+      }
+      // Downward drag that's mostly vertical: soft drop while the finger stays down.
+      if (!dropping && dy > c * 1.2 && dy > Math.abs(dx) * 1.5) {
+        dropping = moved = true;
+        this.setHeld('swipe', 'down', true);
+      }
+      if (Math.abs(dx) > c * 0.4 || Math.abs(dy) > c * 0.4) moved = true;
+    });
+    const end = (e: PointerEvent) => {
+      if (e.pointerId !== id) return;
+      id = null;
+      if (dropping) this.setHeld('swipe', 'down', false);
+      const c = Math.max(12, cellSize());
+      const dy = e.clientY - y0, quick = e.timeStamp - t0 < 350;
+      if (e.type === 'pointerup' && quick && dy < -c * 1.2 && Math.abs(dy) > Math.abs(e.clientX - x0)) this.press('rotCCW');
+      else if (e.type === 'pointerup' && !moved && quick) this.press('rotCW');
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
+
   // ---- On-screen touch buttons (data-input="left|right|down|rotCW|rotCCW|pause") ----
   attachTouchButtons(root: HTMLElement) {
     for (const btn of root.querySelectorAll<HTMLElement>('[data-input]')) {
@@ -188,6 +234,7 @@ export class InputManager {
     const left = any('left'), right = any('right'), down = any('down');
     const presses = this.presses;
     this.presses = [];
+    if (!state) this.steps = [];
     this.tapped.clear();
     const nav = this.nav;
     this.nav = [];
@@ -196,6 +243,8 @@ export class InputManager {
 
     const a = frame.actions;
     for (const p of presses) if (p === 'rotCW' || p === 'rotCCW') a.push(p);
+    a.push(...this.steps);
+    this.steps = [];
 
     // Auto-repeat for held directions. Holding both cancels out.
     const repeat = (ticks: number) => ticks === 0 || (ticks >= REPEAT_DELAY && (ticks - REPEAT_DELAY) % REPEAT_EVERY === 0);
@@ -223,6 +272,7 @@ export class InputManager {
     this.releaseAll();
     this.leftTicks = this.rightTicks = 0;
     this.presses = [];
+    this.steps = [];
     if (this.softOn) { this.softOn = false; return ['softOff']; }
     return [];
   }

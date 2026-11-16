@@ -73,7 +73,7 @@ async function main() {
 
   requestPersistence();
   // Read-only handle for debugging and automated browser tests.
-  Object.defineProperty(window, 'bugpop', { value: { get state() { return state; }, get mode() { return mode; } } });
+  Object.defineProperty(window, 'bugpop', { value: { get state() { return state; }, get mode() { return mode; }, get cell() { return layout.cell; } } });
   audio.soundOn = settings.sound;
   audio.musicOn = settings.music;
 
@@ -94,6 +94,7 @@ async function main() {
   input.onDevice = kind => { if (kind === 'touch') showTouch(true); else if (kind === 'keyboard' || kind === 'gamepad') showTouch(false); };
   window.addEventListener('touchstart', () => showTouch(true), { passive: true });
   input.attachTouchButtons(touchBar);
+  input.attachSwipe(canvas, () => layout.cell);
   input.attachMouse(canvas, clientX => {
     const rect = canvas.getBoundingClientRect();
     const col = Math.floor((clientX - rect.left - layout.boardX) / layout.cell);
