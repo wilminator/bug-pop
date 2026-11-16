@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#14161c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Bug Pop" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <title>Bug Pop</title>
+  </head>
+  <body>
+    <div id="stage"><canvas id="board" aria-label="Game board"></canvas></div>
+
+    <div id="touch" class="touch" hidden>
+      <button data-input="left" aria-label="Move left">◀</button>
+      <button data-input="down" aria-label="Drop faster">▼</button>
+      <button data-input="right" aria-label="Move right">▶</button>
+      <button data-input="rotCCW" aria-label="Turn left">⟲</button>
+      <button data-input="rotCW" aria-label="Turn right">⟳</button>
+      <button data-input="pause" aria-label="Pause" class="small">❚❚</button>
+    </div>
+
+    <section id="menu" class="overlay" hidden>
+      <div class="card">
+        <h1>Bug Pop</h1>
+        <p class="tag">Match four of a color to pop the bugs.</p>
+        <button id="continue" class="primary" hidden>Continue game</button>
+        <form id="settings">
+          <label>Level <output id="levelOut">0</output>
+            <input type="range" id="level" min="0" max="20" step="1" />
+          </label>
+          <label>Speed
+            <select id="speed"><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select>
+          </label>
+          <label>Colors
+            <select id="colors"><option>2</option><option>3</option><option>4</option><option>5</option></select>
+          </label>
+          <label class="check"><input type="checkbox" id="shapes" /> Shapes on pieces</label>
+          <label class="check"><input type="checkbox" id="sound" /> Sound effects</label>
+          <label class="check"><input type="checkbox" id="music" /> Music</label>
+        </form>
+        <button id="newGame" class="primary" data-primary>New game</button>
+        <details class="help">
+          <summary>Controls</summary>
+          <p><b>Keyboard:</b> ← → move, ↓ drop faster, ↑ or X turn right, Z turn left, Esc or P pause.</p>
+          <p><b>Mouse:</b> the piece follows the pointer. Left click or wheel turns, hold right button to drop.</p>
+          <p><b>Gamepad or joystick:</b> d-pad or stick moves and drops, A / Y turn right, B / X turn left, Start pauses.</p>
+          <p><b>Touch:</b> the buttons under the board.</p>
+        </details>
+        <p class="fine">Your game saves every time a piece lands and whenever you switch apps.</p>
+      </div>
+    </section>
+
+    <section id="paused" class="overlay" hidden>
+      <div class="card">
+        <h2>Paused</h2>
+        <p id="pausedNote" class="tag">Your game is saved.</p>
+        <button id="resume" class="primary" data-primary>Resume</button>
+        <button id="quit">Main menu</button>
+      </div>
+    </section>
+
+    <section id="result" class="overlay" hidden>
+      <div class="card">
+        <h2 id="resultTitle">Cleared!</h2>
+        <p id="resultText" class="tag"></p>
+        <button id="nextLevel" class="primary" data-primary>Next level</button>
+        <button id="retry">Play again</button>
+        <button id="toMenu">Main menu</button>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
