@@ -16,10 +16,26 @@ export type Skin = {
   text: string;
   textDim: string;
   accent: string;
+  /** Color of the joint drawn between the two halves of a piece (sprite skins). */
+  connector?: string;
+  /**
+   * Optional picture-based art: one SVG/PNG per color, each filling one cell.
+   * bugAlt is a second frame; bugs alternate between the frames (animation).
+   */
+  sprites?: { bug: string[]; bugAlt?: string[]; half: string[] };
+  /** Milliseconds per animation frame for bugAlt (default 400). */
+  frameMs?: number;
+  /** Who may pick this skin. Absent = everyone. */
+  tier?: 'free' | 'supporter';
+  /** Season window for holiday skins, as MM-DD (inclusive), e.g. {from:'12-01', to:'12-31'}. */
+  season?: { from: string; to: string };
   /** Sound files relative to the page, or omitted to use generated sounds. */
   sounds?: Partial<Record<SoundName, string>>;
   music?: string[];
 };
+
+/** Images decoded from Skin.sprites, attached at load time (not part of skin.json). */
+export type SpriteImages = { bug: HTMLImageElement[]; bugAlt: HTMLImageElement[]; half: HTMLImageElement[] };
 
 export type SoundName = 'move' | 'rotate' | 'lock' | 'pop' | 'chain' | 'win' | 'lose' | 'select' | 'pause';
 
@@ -58,3 +74,25 @@ export const testSkin: Skin = {
   },
   music: ['audio/music/music-upbeat.mp3', 'audio/music/music-calm.mp3'],
 };
+
+/** Load sprite images (if any). Resolves even if some images fail. */
+export async function loadSprites(skin: Skin): Promise<SpriteImages | null> {
+  if (!skin.sprites) return null;
+  const load = (src: string) => new Promise<HTMLImageElement>(resolve => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(img);
+    img.src = src;
+  });
+  const all = (list: string[] = []) => Promise.all(list.map(load));
+  const [bug, bugAlt, half] = await Promise.all([all(skin.sprites.bug), all(skin.sprites.bugAlt), all(skin.sprites.half)]);
+  return { bug, bugAlt, half };
+}
+
+/** Is a seasonal skin in season on this date? */
+export function inSeason(skin: Skin, now = new Date()): boolean {
+  if (!skin.season) return true;
+  const md = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const { from, to } = skin.season;
+  return from <= to ? md >= from && md <= to : md >= from || md <= to; // windows may wrap the new year
+}

@@ -5,8 +5,8 @@ import { createGame, step, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type G
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
-import { computeLayout, render, type Layout } from './render';
-import { testSkin, type Skin } from './skin';
+import { computeLayout, LEAVE_MS, render, type Layout, type Leaver } from './render';
+import { inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { clearGame, loadGame, loadSettings, requestPersistence, saveGame, saveSettings, type Settings } from './storage';
 
 type Mode = 'menu' | 'playing' | 'paused' | 'result';
@@ -28,6 +28,11 @@ async function loadSkin(): Promise<Skin> {
     const rel = (p: string) => new URL(p, skinUrl).href;
     if (skin.sounds) for (const k of Object.keys(skin.sounds) as (keyof NonNullable<Skin['sounds']>)[]) skin.sounds[k] = rel(skin.sounds[k]!);
     if (skin.music) skin.music = skin.music.map(rel);
+    if (skin.sprites) {
+      skin.sprites.bug = skin.sprites.bug.map(rel);
+      skin.sprites.half = skin.sprites.half.map(rel);
+      if (skin.sprites.bugAlt) skin.sprites.bugAlt = skin.sprites.bugAlt.map(rel);
+    }
     return skin.pieces?.length >= 5 ? skin : testSkin;
   } catch {
     return testSkin;
@@ -35,7 +40,11 @@ async function loadSkin(): Promise<Skin> {
 }
 
 async function main() {
-  const skin = await loadSkin();
+  const loaded = await loadSkin();
+  const skin = inSeason(loaded) ? loaded : testSkin;
+  const images = await loadSprites(skin);
+  let leavers: Leaver[] = [];
+  let matchedBugs: Leaver[] = [];
   const canvas = $<HTMLCanvasElement>('board');
   const ctx = canvas.getContext('2d')!;
   const touchBar = $('touch');
@@ -189,8 +198,22 @@ async function main() {
         case 'move': audio.play('move'); break;
         case 'rotate': audio.play('rotate'); break;
         case 'lock': audio.play('lock'); save(); break;
-        case 'match': audio.play(e.chain > 1 ? 'chain' : 'pop', 1 + Math.min(e.chain - 1, 4) * 0.12); break;
-        case 'cleared': save(); break;
+        case 'match': {
+          audio.play(e.chain > 1 ? 'chain' : 'pop', 1 + Math.min(e.chain - 1, 4) * 0.12);
+          const now = performance.now();
+          matchedBugs = e.cells.flatMap(i => {
+            const cell = state!.board[i];
+            return cell?.t === 'bug' ? [{ x: i % BOARD_WIDTH, y: Math.floor(i / BOARD_WIDTH), c: cell.c, t0: now, dir: (i % 2 ? 1 : -1) as 1 | -1 }] : [];
+          });
+          break;
+        }
+        case 'cleared': {
+          const now = performance.now();
+          leavers.push(...matchedBugs.map(l => ({ ...l, t0: now })));
+          matchedBugs = [];
+          save();
+          break;
+        }
         case 'won': finish(true); break;
         case 'lost': finish(false); break;
       }
@@ -253,7 +276,8 @@ async function main() {
       acc = 0;
       menuInput(input.poll(null));
     }
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now });
+    if (leavers.length) leavers = leavers.filter(l => now - l.t0 < LEAVE_MS);
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);

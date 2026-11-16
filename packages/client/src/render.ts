@@ -1,11 +1,23 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
-import { BOARD_HEIGHT as H, BOARD_WIDTH as W, gravityInterval, idx, pieceCells, type GameState, type Link } from '@bug-pop/engine';
-import type { ShapeKind, Skin } from './skin';
+import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, type GameState, type Link } from '@bug-pop/engine';
+import type { ShapeKind, Skin, SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
 
-export type RenderOptions = { shapesOnPieces: boolean; reducedMotion: boolean; time: number };
+/** A cleared bug on its way off the screen (bugs leave; they are never destroyed). */
+export type Leaver = { x: number; y: number; c: number; t0: number; dir: 1 | -1 };
+export const LEAVE_MS = 1100;
+
+export type RenderOptions = {
+  shapesOnPieces: boolean;
+  reducedMotion: boolean;
+  time: number;
+  images: SpriteImages | null;
+  leavers: Leaver[];
+};
+
+const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
 
 /** Work out where the board goes for a canvas of this CSS size. */
 export function computeLayout(w: number, h: number, reserveBottom: number): Layout {
@@ -47,7 +59,12 @@ function shapePath(ctx: CanvasRenderingContext2D, kind: ShapeKind, cx: number, c
 }
 
 /** A bug: its color's shape with eyes and feelers, wiggling gently. */
-function drawBug(ctx: CanvasRenderingContext2D, skin: Skin, color: number, x: number, y: number, s: number, wiggle: number) {
+function drawBug(ctx: CanvasRenderingContext2D, skin: Skin, color: number, x: number, y: number, s: number, wiggle: number, images: SpriteImages | null, time: number) {
+  if (images) {
+    const alt = images.bugAlt[color];
+    const frame = ready(alt) && Math.floor(time / (skin.frameMs ?? 400)) % 2 === 1 ? alt : images.bug[color];
+    if (ready(frame)) { ctx.drawImage(frame, x, y + wiggle, s, s); return; }
+  }
   const p = skin.pieces[color]!;
   const cx = x + s / 2, cy = y + s / 2 + wiggle;
   const r = s * 0.38;
@@ -73,7 +90,25 @@ function drawBug(ctx: CanvasRenderingContext2D, skin: Skin, color: number, x: nu
 }
 
 /** One half of a piece: a rounded block, flat on the side that joins its partner. */
-function drawHalf(ctx: CanvasRenderingContext2D, skin: Skin, color: number, link: Link, x: number, y: number, s: number, shapes: boolean, alpha = 1) {
+function drawHalf(ctx: CanvasRenderingContext2D, skin: Skin, color: number, link: Link, x: number, y: number, s: number, shapes: boolean, alpha = 1, images: SpriteImages | null = null) {
+  const img = images?.half[color];
+  if (ready(img)) {
+    ctx.globalAlpha = alpha;
+    if (link) {
+      // The joint: a short bar from this cell's centre toward the partner's.
+      const [dx, dy] = link === 'L' ? [-1, 0] : link === 'R' ? [1, 0] : link === 'U' ? [0, -1] : [0, 1];
+      ctx.strokeStyle = skin.connector ?? skin.boardEdge;
+      ctx.lineWidth = s * 0.16;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x + s / 2, y + s / 2);
+      ctx.lineTo(x + s / 2 + dx * s * 0.5, y + s / 2 + dy * s * 0.5);
+      ctx.stroke();
+    }
+    ctx.drawImage(img, x, y, s, s);
+    ctx.globalAlpha = 1;
+    return;
+  }
   const p = skin.pieces[color]!;
   const pad = s * 0.08, r = s * 0.32;
   const L = x + pad, T = y + pad, R = x + s - pad, B = y + s - pad;
@@ -132,6 +167,12 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
       if (!cell) continue;
       const px = bx + x * c, py = by + y * c;
       const fading = clearing.has(i);
+      if (fading && cell.t === 'bug') {
+        // Matched bugs get excited before they leave.
+        const hop = opt.reducedMotion ? 0 : -Math.abs(Math.sin(opt.time / 70)) * c * 0.18;
+        drawBug(ctx, skin, cell.c, px, py, c, hop, opt.images, opt.time / 2);
+        continue;
+      }
       if (fading && flashOn) {
         ctx.fillStyle = 'rgba(255,255,255,0.85)';
         ctx.beginPath();
@@ -141,8 +182,8 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
       }
       if (cell.t === 'bug') {
         const wiggle = opt.reducedMotion ? 0 : Math.sin(opt.time / 300 + x * 1.7 + y * 0.9) * c * 0.04;
-        drawBug(ctx, skin, cell.c, px, py, c, wiggle);
-      } else drawHalf(ctx, skin, cell.c, cell.l, px, py, c, opt.shapesOnPieces);
+        drawBug(ctx, skin, cell.c, px, py, c, wiggle, opt.images, opt.time + (x * 137 + y * 61));
+      } else drawHalf(ctx, skin, cell.c, cell.l, px, py, c, opt.shapesOnPieces, 1, opt.images);
     }
   }
 
@@ -151,8 +192,19 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     let ghost = s.piece;
     const fitsAt = (p: typeof ghost) => pieceCells(p).every(h => h.y >= 0 && h.y < H && h.x >= 0 && h.x < W && s.board[idx(h.x, h.y)] === null);
     while (fitsAt({ ...ghost, y: ghost.y + 1 })) ghost = { ...ghost, y: ghost.y + 1 };
-    if (ghost.y !== s.piece.y) for (const h of pieceCells(ghost)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, false, 0.18);
-    for (const h of pieceCells(s.piece)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, opt.shapesOnPieces);
+    if (ghost.y !== s.piece.y) for (const h of pieceCells(ghost)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, false, 0.18, opt.images);
+    for (const h of pieceCells(s.piece)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, opt.shapesOnPieces, 1, opt.images);
+  }
+
+  // Bugs that were matched fly away up and off the screen.
+  for (const l of opt.leavers) {
+    const t = Math.min(1, (opt.time - l.t0) / LEAVE_MS);
+    const startY = by + l.y * c;
+    const lift = (startY + c * 1.5) * t * t; // accelerate upward until off screen
+    const drift = opt.reducedMotion ? 0 : Math.sin(t * Math.PI * 3) * c * 0.35 + l.dir * t * c * 1.2;
+    ctx.globalAlpha = opt.reducedMotion ? 1 - t : 1;
+    drawBug(ctx, skin, l.c, bx + l.x * c + drift, startY - lift, c, 0, opt.images, opt.time * 3);
+    ctx.globalAlpha = 1;
   }
 
   // Side panel: next piece and stats.
@@ -172,22 +224,19 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     stat('LEVEL', String(s.config.level), bx, y);
     stat('BUGS', String(s.bugsLeft), bx + c * 2, y);
     stat('SCORE', String(s.score), bx + c * W, y, 'right');
-    drawHalf(ctx, skin, s.next.a, 'R', bx + c * 4, y - c * 0.2, c * 0.9, opt.shapesOnPieces);
-    drawHalf(ctx, skin, s.next.b, 'L', bx + c * 4.9, y - c * 0.2, c * 0.9, opt.shapesOnPieces);
+    drawHalf(ctx, skin, s.next.a, 'R', bx + c * 4, y - c * 0.2, c * 0.9, opt.shapesOnPieces, 1, opt.images);
+    drawHalf(ctx, skin, s.next.b, 'L', bx + c * 4.9, y - c * 0.2, c * 0.9, opt.shapesOnPieces, 1, opt.images);
   } else {
     const x = bx + c * W + c * 1.2;
     ctx.textAlign = 'left';
     ctx.fillStyle = skin.textDim;
     ctx.font = font(c * 0.42, 500);
     ctx.fillText('NEXT', x, by + c * 0.4);
-    drawHalf(ctx, skin, s.next.a, 'R', x, by + c * 0.7, c, opt.shapesOnPieces);
-    drawHalf(ctx, skin, s.next.b, 'L', x + c, by + c * 0.7, c, opt.shapesOnPieces);
+    drawHalf(ctx, skin, s.next.a, 'R', x, by + c * 0.7, c, opt.shapesOnPieces, 1, opt.images);
+    drawHalf(ctx, skin, s.next.b, 'L', x + c, by + c * 0.7, c, opt.shapesOnPieces, 1, opt.images);
     stat('LEVEL', String(s.config.level), x, by + c * 3.2);
     stat('SPEED', speedName, x, by + c * 5.2);
     stat('BUGS', String(s.bugsLeft), x, by + c * 7.2);
     stat('SCORE', String(s.score), x, by + c * 9.2);
-    ctx.fillStyle = skin.textDim;
-    ctx.font = font(c * 0.36, 500);
-    ctx.fillText(`Drop: ${gravityInterval(s)} ticks/row`, x, by + c * 11.4);
   }
 }
