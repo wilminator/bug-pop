@@ -79,5 +79,6 @@
   "music": [
     "../../audio/music/music-upbeat.mp3",
     "../../audio/music/music-calm.mp3"
-  ]
+  ],
+  "titleMusic": "../../audio/music/music-extra.mp3"
 }

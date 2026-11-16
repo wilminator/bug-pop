@@ -43,6 +43,8 @@ export type Skin = {
   /** Sound files relative to the page, or omitted to use generated sounds. */
   sounds?: Partial<Record<SoundName, string>>;
   music?: string[];
+  /** Looping track for the menus (optional). */
+  titleMusic?: string;
 };
 
 /** Images decoded from Skin.sprites, attached at load time (not part of skin.json). */
@@ -85,6 +87,7 @@ export const testSkin: Skin = {
     pause: 'audio/sfx/pause.mp3',
   },
   music: ['audio/music/music-upbeat.mp3', 'audio/music/music-calm.mp3'],
+  titleMusic: 'audio/music/music-extra.mp3',
 };
 
 /** Load sprite images (if any). Resolves even if some images fail. */

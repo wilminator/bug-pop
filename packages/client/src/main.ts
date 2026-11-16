@@ -38,6 +38,7 @@ async function loadSkin(cfg: SiteConfig): Promise<Skin> {
     const rel = (p: string) => new URL(p, skinUrl).href;
     if (skin.sounds) for (const k of Object.keys(skin.sounds) as (keyof NonNullable<Skin['sounds']>)[]) skin.sounds[k] = rel(skin.sounds[k]!);
     if (skin.music) skin.music = skin.music.map(rel);
+    if (skin.titleMusic) skin.titleMusic = rel(skin.titleMusic);
     if (skin.sprites) {
       skin.sprites.bug = skin.sprites.bug.map(rel);
       skin.sprites.half = skin.sprites.half.map(rel);
@@ -131,7 +132,10 @@ async function main() {
   });
 
   // Audio may only start from a user gesture.
-  const unlock = () => audio.unlock();
+  // The menus have their own title music. Browsers only allow sound after the first tap or
+  // key press, so it starts then if a menu is showing.
+  const titleScreens: Mode[] = ['menu', 'offer'];
+  const unlock = () => { audio.unlock(); if (titleScreens.includes(mode)) audio.title(true); };
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
@@ -139,6 +143,7 @@ async function main() {
   const overlays = { menu: $('menu'), offer: $('offer'), update: $('update'), paused: $('paused'), result: $('result') };
   const show = (m: Mode) => {
     mode = m;
+    audio.title(titleScreens.includes(m));
     overlays.menu.hidden = m !== 'menu';
     overlays.offer.hidden = m !== 'offer';
     overlays.update.hidden = m !== 'update';
@@ -186,6 +191,7 @@ async function main() {
     audio.soundOn = settings.sound;
     audio.musicOn = settings.music;
     if (!settings.music) audio.stopMusic();
+    audio.title(settings.music && titleScreens.includes(mode));
     saveSettings(settings);
   };
   $('settings').addEventListener('input', readForm);

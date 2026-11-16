@@ -34,7 +34,7 @@ CC0: https://creativecommons.org/publicdomain/zero/1.0/
 | music/music-extra.mp3 | Insect Factory (Wii-style music) (`insect_factory.wav`, 2:32, trailing silence trimmed) | Zane Little Music | https://opengameart.org/content/insect-factory-wii-style-music | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
 
 Notes:
-- `music-extra` is the full album version of the track. It has a proper ending, so it is **not** a seamless loop: it will restart audibly when it repeats. The upbeat and calm tracks are published as loops.
+- `music-extra` is the menu (title) music. It is the full album version of the track. It has a proper ending, so it is **not** a seamless loop: it will restart audibly when it repeats. The upbeat and calm tracks are published as loops.
 - MP3 encoding adds a few ms of encoder delay and padding. For gapless looping, play the music through Web Audio (`AudioBufferSourceNode.loop = true`, adjusting `loopStart`/`loopEnd` if a click is heard) rather than `<audio loop>`.
 - Music is mastered louder (about -16 LUFS) than the SFX (about -19 to -20 LUFS). Play music at around 0.4 to 0.6 volume in the game.
 - `chain.mp3` is a pitched copy of `pop.mp3`. Higher combo steps can use `playbackRate` on either file.

@@ -133,6 +133,44 @@ export class AudioManager {
     this.musicOffset = 0;
   }
 
+  // ---- Title music: its own loop for the menus, separate from the in-game playlist ----
+  private titleSource: AudioBufferSourceNode | null = null;
+  private titleGain: GainNode | null = null;
+  private titleToken = 0;
+
+  /** Play (true) or fade out (false) the skin's title music. Needs unlock() first. */
+  title(on: boolean) {
+    const ctx = this.ctx;
+    const url = this.skin.titleMusic;
+    if (!on || !this.musicOn) {
+      this.titleToken++;
+      const src = this.titleSource, gain = this.titleGain;
+      this.titleSource = null;
+      if (src && gain && ctx) {
+        // A short fade sounds nicer than a hard cut when a game starts.
+        gain.gain.setTargetAtTime(0, ctx.currentTime, 0.12);
+        setTimeout(() => { try { src.stop(); } catch { /* stopped */ } src.disconnect(); }, 600);
+      }
+      this.titleGain = null;
+      return;
+    }
+    if (this.titleSource || !ctx || !url) return;
+    const token = ++this.titleToken;
+    void this.trackBuffer(url).then(buf => {
+      if (!buf || token !== this.titleToken || !this.musicOn || this.titleSource) return;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.4;
+      gain.connect(ctx.destination);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.connect(gain);
+      src.start();
+      this.titleSource = src;
+      this.titleGain = gain;
+    });
+  }
+
   private haltSource() {
     this.musicToken++;
     try { this.musicSource?.stop(); } catch { /* already stopped */ }
