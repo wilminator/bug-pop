@@ -20,9 +20,11 @@ export type Settings = {
   music: boolean;
   exit: ExitStyle | '';
   look: 'site' | 'test';
+  /** After clearing a level, start the next one by itself. */
+  autoNext: boolean;
 };
 
-export const defaultSettings: Settings = { level: 0, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site' };
+export const defaultSettings: Settings = { level: 0, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site', autoNext: false };
 
 function read(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }

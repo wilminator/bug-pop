@@ -15,6 +15,7 @@ type SiteConfig = { skin?: string; api?: string };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
+const AUTO_NEXT_MS = 2500;
 
 /** A deployment can drop a config.json next to the page to pick a skin and a server. */
 async function loadConfig(): Promise<SiteConfig> {
@@ -127,6 +128,7 @@ async function main() {
   const level = $<HTMLInputElement>('level'), levelOut = $<HTMLOutputElement>('levelOut');
   const speed = $<HTMLSelectElement>('speed'), colors = $<HTMLSelectElement>('colors');
   const exitSel = $<HTMLSelectElement>('exit');
+  const autoNext = $<HTMLInputElement>('autoNext');
   const shapes = $<HTMLInputElement>('shapes'), sound = $<HTMLInputElement>('sound'), music = $<HTMLInputElement>('music');
   const fillForm = () => {
     level.value = String(settings.level);
@@ -134,6 +136,7 @@ async function main() {
     speed.value = String(settings.speed);
     colors.value = String(settings.colors);
     shapes.checked = settings.shapesOnPieces;
+    autoNext.checked = settings.autoNext;
     sound.checked = settings.sound;
     music.checked = settings.music;
     exitSel.value = settings.exit;
@@ -148,6 +151,7 @@ async function main() {
       music: music.checked,
       exit: exitSel.value as Settings['exit'],
       look: settings.look,
+      autoNext: autoNext.checked,
     };
     levelOut.value = level.value;
     audio.soundOn = settings.sound;
@@ -256,6 +260,17 @@ async function main() {
       : `${state.bugsLeft} bugs left on level ${state.config.level}. Score ${state.score}.`;
     $('nextLevel').hidden = !won;
     show('result');
+    // Auto-advance: a short beat to see "Cleared!", then the next level starts by itself.
+    // Any button on the result screen still works and cancels it.
+    if (won && settings.autoNext && state.config.level < 20) {
+      const next = state.config.level + 1;
+      const startedFor = state;
+      $('resultText').textContent += ` Level ${next} starts in a moment...`;
+      setTimeout(() => {
+        // Skip if the player already chose something, or switched away (it would start unseen).
+        if (mode === 'result' && state === startedFor && !document.hidden) newGame(next);
+      }, AUTO_NEXT_MS);
+    }
   };
 
   const onEvents = (events: GameEvent[]) => {
