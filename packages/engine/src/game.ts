@@ -13,15 +13,16 @@ export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
 export const SETTLE_TICKS = 8; // ticks per row while loose halves fall
 /**
- * Ticks per row while "down" is held: 2.5, i.e. 24 rows a second (it was 2; Jeanne found that
- * too fast). Half a tick can't happen, so the drop timer counts in half-ticks and alternates
- * 3-tick and 2-tick rows, which averages exactly 2.5.
+ * Ticks per row while "down" is held: 7.5, i.e. 8 rows a second (history: 2, then 2.5; Mike and
+ * Jeanne still found that too fast and asked for 3x slower). Half a tick can't happen, so the
+ * drop timer counts in half-ticks and alternates 8-tick and 7-tick rows, which averages exactly 7.5.
+ * Holding down never makes a piece slower than its normal fall (see softDropInterval).
  */
-export const SOFT_DROP_TICKS = 2.5;
+export const SOFT_DROP_TICKS = 7.5;
 const HALF = 2; // drop timer units per tick
-// Beats before the next piece appears. Both are whole soft-drop steps (10 and 30 of them),
+// Beats before the next piece appears. Both are whole soft-drop steps (4 and 10 of them),
 // so they line up with the rhythm of a held "down".
-export const LAND_TICKS = 25; // after a piece lands: about 0.42 s, just past the 1/3 s landing sound
+export const LAND_TICKS = 30; // after a piece lands: 0.5 s, past the 1/3 s landing sound
 export const AFTER_CLEAR_TICKS = 75; // after a clear: 1.25 s
 /** Endless: the beat while a new round's bugs crawl in, before the next piece (also whole soft-drop steps). */
 export const ARRIVE_TICKS = 75;
@@ -95,6 +96,11 @@ function randomPair(s: GameState) {
 export function gravityInterval(s: GameState): number {
   const overtime = Math.floor(Math.max(0, currentLevel(s) - OVERTIME_FROM) / OVERTIME_EVERY);
   return Math.max(MIN_INTERVAL, BASE_INTERVAL[s.config.speed] - overtime - Math.floor(s.piecesSpawned / 10));
+}
+
+/** Ticks per row while "down" is held: SOFT_DROP_TICKS, unless the normal fall is already faster. */
+export function softDropInterval(s: GameState): number {
+  return Math.min(SOFT_DROP_TICKS, gravityInterval(s));
 }
 
 function spawn(s: GameState, events: GameEvent[]) {
@@ -213,9 +219,9 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
   switch (s.phase) {
     case 'falling': {
       s.dropTimer += HALF;
-      const limit = (s.soft ? SOFT_DROP_TICKS : gravityInterval(s)) * HALF;
+      const limit = (s.soft ? softDropInterval(s) : gravityInterval(s)) * HALF;
       if (s.dropTimer >= limit) {
-        s.dropTimer -= limit; // keep the leftover half-tick so 3,2,3,2... averages 2.5
+        s.dropTimer -= limit; // keep the leftover half-tick so 8,7,8,7... averages 7.5
         const p = s.piece!;
         const lower = { ...p, y: p.y + 1 };
         if (fits(s.board, lower)) s.piece = lower;
