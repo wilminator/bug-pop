@@ -484,3 +484,53 @@ function levelStat(s: GameState): [string, string] {
   const lvl = currentLevel(s);
   return isEndless(lvl) ? ['ENDLESS', String(lvl - FINAL_LEVEL)] : ['LEVEL', String(lvl)];
 }
+
+/**
+ * A few board cells drawn in the skin's art, for the How to Play page.
+ * Each row is a string of cells separated by spaces:
+ *   ..        empty
+ *   b0 - b4   a bug of that color
+ *   h0 - h4   a lone piece half
+ *   L0 R0 U0 D0   a half joined to its partner on the Left / Right / Up / Down
+ * A trailing ! marks a cell that is about to pop (drawn with a glow).
+ */
+export function diagram(rows: string[], skin: Skin, images: SpriteImages | null, shapesOnPieces: boolean, cell = 30): HTMLCanvasElement {
+  const grid = rows.map(r => r.trim().split(/\s+/));
+  const cols = Math.max(...grid.map(r => r.length));
+  const pad = 6, cssW = cols * cell + pad * 2, cssH = grid.length * cell + pad * 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(cssW * devicePixelRatio);
+  canvas.height = Math.round(cssH * devicePixelRatio);
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  const ctx = canvas.getContext('2d')!;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  // The same board look as the game: fill, edge and grid lines.
+  ctx.fillStyle = skin.boardFill;
+  ctx.strokeStyle = skin.boardEdge;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(1, 1, cssW - 2, cssH - 2, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = skin.grid;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 1; x < cols; x++) { ctx.moveTo(pad + x * cell + 0.5, pad); ctx.lineTo(pad + x * cell + 0.5, cssH - pad); }
+  for (let y = 1; y < grid.length; y++) { ctx.moveTo(pad, pad + y * cell + 0.5); ctx.lineTo(cssW - pad, pad + y * cell + 0.5); }
+  ctx.stroke();
+  grid.forEach((row, y) => row.forEach((tok, x) => {
+    if (tok.startsWith('..')) return;
+    const kind = tok[0]!, color = Number(tok[1]), px = pad + x * cell, py = pad + y * cell;
+    if (tok.endsWith('!')) {
+      // About to pop: a soft glow behind the cell.
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+      ctx.beginPath();
+      ctx.roundRect(px + 1, py + 1, cell - 2, cell - 2, cell * 0.3);
+      ctx.fill();
+    }
+    if (kind === 'b') drawBug(ctx, skin, color, px, py, cell, 0, images, 0);
+    else drawHalf(ctx, skin, color, kind === 'h' ? null : (kind as Exclude<Link, null>), px, py, cell, shapesOnPieces, 1, images);
+  }));
+  return canvas;
+}

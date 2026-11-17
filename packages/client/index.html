@@ -49,13 +49,13 @@
         <button id="play" class="primary" data-primary>Play</button>
         <!-- Ad space: only a deployment's config.json can switch it on (see README). -->
         <div id="adSlot" class="ad-slot" hidden aria-label="Advertisement"></div>
-        <p class="fine links"><a href="credits.html">Credits</a><a id="privacyLink" hidden>Privacy</a><a id="termsLink" hidden>Terms</a></p>
+        <p class="fine links"><button class="link" data-help>How to play</button><a href="credits.html">Credits</a><a id="privacyLink" hidden>Privacy</a><a id="termsLink" hidden>Terms</a></p>
       </div>
     </section>
 
     <!-- Choose a game: the hub every player passes through after the title. -->
     <section id="menu" class="overlay screen art" hidden>
-      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><button class="gear" data-gear>&#9881; Settings</button></nav>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><span class="nav-right"><button class="help-btn" data-help>? How to play</button><button class="gear" data-gear>&#9881; Settings</button></span></nav>
       <div class="screen-body">
         <h1 class="screen-title">Choose a game</h1>
         <div class="modes">
@@ -82,7 +82,7 @@
 
     <!-- Set up: level, speed and colors, then start. -->
     <section id="setup" class="overlay screen art" hidden>
-      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><button class="gear" data-gear>&#9881; Settings</button></nav>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><span class="nav-right"><button class="help-btn" data-help>? How to play</button><button class="gear" data-gear>&#9881; Settings</button></span></nav>
       <div class="screen-body">
         <h1 class="screen-title">Single player</h1>
         <div class="card">
@@ -105,7 +105,7 @@
 
     <!-- Settings (the gear): things that rarely change. -->
     <section id="settingsScreen" class="overlay screen art" hidden>
-      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button></nav>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><span class="nav-right"><button class="help-btn" data-help>? How to play</button></span></nav>
       <div class="screen-body">
         <h1 class="screen-title">Settings</h1>
         <div class="card">
@@ -125,14 +125,108 @@
             </label>
             <label class="check"><input type="checkbox" id="autoNext" /> Go to the next level automatically</label>
           </form>
-          <details class="help">
-            <summary>Controls</summary>
-            <p><b>Keyboard:</b> ← → move, ↓ drop faster, ↑ or X turn right, Z turn left, Esc or P pause.</p>
-            <p><b>Mouse:</b> the piece follows the pointer. Left click or wheel turns, hold right button to drop.</p>
-            <p><b>Gamepad or joystick:</b> d-pad or stick moves and drops, A / Y turn right, B / X turn left, Start pauses.</p>
-            <p><b>Touch:</b> the buttons under the board (pick a layout under Touch buttons). Or drag on the board to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left.</p>
-          </details>
         </div>
+      </div>
+    </section>
+
+    <!-- How to play: the rules, controls, speeds and scoring. Pictures are drawn in the skin's own art (see diagram() in src/render.ts). -->
+    <section id="helpScreen" class="overlay screen art" hidden>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button></nav>
+      <div class="screen-body">
+        <h1 class="screen-title">How to play</h1>
+        <div class="card howto">
+          <h2>Pop every bug</h2>
+          <p>Bugs sit on the board. Pieces fall from the top, two halves at a time. Steer and turn each piece as it falls. Clear every bug to win the level.</p>
+          <div class="figs"><figure><div data-fig="match"></div><figcaption>Four in a line pops</figcaption></figure></div>
+          <p>Line up <b>four or more of one color</b>, across or up and down. Bugs and piece halves both count, and everything in the line pops.</p>
+          <div class="figs">
+            <figure><div data-fig="before"></div><figcaption>The blue line pops&hellip;</figcaption></figure>
+            <span class="arrow" aria-hidden="true">&rarr;</span>
+            <figure><div data-fig="after"></div><figcaption>&hellip;and the loose half drops</figcaption></figure>
+          </div>
+          <p>Pieces left hanging in the air fall until they land on something: a lone half drops straight down, and a whole piece drops once nothing holds up either half. Bugs never fall. Whatever falls can line up and pop again, which is a chain.</p>
+          <p>The game is over when the pile reaches the top and a new piece has no room to come in.</p>
+        </div>
+
+        <div class="card howto">
+          <h2>The colors</h2>
+          <p id="helpColors">Each color has its own shape, so you can tell them apart without color. Turn on <b>Shapes on pieces</b> in Settings to put the shapes on the pieces too.</p>
+          <ul id="legend" class="legend"></ul>
+          <p class="fine">You pick 2 to 5 colors before each game. More colors is harder.</p>
+        </div>
+
+        <div class="card howto">
+          <h2>Controls</h2>
+          <details data-device="touch">
+            <summary>Touch</summary>
+            <p>Use the buttons under the board: &#9664; &#9654; move, &#9660; drops faster, &#10227; turns right, &#10226; turns left. Settings has three button layouts to choose from.</p>
+            <p>Or play on the board itself: drag sideways to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left.</p>
+          </details>
+          <details data-device="keyboard">
+            <summary>Keyboard</summary>
+            <dl class="keys">
+              <dt>&larr; &rarr; or A D</dt><dd>Move</dd>
+              <dt>&darr; or S</dt><dd>Drop faster (hold)</dd>
+              <dt>&uarr;, X, W or K</dt><dd>Turn right</dd>
+              <dt>Z, Q or J</dt><dd>Turn left</dd>
+              <dt>Esc or P</dt><dd>Pause</dd>
+            </dl>
+          </details>
+          <details data-device="mouse">
+            <summary>Mouse</summary>
+            <dl class="keys">
+              <dt>Move the pointer</dt><dd>The piece follows it</dd>
+              <dt>Left click</dt><dd>Turn right</dd>
+              <dt>Middle click</dt><dd>Turn left</dd>
+              <dt>Wheel</dt><dd>Turn (down right, up left)</dd>
+              <dt>Hold right button</dt><dd>Drop faster</dd>
+            </dl>
+          </details>
+          <details data-device="gamepad">
+            <summary>Gamepad or joystick</summary>
+            <dl class="keys">
+              <dt>D-pad or stick</dt><dd>Move, and down drops faster</dd>
+              <dt>A, Y or d-pad up</dt><dd>Turn right</dd>
+              <dt>B or X</dt><dd>Turn left</dd>
+              <dt>Start or Select</dt><dd>Pause</dd>
+            </dl>
+          </details>
+          <p class="fine">You can still move and turn while dropping faster.</p>
+        </div>
+
+        <div class="card howto">
+          <h2>Levels and speed</h2>
+          <p>Each level adds more bugs: 4 on level 0, then 4 more every 3 levels, up to a full board at level 60. Pieces also fall a little faster each level.</p>
+          <table class="speeds">
+            <thead><tr><th>Speed</th><th>Points</th></tr></thead>
+            <tbody>
+              <tr><td>Slo-mo <span class="fine">(4 or 5 colors only)</span></td><td>&times;0.5</td></tr>
+              <tr><td>Low</td><td>&times;1</td></tr>
+              <tr><td>Medium</td><td>&times;2</td></tr>
+              <tr><td>High</td><td>&times;3</td></tr>
+            </tbody>
+          </table>
+          <p>The <b>Level</b> slider starts with levels 0 to 20 open. Clear a level to open the next one. Each speed keeps its own progress.</p>
+          <p>Beat level 100 to open <b>Endless</b> at that speed. In Endless the board never resets: when you clear the bugs, a new wave crawls in around whatever is left, and your score keeps going.</p>
+        </div>
+
+        <div class="card howto">
+          <h2>Scoring</h2>
+          <p>Every bug you pop scores <b>100 &times; chain bonus &times; multiplier &times; the speed's points</b>.</p>
+          <ul class="rules">
+            <li><b>Chain bonus:</b> the more bugs one piece pops, the more each is worth. The first bug is &times;1, the next &times;2, then &times;4, and so on up to &times;32. Bugs popped by halves falling afterwards count for the same piece. It starts over with every new piece.</li>
+            <li><b>Multiplier:</b> starts at &times;1.0 each level and shows under your score. Each bug you pop raises it by 0.2. Each new piece lowers it by 0.1, but never below &times;1.0.</li>
+          </ul>
+          <p>So pop several bugs with one piece, and keep popping without wasting pieces, to keep both climbing.</p>
+          <p><b>Clean sweep:</b> finish a level with no piece halves left on the board for a bonus of <b>1,000 + 100 per level</b>, times the speed's points (level 10 on Medium: 4,000).</p>
+        </div>
+
+        <div class="card howto">
+          <h2>Pausing and saving</h2>
+          <p>Your game saves every time a piece lands and whenever you switch apps, so you can come back to it any time. Pausing hides the board.</p>
+          <p class="fine">Signed in, your single-player game follows you to your other devices.</p>
+        </div>
+        <button class="primary got-it" data-back>Got it</button>
       </div>
     </section>
 
@@ -159,7 +253,7 @@
     </section>
 
     <section id="offer" class="overlay screen art" hidden>
-      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><button class="gear" data-gear>&#9881; Settings</button></nav>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><span class="nav-right"><button class="help-btn" data-help>? How to play</button><button class="gear" data-gear>&#9881; Settings</button></span></nav>
       <div class="screen-body">
       <div class="card">
         <h2>Pick up where you left off?</h2>
@@ -185,6 +279,7 @@
         <h2>Paused</h2>
         <p id="pausedNote" class="tag">Your game is saved.</p>
         <button id="resume" class="primary" data-primary>Resume</button>
+        <button data-help>How to play</button>
         <button id="quit">Main menu</button>
       </div>
     </section>

@@ -5,7 +5,7 @@ import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, SLO_MO, SLO_MO_COL
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
-import { computeLayout, LEAVE_MS, ARRIVE_MS, SWEEP_MS, render, thumbnail, type Layout, type Leaver, type Sweep } from './render';
+import { computeLayout, LEAVE_MS, ARRIVE_MS, SWEEP_MS, diagram, render, thumbnail, type Layout, type Leaver, type Sweep } from './render';
 import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
 import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
@@ -16,7 +16,7 @@ import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, sa
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
-type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
+type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'help' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
 /**
  * config.json, written by each deployment (the open-source build ships one with just a skin):
  *   skin     skin.json to load
@@ -186,13 +186,13 @@ async function main() {
   // Audio may only start from a user gesture.
   // The menus have their own title music. Browsers only allow sound after the first tap or
   // key press, so it starts then if a menu is showing.
-  const titleScreens: Mode[] = ['title', 'menu', 'setup', 'settings', 'offer'];
+  const titleScreens: Mode[] = ['title', 'menu', 'setup', 'settings', 'help', 'offer'];
   const unlock = () => { audio.unlock(); if (titleScreens.includes(mode)) audio.title(true); };
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), settings: $('settingsScreen'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
+  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), settings: $('settingsScreen'), help: $('helpScreen'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
   // A skin may paint its own picture behind the title page and the menu screens (CSS: html.has-art).
   if (skin.title?.background) {
     document.documentElement.style.setProperty('--title-bg', `url(${JSON.stringify(skin.title.background)})`);
@@ -211,6 +211,7 @@ async function main() {
     overlays.menu.hidden = m !== 'menu';
     overlays.setup.hidden = m !== 'setup';
     overlays.settings.hidden = m !== 'settings';
+    overlays.help.hidden = m !== 'help';
     overlays.offer.hidden = m !== 'offer';
     overlays.choose.hidden = m !== 'choose';
     overlays.update.hidden = m !== 'update';
@@ -473,9 +474,44 @@ async function main() {
   });
   // Back (top left) and the Settings gear (top right) on every menu screen after the title.
   let settingsFrom: Mode = 'menu';
-  const backTo = (): Mode => (mode === 'menu' ? 'title' : mode === 'setup' ? 'menu' : mode === 'settings' ? settingsFrom : offerBackTo);
+  let helpFrom: Mode = 'menu';
+  const backTo = (): Mode => (mode === 'menu' ? 'title' : mode === 'setup' ? 'menu' : mode === 'settings' ? settingsFrom : mode === 'help' ? helpFrom : offerBackTo);
   document.querySelectorAll<HTMLElement>('[data-back]').forEach(b => b.addEventListener('click', () => { audio.play('select'); show(backTo()); }));
   document.querySelectorAll<HTMLElement>('[data-gear]').forEach(b => b.addEventListener('click', () => { audio.play('select'); settingsFrom = mode; show('settings'); }));
+  // How to play: from the title, any menu screen, or the pause card (Back returns there).
+  document.querySelectorAll<HTMLElement>('[data-help]').forEach(b => b.addEventListener('click', () => { audio.play('select'); helpFrom = mode; showHelp(); }));
+  const showHelp = () => {
+    fillHelp();
+    show('help');
+    overlays.help.scrollTop = 0;
+  };
+  // The pictures are drawn fresh each time, in this skin's art and with the player's shapes setting.
+  const fillHelp = () => {
+    const shapes = settings.shapesOnPieces;
+    const figs: Record<string, string[]> = {
+      // A vertical piece completing a blue line of four with two bugs.
+      match: ['.. .. .. .. ..', '.. .. D1! .. ..', 'b0 .. U1! .. ..', 'R2 L0 b1! .. b3', '.. b2 b1! b0 ..'],
+      // A piece whose right half finishes a line; its left half is left hanging...
+      before: ['R2 L1! ..', '.. b1! ..', '.. b1! ..', 'b0 b1! ..'],
+      // ...and drops onto the bug below.
+      after: ['.. .. ..', '.. .. ..', 'h2 .. ..', 'b0 .. ..'],
+    };
+    overlays.help.querySelectorAll<HTMLElement>('[data-fig]').forEach(el => {
+      el.replaceChildren(diagram(figs[el.dataset.fig!]!, skin, images, shapes, 28));
+    });
+    // One row per color: its bug, its piece half, and the skin's name for it.
+    $('legend').replaceChildren(...skin.pieces.map((p, c) => {
+      const li = document.createElement('li');
+      li.append(diagram([`b${c} h${c}`], skin, images, true, 26));
+      const name = document.createElement('span');
+      name.textContent = p.name;
+      li.append(name);
+      return li;
+    }));
+    // Open the controls for the device being used now (touch, else keyboard); the rest stay folded.
+    const device = touchOn ? 'touch' : 'keyboard';
+    overlays.help.querySelectorAll<HTMLDetailsElement>('details[data-device]').forEach(d => { d.open = d.dataset.device === device; });
+  };
   $('resume').addEventListener('click', resume);
   $('quit').addEventListener('click', toMenu);
   $('toMenu').addEventListener('click', () => { state = null; clearGame(); toMenu(); });
@@ -603,6 +639,9 @@ async function main() {
     } else if ((dir === 'left' || dir === 'right') && el instanceof HTMLSelectElement) {
       el.selectedIndex = Math.max(0, Math.min(el.options.length - 1, el.selectedIndex + (dir === 'left' ? -1 : 1)));
       el.dispatchEvent(new Event('input', { bubbles: true }));
+    } else if (mode === 'help' && (dir === 'up' || dir === 'down')) {
+      // How to play is mostly reading: up and down scroll the page, left and right move between buttons.
+      overlays.help.scrollBy({ top: (dir === 'up' ? -0.4 : 0.4) * overlays.help.clientHeight, behavior: 'smooth' });
     } else {
       const next = list[(i + (dir === 'up' || dir === 'left' ? -1 : 1) + list.length) % list.length];
       next?.focus();
@@ -645,7 +684,7 @@ async function main() {
     if (leavers.length) leavers = leavers.filter(l => now - l.t0 < LEAVE_MS);
     if (sweep && now - sweep.t0 >= SWEEP_MS) sweep = null;
     if (arrivals.size && [...arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) arrivals = new Map();
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, arrivals, hidden: mode === 'paused', bugExit: settings.exit || undefined, sweep });
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, arrivals, hidden: mode === 'paused' || (mode === 'help' && helpFrom === 'paused'), bugExit: settings.exit || undefined, sweep });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
