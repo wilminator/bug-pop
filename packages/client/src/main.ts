@@ -5,7 +5,7 @@ import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, SLO_MO, SLO_MO_COL
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
-import { computeLayout, LEAVE_MS, ARRIVE_MS, SWEEP_MS, diagram, render, thumbnail, type Layout, type Leaver, type Sweep } from './render';
+import { computeLayout, LEAVE_MS, ARRIVE_MS, SWEEP_MS, FLOAT_MS, diagram, render, thumbnail, type Layout, type Leaver, type Sweep, type Float } from './render';
 import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
 import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
@@ -92,6 +92,7 @@ async function main() {
   let arrivals = new Map<number, number>();
   let matchedBugs: Leaver[] = [];
   let sweep: Sweep | null = null; // a clean sweep being celebrated
+  let floats: Float[] = []; // chain-bonus numbers rising off the board
   const canvas = $<HTMLCanvasElement>('board');
   const ctx = canvas.getContext('2d')!;
   const touchBar = $('touch');
@@ -328,6 +329,7 @@ async function main() {
     pendingActions = [];
     arrivals = new Map();
     sweep = null;
+    floats = [];
     saveGame(state);
     upload(); // the new game replaces the old save everywhere
     showHint();
@@ -587,6 +589,13 @@ async function main() {
         }
         case 'cleared': {
           const now = performance.now();
+          // x2 and up: the chain bonus floats up from the middle of the popped bugs, bigger as it grows.
+          const popped = matchedBugs.filter(l => l.kind === 'bug');
+          if (e.chainBonus >= 2 && popped.length) {
+            const x = popped.reduce((a, l) => a + l.x, 0) / popped.length;
+            const y = popped.reduce((a, l) => a + l.y, 0) / popped.length;
+            floats.push({ text: `×${e.chainBonus}`, x, y, t0: now, size: 0.7 + Math.log2(e.chainBonus) * 0.12 });
+          }
           leavers.push(...matchedBugs.map(l => ({ ...l, t0: now })));
           matchedBugs = [];
           save();
@@ -683,8 +692,9 @@ async function main() {
     }
     if (leavers.length) leavers = leavers.filter(l => now - l.t0 < LEAVE_MS);
     if (sweep && now - sweep.t0 >= SWEEP_MS) sweep = null;
+    if (floats.length) floats = floats.filter(f => now - f.t0 < FLOAT_MS);
     if (arrivals.size && [...arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) arrivals = new Map();
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, arrivals, hidden: mode === 'paused' || (mode === 'help' && helpFrom === 'paused'), bugExit: settings.exit || undefined, sweep });
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, arrivals, hidden: mode === 'paused' || (mode === 'help' && helpFrom === 'paused'), bugExit: settings.exit || undefined, sweep, floats });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);

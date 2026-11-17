@@ -231,10 +231,12 @@ describe('play', () => {
   it('both bonuses: the chain bonus doubles per bug of one piece, the running multiplier adds 0.2 per bug and loses 0.1 per piece', () => {
     const s = twoBugs();
     expect(scoreMultiplier(s)).toBe(1);
-    for (let i = 0; i < 400 && s.piecesSpawned < 2; i++) step(s);
+    const clears: Extract<GameEvent, { type: 'cleared' }>[] = [];
+    for (let i = 0; i < 400 && s.piecesSpawned < 2; i++) for (const e of step(s)) if (e.type === 'cleared') clears.push(e);
     // Medium (x2): 1st bug 100 x1 chain x1.0 x2 = 200; 2nd 100 x2 chain x1.2 x2 = 480.
     // Then x1.4, and the new piece makes it x1.3.
     expect(s.score).toBe(680);
+    expect(clears.map(e => e.chainBonus)).toEqual([2]); // two bugs in one clear: the 2nd scored at x2
     expect(scoreMultiplier(s)).toBeCloseTo(1.3);
     for (let n = 0; n < 5; n++) { // let five more pieces fall without popping anything
       const before = s.piecesSpawned;

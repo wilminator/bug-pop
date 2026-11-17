@@ -108,7 +108,8 @@ export type GameEvent =
   | { type: 'lock' }
   | { type: 'fall' } // loose halves dropped one row
   | { type: 'match'; cells: number[]; bugs: number; chain: number }
-  | { type: 'cleared'; bugs: number }
+  /** chainBonus: the doubling the last bug of this clear scored at (x1, x2 ... x32), 1 if no bugs. */
+  | { type: 'cleared'; bugs: number; chainBonus: number }
   | { type: 'won' }
   /** The level's (or Endless round's) last bug went with no piece halves left on the board. */
   | { type: 'cleanSweep'; bonus: number }

@@ -11,6 +11,10 @@ export const LEAVE_MS = 1100;
 /** Endless: how long one arriving bug takes to crawl in from the side of the board. */
 export const ARRIVE_MS = 700;
 
+/** A chain-bonus number ("x16") rising from where bugs popped. x, y are board cells. */
+export type Float = { text: string; x: number; y: number; t0: number; size: number };
+export const FLOAT_MS = 1000;
+
 /** How long the clean-sweep banner and fireworks last. */
 export const SWEEP_MS = 2600;
 /** A clean sweep being celebrated: when it happened and the bonus it scored. */
@@ -28,6 +32,8 @@ export type RenderOptions = {
   arrivals?: Map<number, number>;
   /** Player's choice of exit effect for bugs; overrides the skin's when set. */
   bugExit?: ExitStyle;
+  /** Chain-bonus numbers drifting up off the board. */
+  floats?: Float[];
   /** A clean sweep to celebrate over the board (banner and fireworks). */
   sweep?: Sweep | null;
 };
@@ -297,6 +303,29 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
       }
     }
     ctx.globalAlpha = 1;
+  }
+
+  // Chain-bonus numbers: rise about two cells and fade out, gold with a dark outline.
+  for (const f of opt.floats ?? []) {
+    const p = (opt.time - f.t0) / FLOAT_MS;
+    if (p < 0 || p >= 1) continue;
+    const rise = opt.reducedMotion ? 0 : c * 2 * (1 - (1 - p) * (1 - p));
+    const pop = opt.reducedMotion ? 1 : p < 0.15 ? 0.6 + (p / 0.15) * 0.5 : p < 0.25 ? 1.1 - ((p - 0.15) / 0.1) * 0.1 : 1;
+    const fx = Math.min(Math.max(bx + (f.x + 0.5) * c, bx + c), bx + c * (W - 1));
+    ctx.save();
+    ctx.globalAlpha = p < 0.6 ? 1 : 1 - (p - 0.6) / 0.4;
+    ctx.translate(fx, by + (f.y + 0.5) * c - rise);
+    ctx.scale(pop, pop);
+    ctx.font = `800 ${Math.round(c * f.size)}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = c * 0.12;
+    ctx.strokeStyle = '#3a1d00';
+    ctx.strokeText(f.text, 0, 0);
+    ctx.fillStyle = '#ffb703';
+    ctx.fillText(f.text, 0, 0);
+    ctx.restore();
   }
 
   if (opt.sweep && opt.time - opt.sweep.t0 < SWEEP_MS) drawSweep(ctx, skin, layout, opt.sweep, opt.time, opt.reducedMotion);

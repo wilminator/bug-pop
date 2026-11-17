@@ -300,7 +300,7 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       s.clearing = [];
       s.bugsLeft -= bugs;
       scoreBugs(s, bugs);
-      events.push({ type: 'cleared', bugs });
+      events.push({ type: 'cleared', bugs, chainBonus: bugs ? 2 ** Math.min(s.dropBugs - 1, 5) : 1 });
       // In Endless the board carries on: the next round starts once things settle (see resolve).
       if (s.bugsLeft <= 0 && !isEndless(currentLevel(s))) {
         checkCleanSweep(s, events); // the game stops here, so loose halves still in the air count as left over
