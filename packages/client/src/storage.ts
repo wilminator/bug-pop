@@ -22,9 +22,11 @@ export type Settings = {
   look: 'site' | 'test';
   /** After clearing a level, start the next one by itself. */
   autoNext: boolean;
+  /** Which on-screen button row touch players see (see layouts.ts). */
+  touchLayout: 'edges' | 'four' | 'original';
 };
 
-export const defaultSettings: Settings = { level: 0, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site', autoNext: false };
+export const defaultSettings: Settings = { level: 0, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site', autoNext: false, touchLayout: 'edges' };
 
 function read(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }

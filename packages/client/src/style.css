@@ -40,6 +40,9 @@ body {
   touch-action: none;
 }
 .touch[hidden] { display: none; }
+/* The menu's preview of the chosen button row: same look, smaller, not clickable. */
+.touch.preview { padding: 0; gap: 6px; pointer-events: none; }
+.touch.preview button { height: 40px; font-size: 18px; border-radius: 10px; }
 .touch button {
   height: 64px;
   min-width: 0;

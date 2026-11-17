@@ -28,13 +28,7 @@
       </div>
     </div>
 
-    <div id="touch" class="touch" hidden>
-      <button data-input="left" aria-label="Move left">◀</button>
-      <button data-input="rotCCW" aria-label="Turn left">⟲</button>
-      <button data-input="down" aria-label="Drop faster">▼</button>
-      <button data-input="rotCW" aria-label="Turn right">⟳</button>
-      <button data-input="right" aria-label="Move right">▶</button>
-    </div>
+    <div id="touch" class="touch" hidden><!-- buttons come from src/layouts.ts --></div>
 
     <section id="menu" class="overlay" hidden>
       <div class="card">
@@ -56,6 +50,10 @@
           <label>Bugs leave by
             <select id="exit"><option value="">Skin's choice</option><option value="fly">Flying away</option><option value="fall">Falling off</option><option value="explode">Exploding</option><option value="fade">Fading out</option></select>
           </label>
+          <label>Touch buttons
+            <select id="touchLayout"><option value="edges">Moves on the edges</option><option value="four">Four buttons</option><option value="original">Original</option></select>
+          </label>
+          <div id="layoutPreview" class="touch preview" aria-hidden="true"></div>
           <label class="check"><input type="checkbox" id="autoNext" /> Go to the next level automatically</label>
           <label class="check"><input type="checkbox" id="shapes" /> Shapes on pieces</label>
           <label class="check"><input type="checkbox" id="sound" /> Sound effects</label>
@@ -67,7 +65,7 @@
           <p><b>Keyboard:</b> ← → move, ↓ drop faster, ↑ or X turn right, Z turn left, Esc or P pause.</p>
           <p><b>Mouse:</b> the piece follows the pointer. Left click or wheel turns, hold right button to drop.</p>
           <p><b>Gamepad or joystick:</b> d-pad or stick moves and drops, A / Y turn right, B / X turn left, Start pauses.</p>
-          <p><b>Touch:</b> buttons under the board: ◀ ⟲ ▼ ⟳ ▶ (move left, turn left, drop, turn right, move right); Pause is at the top. Or drag on the board to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left.</p>
+          <p><b>Touch:</b> the buttons under the board (pick a layout under Touch buttons). Or drag on the board to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left.</p>
         </details>
         <p class="fine">Your game saves every time a piece lands and whenever you switch apps. Signed in, it follows you to your other devices.</p>
       </div>

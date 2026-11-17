@@ -8,6 +8,7 @@ import { InputManager, type InputFrame, type Nav } from './input';
 import { computeLayout, LEAVE_MS, render, thumbnail, type Layout, type Leaver } from './render';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
 import { inSeason, loadSprites, testSkin, type Skin } from './skin';
+import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings } from './storage';
 
@@ -96,11 +97,19 @@ async function main() {
   const topBar = $('topBar');
   let touchOn = false;
   // The pause button only shows during play; menus have their own buttons.
-  const showTouch = (on: boolean) => { touchOn = on; touchBar.hidden = !on; topBar.hidden = !(on && mode === 'playing'); };
+  const pauseOnTop = () => LAYOUTS[settings.touchLayout].pauseOnTop;
+  const showTouch = (on: boolean) => { touchOn = on; touchBar.hidden = !on; topBar.hidden = !(on && mode === 'playing' && pauseOnTop()); };
+  // Build the button row from the chosen layout. New buttons need their input handlers again.
+  if (!isLayout(settings.touchLayout)) settings.touchLayout = 'edges';
+  const applyLayout = () => {
+    renderButtons(touchBar, settings.touchLayout);
+    input.attachTouchButtons(touchBar);
+    renderPreview($('layoutPreview'), settings.touchLayout);
+  };
   showTouch(matchMedia('(pointer: coarse)').matches);
   input.onDevice = kind => { if (kind === 'touch') showTouch(true); else if (kind === 'keyboard' || kind === 'gamepad') showTouch(false); };
   window.addEventListener('touchstart', () => showTouch(true), { passive: true });
-  input.attachTouchButtons(touchBar);
+  applyLayout();
   input.attachTouchButtons(topBar);
   input.attachSwipe(canvas, () => layout.cell);
 
@@ -151,7 +160,7 @@ async function main() {
     overlays.menu.hidden = m !== 'menu';
     overlays.offer.hidden = m !== 'offer';
     overlays.update.hidden = m !== 'update';
-    topBar.hidden = !(touchOn && m === 'playing');
+    topBar.hidden = !(touchOn && m === 'playing' && pauseOnTop());
     overlays.paused.hidden = m !== 'paused';
     overlays.result.hidden = m !== 'result';
     input.capture = m === 'playing';
@@ -168,6 +177,7 @@ async function main() {
   const speed = $<HTMLSelectElement>('speed'), colors = $<HTMLSelectElement>('colors');
   const exitSel = $<HTMLSelectElement>('exit');
   const autoNext = $<HTMLInputElement>('autoNext');
+  const touchLayoutSel = $<HTMLSelectElement>('touchLayout');
   const shapes = $<HTMLInputElement>('shapes'), sound = $<HTMLInputElement>('sound'), music = $<HTMLInputElement>('music');
   const fillForm = () => {
     level.value = String(settings.level);
@@ -176,6 +186,7 @@ async function main() {
     colors.value = String(settings.colors);
     shapes.checked = settings.shapesOnPieces;
     autoNext.checked = settings.autoNext;
+    touchLayoutSel.value = settings.touchLayout;
     sound.checked = settings.sound;
     music.checked = settings.music;
     exitSel.value = settings.exit;
@@ -191,7 +202,9 @@ async function main() {
       exit: exitSel.value as Settings['exit'],
       look: settings.look,
       autoNext: autoNext.checked,
+      touchLayout: isLayout(touchLayoutSel.value) ? touchLayoutSel.value : 'edges',
     };
+    if (touchBar.dataset.layout !== settings.touchLayout) applyLayout();
     levelOut.value = level.value;
     audio.soundOn = settings.sound;
     audio.musicOn = settings.music;
