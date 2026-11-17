@@ -42,6 +42,12 @@ export type Skin = {
    * `inside` in the skin's grid color, so a soft or translucent grid color suits art.
    */
   board?: { inside?: string; frame?: string; frameWidth?: number };
+  /**
+   * Optional picture behind the title page. It is stretched to fill the whole screen
+   * (not cropped), so draw it as an SVG that lays itself out to any size (no viewBox).
+   * Without it the title page keeps the plain dimmed backdrop.
+   */
+  title?: { background?: string };
   /** Milliseconds per animation frame for bugAlt (default 400). */
   frameMs?: number;
   /** Who may pick this skin. Absent = everyone. */

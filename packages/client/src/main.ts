@@ -59,6 +59,7 @@ async function loadSkin(cfg: SiteConfig): Promise<Skin> {
     if (skin.titleMusic) skin.titleMusic = rel(skin.titleMusic);
     if (skin.board?.inside) skin.board.inside = rel(skin.board.inside);
     if (skin.board?.frame) skin.board.frame = rel(skin.board.frame);
+    if (skin.title?.background) skin.title.background = rel(skin.title.background);
     if (skin.sprites) {
       skin.sprites.bug = skin.sprites.bug.map(rel);
       skin.sprites.half = skin.sprites.half.map(rel);
@@ -177,6 +178,11 @@ async function main() {
 
   // ---- Screens ----
   const overlays = { title: $('title'), menu: $('menu'), offer: $('offer'), update: $('update'), paused: $('paused'), result: $('result') };
+  // A skin may paint its own picture behind the title page (CSS: #title.has-art).
+  if (skin.title?.background) {
+    overlays.title.style.setProperty('--title-bg', `url(${JSON.stringify(skin.title.background)})`);
+    overlays.title.classList.add('has-art');
+  }
   const show = (m: Mode) => {
     mode = m;
     audio.title(titleScreens.includes(m));

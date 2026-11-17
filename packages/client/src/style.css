@@ -75,6 +75,8 @@ body {
   overflow-y: auto;
 }
 .overlay[hidden] { display: none; }
+/* A skin's title picture replaces the dimmed backdrop and is stretched to the whole screen. */
+#title.has-art { background: var(--title-bg) center / 100% 100% no-repeat; }
 
 .card {
   width: min(420px, 100%);
