@@ -127,7 +127,14 @@ async function main() {
   // With touch, the layout decides whether Pause sits on top or in the button row. With a keyboard,
   // mouse or gamepad there is no button row, so Pause always sits on top (Esc / P still work).
   const pauseShownOnTop = () => mode === 'playing' && (!touchOn || pauseOnTop());
-  const showTouch = (on: boolean) => { touchOn = on; touchBar.hidden = !on; topBar.hidden = !pauseShownOnTop(); };
+  // While a game is on screen the bar keeps its space even when Pause can't be used (the pause
+  // before the result card, the card itself), so the board doesn't jump when it disappears.
+  const gameOnScreen = () => mode === 'playing' || mode === 'ending' || mode === 'result' || mode === 'paused';
+  const updateTopBar = () => {
+    topBar.hidden = !(gameOnScreen() && (!touchOn || pauseOnTop()));
+    topBar.classList.toggle('idle', !pauseShownOnTop());
+  };
+  const showTouch = (on: boolean) => { touchOn = on; touchBar.hidden = !on; updateTopBar(); };
   // Build the button row from the chosen layout. New buttons need their input handlers again.
   if (!isLayout(settings.touchLayout)) settings.touchLayout = 'edges';
   const applyLayout = () => {
@@ -204,7 +211,7 @@ async function main() {
     overlays.offer.hidden = m !== 'offer';
     overlays.choose.hidden = m !== 'choose';
     overlays.update.hidden = m !== 'update';
-    topBar.hidden = !pauseShownOnTop();
+    updateTopBar();
     overlays.paused.hidden = m !== 'paused';
     overlays.result.hidden = m !== 'result';
     input.capture = m === 'playing';
