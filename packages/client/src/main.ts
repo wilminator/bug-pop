@@ -335,6 +335,13 @@ async function main() {
     show('update');
     await new Promise<void>(res => { keepPlaying = () => { decline(); show(back); res(); }; });
   };
+  // The menus check too: a phone app left open for days would otherwise only learn of an update
+  // when a game starts. Declining ("Keep playing this version") stops the nagging for that version.
+  const menuModes: Mode[] = ['title', 'menu', 'setup'];
+  const checkUpdateInMenus = async () => {
+    if (!menuModes.includes(mode) || !(await shouldOffer()) || !menuModes.includes(mode)) return;
+    await updateGate();
+  };
   $('updateLater').addEventListener('click', () => keepPlaying?.());
   $('updateNow').addEventListener('click', () => {
     if (unfinished(state)) { saveGame(state); upload(); } // reopens paused, right where it was
@@ -408,7 +415,7 @@ async function main() {
   $('offerNew').addEventListener('click', () => newGame());
 
   // ---- Title page: the first screen on a fresh start ----
-  $('play').addEventListener('click', () => { audio.unlock(); audio.play('select'); show('menu'); });
+  $('play').addEventListener('click', () => { audio.unlock(); audio.play('select'); show('menu'); void checkUpdateInMenus(); });
   if (cfg.privacy) { const a = $<HTMLAnchorElement>('privacyLink'); a.href = cfg.privacy; a.hidden = false; }
   if (cfg.terms) { const a = $<HTMLAnchorElement>('termsLink'); a.href = cfg.terms; a.hidden = false; }
   // Account box: Sign in when the server says we're signed out; name and Sign out when signed in.
@@ -542,7 +549,7 @@ async function main() {
 
   // ---- Leaving the app: pause and save at once (iOS may kill us next) ----
   // Sound is frozen whenever the page is hidden, on menus and the title screen too.
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); save(); audio.suspend(); } else audio.wake(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); save(); audio.suspend(); } else { audio.wake(); void checkUpdateInMenus(); } });
   window.addEventListener('pagehide', () => { pause(); save(); audio.suspend(); });
   window.addEventListener('pageshow', () => { if (!document.hidden) audio.wake(); });
   document.addEventListener('freeze', () => { pause(); save(); audio.suspend(); });
@@ -668,6 +675,7 @@ async function main() {
   } else {
     state = null;
     show('title');
+    void checkUpdateInMenus();
   }
 
   if ('serviceWorker' in navigator && import.meta.env.PROD) {
