@@ -85,3 +85,40 @@ export function saveSettings(s: Settings) {
 export function requestPersistence() {
   navigator.storage?.persist?.().catch(() => undefined);
 }
+
+// ---- Progress: the highest level beaten at each speed (Low, Medium, High) ----
+// Kept apart from the game save, so finishing or abandoning a game never loses it.
+// localStorage writes are synchronous, so it survives the app being killed right after.
+const PROGRESS_KEY = 'bugpop.progress.v1';
+/** Levels anyone may start on, before beating anything. */
+export const OPEN_LEVELS = 20;
+/** beaten[speed] is the highest level cleared at that speed, or -1 for none. */
+export type Progress = { beaten: [number, number, number] };
+
+export function loadProgress(): Progress {
+  try {
+    const p = JSON.parse(read(PROGRESS_KEY) ?? 'null') as Progress | null;
+    if (p && Array.isArray(p.beaten) && p.beaten.length === 3 && p.beaten.every(n => Number.isInteger(n))) return p;
+  } catch { /* damaged: start over below */ }
+  // First run with progress tracking: credit whatever level an existing saved game reached.
+  const fresh: Progress = { beaten: [-1, -1, -1] };
+  const save = loadGame();
+  if (save) fresh.beaten[save.config.speed] = save.config.level - 1;
+  write(PROGRESS_KEY, JSON.stringify(fresh)); // keep that credit even if the save is later abandoned
+  return fresh;
+}
+
+/** Record a cleared level. Returns the updated progress. */
+export function recordBeaten(speed: Speed, level: number): Progress {
+  const p = loadProgress();
+  if (level > p.beaten[speed]) {
+    p.beaten[speed] = level;
+    write(PROGRESS_KEY, JSON.stringify(p));
+  }
+  return p;
+}
+
+/** The top of the level slider at a speed: the first level not yet beaten, never below OPEN_LEVELS, at most finalLevel. */
+export function sliderMax(p: Progress, speed: Speed, finalLevel: number): number {
+  return Math.min(finalLevel, Math.max(OPEN_LEVELS, p.beaten[speed] + 1));
+}

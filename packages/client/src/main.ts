@@ -1,7 +1,7 @@
 // App shell: menus, the fixed-rate game loop, saving, and wiring input,
 // rendering and sound together.
 
-import { createGame, step, MAX_LEVEL, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
+import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
@@ -10,7 +10,7 @@ import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type Clou
 import { inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
-import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings } from './storage';
+import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings, loadProgress, recordBeaten, sliderMax } from './storage';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
 type Mode = 'title' | 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
@@ -193,9 +193,25 @@ async function main() {
   const autoNext = $<HTMLInputElement>('autoNext');
   const touchLayoutSel = $<HTMLSelectElement>('touchLayout');
   const shapes = $<HTMLInputElement>('shapes'), sound = $<HTMLInputElement>('sound'), music = $<HTMLInputElement>('music');
+  /** "Level 7", or "Endless round 3" past the final level. */
+  const levelName = (l: number) => (isEndless(l) ? `Endless round ${l - FINAL_LEVEL}` : `Level ${l}`);
+  /**
+   * The slider reaches the first level not yet beaten at the chosen speed (0 to 20 are always open).
+   * Once level 100 is beaten at that speed, one more notch past it starts Endless.
+   */
+  const fitSlider = () => {
+    const sp = Number(speed.value) as Settings['speed'];
+    const beaten = loadProgress().beaten[sp];
+    const max = beaten >= FINAL_LEVEL ? FINAL_LEVEL + 1 : sliderMax(loadProgress(), sp, FINAL_LEVEL);
+    level.max = String(max);
+    if (Number(level.value) > max) level.value = String(max);
+    levelOut.value = isEndless(Number(level.value)) ? 'Endless' : level.value;
+  };
   const fillForm = () => {
+    speed.value = String(settings.speed);
+    fitSlider();
     level.value = String(settings.level);
-    levelOut.value = String(settings.level);
+    fitSlider();
     speed.value = String(settings.speed);
     colors.value = String(settings.colors);
     shapes.checked = settings.shapesOnPieces;
@@ -206,6 +222,7 @@ async function main() {
     exitSel.value = settings.exit;
   };
   const readForm = () => {
+    fitSlider(); // the speed may have changed, and with it how far the slider goes
     settings = {
       level: Number(level.value),
       speed: Number(speed.value) as Settings['speed'],
@@ -219,7 +236,6 @@ async function main() {
       touchLayout: isLayout(touchLayoutSel.value) ? touchLayoutSel.value : 'edges',
     };
     if (touchBar.dataset.layout !== settings.touchLayout) applyLayout();
-    levelOut.value = level.value;
     audio.soundOn = settings.sound;
     audio.musicOn = settings.music;
     if (!settings.music) audio.stopMusic();
@@ -296,7 +312,7 @@ async function main() {
     const shot = $('offerShot');
     shot.replaceChildren(thumbnail(s, skin, images, settings.shapesOnPieces));
     const where = loadRecord()?.savedAt === rec.savedAt ? 'on this device' : `on your ${rec.device}`;
-    $('offerText').textContent = `Level ${s.config.level}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
+    $('offerText').textContent = `${levelName(s.config.level)}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
     show('offer');
   };
   const findSave = async (): Promise<SaveRecord | null> => {
@@ -342,6 +358,8 @@ async function main() {
 
   const finish = (won: boolean) => {
     if (!state) return;
+    // Progress first: it is what unlocks the next level on the slider.
+    if (won && !isEndless(state.config.level)) { recordBeaten(state.config.speed, state.config.level); fitSlider(); }
     clearGame();
     if (cloud.signedIn) cloud.remove(); // a finished game is nothing to resume
     audio.stopMusic(); // the music cuts out at the moment it is decided...
@@ -356,18 +374,23 @@ async function main() {
   const showResult = (won: boolean) => {
     if (!state) return;
     audio.play(won ? 'win' : 'lose'); // ...and the jingle arrives with the card
-    $('resultTitle').textContent = won ? 'Cleared!' : 'Game over';
-    $('resultText').textContent = won
-      ? `Level ${state.config.level} cleared. Score ${state.score}.`
-      : `${state.bugsLeft} bugs left on level ${state.config.level}. Score ${state.score}.`;
-    $('nextLevel').hidden = !won || state.config.level >= MAX_LEVEL;
+    const lvl = state.config.level, endless = isEndless(lvl), beatGame = won && lvl === FINAL_LEVEL;
+    $('resultTitle').textContent = beatGame ? 'You beat Bug Pop!' : won ? 'Cleared!' : endless ? 'Endless run over' : 'Game over';
+    $('resultText').textContent = beatGame
+      ? `Level ${FINAL_LEVEL} cleared. Score ${state.score}. Endless mode is now open at this speed.`
+      : won
+        ? `${levelName(lvl)} cleared. Score ${state.score}.`
+        : `${state.bugsLeft} bugs left on ${levelName(lvl).toLowerCase()}. Score ${state.score}.`;
+    $('nextLevel').hidden = !won || lvl >= MAX_LEVEL;
+    $('nextLevel').textContent = beatGame ? 'Play Endless' : endless ? 'Next round' : 'Next level';
     show('result');
     // Auto-advance: a short beat to see "Cleared!", then the next level starts by itself.
+    // Endless always rolls on; beating the game always waits, so the moment isn't skipped.
     // Any button on the result screen still works and cancels it.
-    if (won && settings.autoNext && state.config.level < MAX_LEVEL) {
-      const next = state.config.level + 1;
+    if (won && !beatGame && (settings.autoNext || endless) && lvl < MAX_LEVEL) {
+      const next = lvl + 1;
       const startedFor = state;
-      $('resultText').textContent += ` Level ${next} starts in a moment...`;
+      $('resultText').textContent += ` ${levelName(next)} starts in a moment...`;
       setTimeout(() => {
         // Skip if the player already chose something, or switched away (it would start unseen).
         if (mode === 'result' && state === startedFor && !document.hidden) newGame(next, startedFor.score);

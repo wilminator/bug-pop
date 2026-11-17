@@ -1,6 +1,6 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
-import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, type GameState, type Link } from '@bug-pop/engine';
+import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, isEndless, FINAL_LEVEL, type GameState, type Link } from '@bug-pop/engine';
 import { DEFAULT_EXITS, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
@@ -269,7 +269,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
   const speedName = ['Low', 'Med', 'High'][s.config.speed]!;
   if (layout.portrait) {
     const y = by - c * 2.3;
-    stat('LEVEL', String(s.config.level), bx, y);
+    stat(...levelStat(s), bx, y);
     stat('BUGS', String(s.bugsLeft), bx + c * 2, y);
     stat('SCORE', String(s.score), bx + c * W, y, 'right');
     drawHalf(ctx, skin, s.next.a, 'R', bx + c * 4, y - c * 0.2, c * 0.9, opt.shapesOnPieces, 1, opt.images);
@@ -282,7 +282,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.fillText('NEXT', x, by + c * 0.4);
     drawHalf(ctx, skin, s.next.a, 'R', x, by + c * 0.7, c, opt.shapesOnPieces, 1, opt.images);
     drawHalf(ctx, skin, s.next.b, 'L', x + c, by + c * 0.7, c, opt.shapesOnPieces, 1, opt.images);
-    stat('LEVEL', String(s.config.level), x, by + c * 3.2);
+    stat(...levelStat(s), x, by + c * 3.2);
     stat('SPEED', speedName, x, by + c * 5.2);
     stat('BUGS', String(s.bugsLeft), x, by + c * 7.2);
     stat('SCORE', String(s.score), x, by + c * 9.2);
@@ -306,4 +306,9 @@ export function thumbnail(s: GameState, skin: Skin, images: SpriteImages | null,
   // time 0 and reduced motion give a calm, repeatable picture.
   render(ctx, s, skin, computeLayout(cssW, cssH, 0), { shapesOnPieces, reducedMotion: true, time: 0, images, leavers: [] });
   return canvas;
+}
+
+/** The HUD shows the round number in Endless mode instead of a level past 100. */
+function levelStat(s: GameState): [string, string] {
+  return isEndless(s.config.level) ? ['ENDLESS', String(s.config.level - FINAL_LEVEL)] : ['LEVEL', String(s.config.level)];
 }

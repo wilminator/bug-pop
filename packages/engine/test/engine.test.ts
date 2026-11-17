@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, createGame, gravityInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
 } from '../src';
 
@@ -184,7 +184,18 @@ describe('save and replay', () => {
     expect(l90.config.level).toBe(90);
     expect(l90.bugsLeft).toBe(l20.bugsLeft);
     expect(gravityInterval(l90)).toBeLessThan(gravityInterval(l20));
-    expect(createGame({ ...cfg, level: 500 }).config.level).toBe(99);
+    expect(createGame({ ...cfg, level: 50000 }).config.level).toBe(MAX_LEVEL);
+  });
+
+  it('level 100 is the final level; Endless levels past it keep speeding up to the limit', () => {
+    expect(isEndless(FINAL_LEVEL)).toBe(false);
+    expect(isEndless(FINAL_LEVEL + 1)).toBe(true);
+    const last = createGame({ ...cfg, speed: 0, level: FINAL_LEVEL });
+    const endless = createGame({ ...cfg, speed: 0, level: FINAL_LEVEL + 40 });
+    expect(endless.config.level).toBe(FINAL_LEVEL + 40);
+    expect(endless.bugsLeft).toBe(last.bugsLeft);
+    expect(gravityInterval(endless)).toBeLessThan(gravityInterval(last));
+    expect(gravityInterval(createGame({ ...cfg, level: 5000 }))).toBe(6);
   });
 
   it('a forged log does not reproduce the score', () => {

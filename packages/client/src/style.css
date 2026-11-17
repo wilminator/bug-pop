@@ -106,7 +106,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 
 form { display: grid; gap: 10px; }
 label { display: grid; grid-template-columns: 1fr 1.4fr; align-items: center; gap: 8px; }
-label output { justify-self: end; color: var(--accent); font-weight: 700; grid-column: 1; grid-row: 1; margin-left: 4.5em; }
+label output { color: var(--accent); font-weight: 700; margin-left: 0.3em; }
 label.check { grid-template-columns: auto 1fr; }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
 select { font: inherit; padding: 8px; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--edge); }

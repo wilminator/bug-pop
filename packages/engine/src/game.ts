@@ -26,7 +26,11 @@ const SPAWN_X = 3;
 const BASE_INTERVAL = [40, 25, 15] as const; // ticks per row at low / medium / high
 const MIN_INTERVAL = 6;
 const SPEED_MULTIPLIER = [1, 2, 3] as const;
-export const MAX_LEVEL = 99;
+/** Clearing this level beats the game. */
+export const FINAL_LEVEL = 100;
+/** Levels past FINAL_LEVEL are Endless mode: the board stays full and pieces keep speeding up to the limit. */
+export const MAX_LEVEL = 9999;
+export const isEndless = (level: number) => level > FINAL_LEVEL;
 /** The board is full of bugs by level 20; after that, every 4 levels pieces fall a little faster. */
 const OVERTIME_FROM = 20, OVERTIME_EVERY = 4;
 

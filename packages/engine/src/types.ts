@@ -29,7 +29,7 @@ export type Speed = 0 | 1 | 2;
 
 export type GameConfig = {
   seed: number;
-  level: number; // 0 .. 99 (the menu starts at 0 .. 20; later levels are reached by playing on)
+  level: number; // 0 .. 100 is the game (clearing 100 beats it); 101 and up is Endless
   speed: Speed; // 0 low, 1 medium, 2 high
   colors: number; // 2 .. 5
   /**
