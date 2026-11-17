@@ -31,7 +31,7 @@ export const FINAL_LEVEL = 100;
 /** Levels past FINAL_LEVEL are Endless mode: the board stays full and pieces keep speeding up to the limit. */
 export const MAX_LEVEL = 9999;
 export const isEndless = (level: number) => level > FINAL_LEVEL;
-/** The board is full of bugs by level 20; after that, every 4 levels pieces fall a little faster. */
+/** After level 20, every 4 levels pieces fall a little faster. (The bug count keeps growing until FULL_BOARD_LEVEL.) */
 const OVERTIME_FROM = 20, OVERTIME_EVERY = 4;
 
 export function normalizeConfig(c: GameConfig): GameConfig {

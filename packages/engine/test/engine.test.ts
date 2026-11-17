@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, bugZoneRows, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
 } from '../src';
 
@@ -179,11 +179,17 @@ describe('save and replay', () => {
     expect(replay({ ...next, startScore: 5000 }, live.log, live.tick).score).not.toBe(live.score);
   });
 
-  it('plays on past level 20: same full board, pieces fall a little faster', () => {
-    const l20 = createGame({ ...cfg, level: 20 }), l90 = createGame({ ...cfg, level: 90 });
-    expect(l90.config.level).toBe(90);
-    expect(l90.bugsLeft).toBe(l20.bugsLeft);
-    expect(gravityInterval(l90)).toBeLessThan(gravityInterval(l20));
+  it('bugs grow 4 every 5 levels from 4; level 100 is the first with 84 bugs in 13 rows', () => {
+    expect([0, 4, 5, 10, 60, 99, 100, 120].map(bugCount)).toEqual([4, 4, 8, 12, 52, 80, 84, 84]);
+    expect([99, 100].map(bugZoneRows)).toEqual([13, 13]);
+    expect(FULL_BOARD_LEVEL).toBe(FINAL_LEVEL);
+  });
+
+  it('plays on past the full board: same bug count, pieces fall a little faster', () => {
+    const lFull = createGame({ ...cfg, speed: 0, level: 100 }), l90 = createGame({ ...cfg, speed: 0, level: 140 });
+    expect(l90.config.level).toBe(140);
+    expect(l90.bugsLeft).toBe(lFull.bugsLeft);
+    expect(gravityInterval(l90)).toBeLessThan(gravityInterval(lFull));
     expect(createGame({ ...cfg, level: 50000 }).config.level).toBe(MAX_LEVEL);
   });
 
