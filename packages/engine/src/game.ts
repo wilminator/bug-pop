@@ -235,15 +235,16 @@ const MULT_MIN = 10; // x1.0
 const MULT_GAIN = 2; // +0.2 for every bug popped
 const MULT_DECAY = 1; // -0.1 for every new piece
 
-/** The multiplier the next popped bug will score at (1.0, 1.2, ...); classic scoring shows its doubling. */
+/** The running multiplier (1.0, 1.2, ...); classic scoring has none, so it shows the chain bonus instead. */
 export function scoreMultiplier(s: GameState): number {
   return s.config.classicScoring ? 2 ** Math.min(s.dropBugs, 5) : (s.mult ?? MULT_MIN) / 10;
 }
 
 /**
- * Each bug is worth 100 x the multiplier x the speed multiplier.
- * Running (default): the multiplier climbs 0.2 per bug and carries over from piece to piece.
- * Classic: it doubles for each extra bug cleared by the same piece, capped at x32.
+ * Each bug is worth 100 x chain bonus x running multiplier x speed multiplier (Mike, 2026-11-17).
+ * Chain bonus: doubles for each extra bug cleared by the same piece (x1, x2, x4... capped at x32).
+ * Running multiplier: climbs 0.2 per bug and carries over from piece to piece (see GameState.mult).
+ * Classic scoring keeps only the chain bonus.
  */
 function scoreBugs(s: GameState, bugs: number) {
   for (let i = 0; i < bugs; i++) {
@@ -251,7 +252,8 @@ function scoreBugs(s: GameState, bugs: number) {
       s.score += 100 * 2 ** Math.min(s.dropBugs, 5) * SPEED_MULTIPLIER[s.config.speed];
     } else {
       const m = s.mult ?? MULT_MIN;
-      s.score += 10 * m * SPEED_MULTIPLIER[s.config.speed]; // 100 x (m / 10), whole points at every speed
+      // 100 x chain bonus x (m / 10) x speed: whole points at every speed.
+      s.score += 10 * m * 2 ** Math.min(s.dropBugs, 5) * SPEED_MULTIPLIER[s.config.speed];
       s.mult = m + MULT_GAIN;
     }
     s.dropBugs++;

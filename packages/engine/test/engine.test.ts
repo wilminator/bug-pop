@@ -228,12 +228,13 @@ describe('play', () => {
     return s;
   }
 
-  it('running multiplier: each popped bug scores at it and adds 0.2; each new piece takes 0.1 off', () => {
+  it('both bonuses: the chain bonus doubles per bug of one piece, the running multiplier adds 0.2 per bug and loses 0.1 per piece', () => {
     const s = twoBugs();
     expect(scoreMultiplier(s)).toBe(1);
     for (let i = 0; i < 400 && s.piecesSpawned < 2; i++) step(s);
-    // Medium (x2): 100 x 1.0 x 2 + 100 x 1.2 x 2 = 440; then x1.4, and the new piece makes it x1.3.
-    expect(s.score).toBe(440);
+    // Medium (x2): 1st bug 100 x1 chain x1.0 x2 = 200; 2nd 100 x2 chain x1.2 x2 = 480.
+    // Then x1.4, and the new piece makes it x1.3.
+    expect(s.score).toBe(680);
     expect(scoreMultiplier(s)).toBeCloseTo(1.3);
     for (let n = 0; n < 5; n++) { // let five more pieces fall without popping anything
       const before = s.piecesSpawned;
@@ -243,7 +244,7 @@ describe('play', () => {
     expect(scoreMultiplier(s)).toBe(1); // 1.3 - 0.5, but never below x1.0
   });
 
-  it('classicScoring: doubling for each extra bug from the same piece, reset every piece', () => {
+  it('classicScoring: only the chain bonus, no running multiplier', () => {
     const s = twoBugs({ classicScoring: true });
     for (let i = 0; i < 400 && s.piecesSpawned < 2; i++) step(s);
     expect(s.score).toBe(100 * 2 + 200 * 2); // x1 then x2, at medium
