@@ -45,6 +45,12 @@ export type GameConfig = {
    * level's verified final score.
    */
   startScore?: number;
+  /**
+   * false turns off the clean-sweep bonus (for a future "classic" mode). Absent or
+   * true: clearing a level's last bug with no piece halves left on the board scores
+   * a bonus (see cleanSweepBonus).
+   */
+  cleanSweep?: boolean;
 };
 
 /** 'waiting' is the short beat after things land, before the next piece appears. */
@@ -92,6 +98,8 @@ export type GameEvent =
   | { type: 'match'; cells: number[]; bugs: number; chain: number }
   | { type: 'cleared'; bugs: number }
   | { type: 'won' }
+  /** The level's (or Endless round's) last bug went with no piece halves left on the board. */
+  | { type: 'cleanSweep'; bonus: number }
   /** Endless: a round was cleared and the next round's bugs came in (cells), some taking over halves (replaced). */
   | { type: 'arrive'; cells: number[]; replaced: number[]; round: number }
   | { type: 'lost' };

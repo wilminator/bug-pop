@@ -54,6 +54,7 @@ export function normalizeConfig(c: GameConfig): GameConfig {
     speed: speed as GameConfig['speed'],
     colors,
     ...(c.startScore ? { startScore: Math.max(0, Math.floor(c.startScore)) } : {}),
+    ...(c.cleanSweep === false ? { cleanSweep: false } : {}),
   };
 }
 
@@ -199,12 +200,31 @@ function resolve(s: GameState, events: GameEvent[]) {
  * arrive around whatever is on the board, and play goes on with no break.
  */
 function nextRound(s: GameState, events: GameEvent[]) {
+  checkCleanSweep(s, events); // Endless: the board has settled, so this is the sweep check for the round just cleared
   s.round = (s.round ?? 0) + 1;
   const lvl = currentLevel(s);
   const { cells, replaced } = addBugs(s.board, s, bugCount(lvl), s.config.colors, bugZoneRows(lvl));
   s.bugsLeft = cells.length;
   s.phaseTimer = Math.max(s.phaseTimer, ARRIVE_TICKS);
   events.push({ type: 'arrive', cells, replaced, round: s.round });
+}
+
+/** Clean-sweep bonus before the speed multiplier: a base plus a step per level (Endless counts as level 100). */
+export const SWEEP_BASE = 1000;
+export const SWEEP_PER_LEVEL = 100;
+
+/** Points for a clean sweep at this speed and level (Jeanne's idea, 2026-11-17). */
+export function cleanSweepBonus(speed: GameConfig['speed'], level: number): number {
+  return (SWEEP_BASE + SWEEP_PER_LEVEL * Math.min(level, FINAL_LEVEL)) * SPEED_MULTIPLIER[speed];
+}
+
+/** If no piece halves are left on the board, add the clean-sweep bonus (unless the config turns it off). */
+function checkCleanSweep(s: GameState, events: GameEvent[]) {
+  if (s.config.cleanSweep === false) return;
+  if (s.board.some(cell => cell?.t === 'half')) return;
+  const bonus = cleanSweepBonus(s.config.speed, currentLevel(s));
+  s.score += bonus;
+  events.push({ type: 'cleanSweep', bonus });
 }
 
 /** Score doubles for each extra bug cleared by the same piece, capped at x32. */
@@ -258,6 +278,7 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       events.push({ type: 'cleared', bugs });
       // In Endless the board carries on: the next round starts once things settle (see resolve).
       if (s.bugsLeft <= 0 && !isEndless(currentLevel(s))) {
+        checkCleanSweep(s, events); // the game stops here, so loose halves still in the air count as left over
         s.phase = 'won';
         events.push({ type: 'won' });
         break;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
-  removeCells, pieceCells, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
+  removeCells, pieceCells, cleanSweepBonus, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
 const cfg = { seed: 12345, level: 5, speed: 1 as const, colors: 3 };
@@ -182,6 +182,47 @@ describe('play', () => {
     expect(s.phase).toBe('won');
     expect(s.score).toBeGreaterThan(0);
     expect(events.map(e => e.type)).toContain('match');
+    expect(events.map(e => e.type)).not.toContain('cleanSweep'); // the piece's other half is left behind
+  });
+
+  /** Level 0: one bug with one matching half on it, and a same-color piece about to land on top. */
+  function sweepable(extra: Partial<typeof cfg & { cleanSweep: boolean }> = {}) {
+    const s = createGame({ ...cfg, level: 0, ...extra });
+    s.board = emptyBoard();
+    s.board[idx(0, 15)] = { t: 'bug', c: 1 };
+    s.board[idx(0, 14)] = { t: 'half', c: 1, l: null };
+    s.bugsLeft = 1;
+    s.piece = { x: 0, y: 12, rot: 1, a: 1, b: 1 };
+    return s;
+  }
+
+  it('a clean sweep (nothing left on the board) adds a bonus before the win', () => {
+    const s = sweepable();
+    const events: GameEvent[] = [];
+    for (let i = 0; i < 400 && s.phase !== 'won'; i++) events.push(...step(s));
+    const types = events.map(e => e.type);
+    expect(types.indexOf('cleanSweep')).toBeGreaterThan(-1);
+    expect(types.indexOf('cleanSweep')).toBeLessThan(types.indexOf('won'));
+    const sweep = events.find(e => e.type === 'cleanSweep') as Extract<GameEvent, { type: 'cleanSweep' }>;
+    expect(sweep.bonus).toBe(cleanSweepBonus(1, 0));
+    expect(s.score).toBe(100 * 2 + sweep.bonus); // one bug at medium, plus the bonus
+  });
+
+  it('the bonus grows with level and speed, and Endless counts as level 100', () => {
+    expect(cleanSweepBonus(0, 0)).toBe(1000);
+    expect(cleanSweepBonus(1, 20)).toBe(6000);
+    expect(cleanSweepBonus(2, FINAL_LEVEL)).toBe(33000);
+    expect(cleanSweepBonus(SLO_MO, 0)).toBe(500);
+    expect(cleanSweepBonus(0, FINAL_LEVEL + 50)).toBe(cleanSweepBonus(0, FINAL_LEVEL));
+  });
+
+  it('cleanSweep: false (classic rules) turns the bonus off', () => {
+    const s = sweepable({ cleanSweep: false });
+    const events: GameEvent[] = [];
+    for (let i = 0; i < 400 && s.phase !== 'won'; i++) events.push(...step(s));
+    expect(s.phase).toBe('won');
+    expect(events.some(e => e.type === 'cleanSweep')).toBe(false);
+    expect(s.score).toBe(200);
   });
 });
 
@@ -285,6 +326,26 @@ describe('save and replay', () => {
     g.piece = { x: 5, y: 2, rot: 1, a: 1, b: 1 };
     return g;
   }
+
+  it('Endless: a round cleared with no halves left scores the sweep bonus, just before the next bugs arrive', () => {
+    const g = lastBugsEndless();
+    g.board[idx(0, 15)] = null;
+    g.board[idx(1, 15)] = null;
+    const events: GameEvent[] = [];
+    step(g, ['softOn']);
+    for (let i = 0; i < 2000 && !events.some(e => e.type === 'arrive'); i++) events.push(...step(g));
+    const types = events.map(e => e.type);
+    expect(types.indexOf('cleanSweep')).toBe(types.indexOf('arrive') - 1);
+    expect(types.filter(t => t === 'cleanSweep').length).toBe(1);
+  });
+
+  it('Endless: halves left lying around mean no sweep bonus', () => {
+    const g = lastBugsEndless();
+    const events: GameEvent[] = [];
+    step(g, ['softOn']);
+    for (let i = 0; i < 2000 && !events.some(e => e.type === 'arrive'); i++) events.push(...step(g));
+    expect(events.some(e => e.type === 'cleanSweep')).toBe(false);
+  });
 
   it('Endless is continuous: clearing a round brings the next bugs in around the pieces, never matching', () => {
     const g = lastBugsEndless();

@@ -67,7 +67,7 @@ export type SpriteImages = { bug: HTMLImageElement[]; bugAlt: HTMLImageElement[]
 /** How thick the skin's frame is, in cells (0 when it has none). */
 export const frameCells = (skin: Skin) => (skin.board?.frame ? Math.max(0, skin.board.frameWidth ?? 0.35) : 0);
 
-export type SoundName = 'move' | 'rotate' | 'lock' | 'fall' | 'pop' | 'chain' | 'win' | 'lose' | 'select' | 'pause';
+export type SoundName = 'move' | 'rotate' | 'lock' | 'fall' | 'pop' | 'chain' | 'win' | 'lose' | 'select' | 'pause' | 'sweep';
 
 /**
  * The test skin: plain shapes on a dark board. The palette is Okabe-Ito,

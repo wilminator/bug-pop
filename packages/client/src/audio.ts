@@ -18,6 +18,8 @@ const GENERATED: Record<SoundName, Blip> = {
   lose: { wave: 'triangle', from: 0, to: 0, dur: 0.18, vol: 0.18, notes: [392, 330, 262, 196] },
   select: { wave: 'square', from: 880, to: 880, dur: 0.05, vol: 0.05 },
   pause: { wave: 'triangle', from: 660, to: 440, dur: 0.1, vol: 0.12 },
+  // Clean sweep: a quick rising fanfare, a step brighter than the win jingle.
+  sweep: { wave: 'triangle', from: 0, to: 0, dur: 0.09, vol: 0.16, notes: [784, 988, 1175, 1568, 1976] },
 };
 
 export class AudioManager {

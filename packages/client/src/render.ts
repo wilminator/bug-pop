@@ -11,6 +11,11 @@ export const LEAVE_MS = 1100;
 /** Endless: how long one arriving bug takes to crawl in from the side of the board. */
 export const ARRIVE_MS = 700;
 
+/** How long the clean-sweep banner and fireworks last. */
+export const SWEEP_MS = 2600;
+/** A clean sweep being celebrated: when it happened and the bonus it scored. */
+export type Sweep = { t0: number; bonus: number };
+
 export type RenderOptions = {
   shapesOnPieces: boolean;
   reducedMotion: boolean;
@@ -23,6 +28,8 @@ export type RenderOptions = {
   arrivals?: Map<number, number>;
   /** Player's choice of exit effect for bugs; overrides the skin's when set. */
   bugExit?: ExitStyle;
+  /** A clean sweep to celebrate over the board (banner and fireworks). */
+  sweep?: Sweep | null;
 };
 
 const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
@@ -292,6 +299,8 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.globalAlpha = 1;
   }
 
+  if (opt.sweep && opt.time - opt.sweep.t0 < SWEEP_MS) drawSweep(ctx, skin, layout, opt.sweep, opt.time, opt.reducedMotion);
+
   // Side panel: next piece and stats.
   const font = (px: number, weight = 600) => `${weight} ${Math.round(px)}px system-ui, -apple-system, Segoe UI, sans-serif`;
   const stat = (label: string, value: string, x: number, y: number, align: CanvasTextAlign = 'left') => {
@@ -343,6 +352,117 @@ export function thumbnail(s: GameState, skin: Skin, images: SpriteImages | null,
   // time 0 and reduced motion give a calm, repeatable picture.
   render(ctx, s, skin, computeLayout(cssW, cssH, 0, frameCells(skin)), { shapesOnPieces, reducedMotion: true, time: 0, images, leavers: [] });
   return canvas;
+}
+
+/**
+ * The clean-sweep celebration: fireworks bursting over the empty board in the
+ * skin's piece colors, and a "CLEAN SWEEP!" banner with the bonus that pops in,
+ * holds, and fades. Everything is a function of time, so it needs no state.
+ */
+function drawSweep(ctx: CanvasRenderingContext2D, skin: Skin, layout: Layout, sweep: Sweep, time: number, reducedMotion: boolean) {
+  const { boardX: bx, boardY: by, cell: c } = layout;
+  const t = time - sweep.t0; // ms since the sweep
+  const bw = c * W, bh = c * H;
+  const colors = skin.pieces.map(p => p.color);
+
+  // Fireworks: bursts at fixed spots, one after another. Each spark flies out, droops
+  // under gravity and fades, with a short trail behind it.
+  if (!reducedMotion) {
+    const BURSTS = 7, GAP = 260, LIFE = 1100, SPARKS = 22;
+    for (let b = 0; b < BURSTS; b++) {
+      const age = t - b * GAP;
+      if (age < 0 || age > LIFE) continue;
+      const p = age / LIFE;
+      // Spread bursts over the board above the banner, alternating sides, plus a few below it.
+      const cx = bx + bw * (0.25 + ((b * 0.37 + (b % 2) * 0.3) % 0.5));
+      const cy = by + bh * (b % 3 === 2 ? 0.8 : 0.1 + ((b * 0.29) % 0.3));
+      const color = colors[b % colors.length]!;
+      const radius = c * 2.6 * (1 - (1 - p) * (1 - p)); // fast out, slowing down
+      const drop = c * 1.5 * p * p; // gravity
+      ctx.fillStyle = color;
+      ctx.strokeStyle = color;
+      ctx.lineCap = 'round';
+      for (let k = 0; k < SPARKS; k++) {
+        const ang = (k / SPARKS) * Math.PI * 2 + b;
+        const r = radius * (0.75 + 0.25 * ((k * 7) % 3) / 2);
+        const x = cx + Math.cos(ang) * r, y = cy + Math.sin(ang) * r + drop;
+        ctx.globalAlpha = (1 - p) * (k % 3 === 0 && Math.floor(age / 60) % 2 ? 0.4 : 1); // a little twinkle
+        ctx.lineWidth = c * 0.08;
+        ctx.beginPath();
+        ctx.moveTo(x - Math.cos(ang) * c * 0.4 * (1 - p), y - Math.sin(ang) * c * 0.4 * (1 - p) - c * 0.1 * p);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, c * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // The bright flash at the center as it bursts.
+      if (p < 0.15) {
+        ctx.globalAlpha = 1 - p / 0.15;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(cx, cy, c * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Banner: pops in with a little overshoot, holds, then fades out over the last 0.4 s.
+  const popIn = Math.min(1, t / 350);
+  const scale = reducedMotion ? 1 : popIn < 1 ? 1.25 * Math.sin(popIn * Math.PI * 0.62) / Math.sin(Math.PI * 0.62) : 1;
+  const alpha = Math.min(popIn * 2, 1, (SWEEP_MS - t) / 400);
+  if (alpha <= 0) return;
+  const cx = bx + bw / 2, cy = by + bh * 0.55;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  // A dark ribbon behind the words so they read on any board picture.
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.beginPath();
+  ctx.roundRect(-bw * 0.48, -c * 1.35, bw * 0.96, c * 2.55, c * 0.4);
+  ctx.fill();
+  const fontFor = (px: number) => `800 ${Math.round(px)}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = fontFor(c * 0.95);
+  // Shrink the title if a narrow board can't fit it.
+  const width = ctx.measureText('CLEAN SWEEP!').width;
+  if (width > bw * 0.88) ctx.font = fontFor(c * 0.95 * (bw * 0.88) / width);
+  const gold = ctx.createLinearGradient(0, -c * 0.9, 0, c * 0.1);
+  gold.addColorStop(0, '#fff6b0');
+  gold.addColorStop(1, '#ffb703');
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = c * 0.14;
+  ctx.strokeStyle = '#5a2d00';
+  ctx.strokeText('CLEAN SWEEP!', 0, -c * 0.4);
+  ctx.fillStyle = gold;
+  ctx.fillText('CLEAN SWEEP!', 0, -c * 0.4);
+  ctx.font = fontFor(c * 0.7);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(`+${sweep.bonus.toLocaleString()}`, 0, c * 0.6);
+  // Sparkles twinkling at the ribbon's corners.
+  if (!reducedMotion) {
+    for (const [sx, sy, ph] of [[-bw * 0.44, -c * 1.1, 0], [bw * 0.44, -c * 1.1, 1.3], [-bw * 0.4, c * 0.95, 2.1], [bw * 0.4, c * 0.95, 0.7]] as const) {
+      const k = 0.5 + 0.5 * Math.sin(t / 120 + ph);
+      star(ctx, sx, sy, c * 0.32 * (0.5 + k * 0.5), '#fff6b0');
+    }
+  }
+  ctx.restore();
+}
+
+/** A four-pointed sparkle. */
+function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2 - Math.PI / 2;
+    const rad = i % 2 ? r * 0.28 : r;
+    ctx.lineTo(x + Math.cos(ang) * rad, y + Math.sin(ang) * rad);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 /** The HUD shows the round number in Endless mode instead of a level past 100. */

@@ -5,7 +5,7 @@ import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, SLO_MO, SLO_MO_COL
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
-import { computeLayout, LEAVE_MS, ARRIVE_MS, render, thumbnail, type Layout, type Leaver } from './render';
+import { computeLayout, LEAVE_MS, ARRIVE_MS, SWEEP_MS, render, thumbnail, type Layout, type Leaver, type Sweep } from './render';
 import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
 import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
@@ -36,6 +36,8 @@ const AUTO_NEXT_MS = 2500;
 // silence after it, short enough not to feel stuck. Competitive modes use the same pause
 // before their win/lose card.
 const FINISH_PAUSE_MS = 1800;
+/** After a clean sweep the pause before the card runs this much longer, so the fireworks finish. */
+const SWEEP_EXTRA_MS = 1000;
 
 /** A deployment can drop a config.json next to the page to pick a skin and a server. */
 async function loadConfig(): Promise<SiteConfig> {
@@ -89,6 +91,7 @@ async function main() {
   /** Endless: cells whose new bug is crawling in, and when it set off. */
   let arrivals = new Map<number, number>();
   let matchedBugs: Leaver[] = [];
+  let sweep: Sweep | null = null; // a clean sweep being celebrated
   const canvas = $<HTMLCanvasElement>('board');
   const ctx = canvas.getContext('2d')!;
   const touchBar = $('touch');
@@ -323,6 +326,7 @@ async function main() {
     input.reset(); // a fresh game starts with soft drop off
     pendingActions = [];
     arrivals = new Map();
+    sweep = null;
     saveGame(state);
     upload(); // the new game replaces the old save everywhere
     showHint();
@@ -492,10 +496,12 @@ async function main() {
     audio.stopMusic(); // the music cuts out at the moment it is decided...
     show('ending'); // ...the board stays visible, inputs stop, the last bugs fly off
     const decided = state;
+    // A clean sweep gets its fireworks played out before the card comes up.
+    const pauseMs = sweep && performance.now() - sweep.t0 < SWEEP_MS ? FINISH_PAUSE_MS + SWEEP_EXTRA_MS : FINISH_PAUSE_MS;
     setTimeout(() => {
       if (state !== decided || mode !== 'ending') return;
       showResult(won);
-    }, FINISH_PAUSE_MS);
+    }, pauseMs);
   };
 
   const showResult = (won: boolean) => {
@@ -556,6 +562,13 @@ async function main() {
           arrivals = new Map(e.cells.map((cell, k) => [cell, now + k * gap]));
           audio.play('select');
           save();
+          break;
+        }
+        case 'cleanSweep': {
+          sweep = { t0: performance.now(), bonus: e.bonus };
+          audio.play('sweep');
+          // A pop with each firework burst (they go off every 260 ms; see drawSweep).
+          if (!reducedMotion) for (let k = 1; k < 7; k++) setTimeout(() => audio.play('pop', 0.7 + (k % 3) * 0.2), k * 260);
           break;
         }
         case 'won': finish(true); break;
@@ -630,8 +643,9 @@ async function main() {
       menuInput(input.poll(null));
     }
     if (leavers.length) leavers = leavers.filter(l => now - l.t0 < LEAVE_MS);
+    if (sweep && now - sweep.t0 >= SWEEP_MS) sweep = null;
     if (arrivals.size && [...arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) arrivals = new Map();
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, arrivals, hidden: mode === 'paused', bugExit: settings.exit || undefined });
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, arrivals, hidden: mode === 'paused', bugExit: settings.exit || undefined, sweep });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
