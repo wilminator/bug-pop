@@ -12,7 +12,8 @@ import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type Clou
 import { frameCells, inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
-import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings, loadProgress, recordBeaten, sliderMax } from './storage';
+import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt } from './storage';
+import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
 type Mode = 'title' | 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
@@ -77,6 +78,7 @@ async function main() {
   const cfg = await loadConfig();
   // No server configured (the open-source build): cloud save is simply off.
   const cloud: CloudSave = cfg.api ? httpCloud(cfg.api) : noCloud;
+  const sync: Sync = cfg.api ? httpSync(cfg.api) : noSync;
   const signIn = cloud.check(); // runs while the skin loads
   let account: AccountStatus = { kind: cfg.api ? 'unavailable' : 'off' };
   const accountCheck = fetchAccount(cfg.api).then((a) => { account = a; }); // also runs while the skin loads
@@ -246,7 +248,14 @@ async function main() {
     music.checked = settings.music;
     exitSel.value = settings.exit;
   };
+  /** A signed-in player's game settings go to their account a moment after the last change. */
+  let pushTimer = 0;
+  const pushSettings = () => {
+    clearTimeout(pushTimer);
+    pushTimer = window.setTimeout(() => sync.pushSettings(pickSynced(settings)), 800);
+  };
   const readForm = () => {
+    const before = settings;
     fitSpeeds(); // the color count decides whether Slo-mo is on offer
     fitSlider(); // the speed may have changed, and with it how far the slider goes
     settings = {
@@ -267,6 +276,7 @@ async function main() {
     if (!settings.music) audio.stopMusic();
     audio.title(settings.music && titleScreens.includes(mode));
     saveSettings(settings);
+    if (cloud.signedIn && syncedDiffer(before, settings)) pushSettings();
   };
   $('settings').addEventListener('input', readForm);
   // Changing the look reloads the page; the game in progress is saved first.
@@ -419,7 +429,11 @@ async function main() {
   const finish = (won: boolean) => {
     if (!state) return;
     // Progress first: it is what unlocks the next level on the slider.
-    if (won && !isEndless(state.config.level)) { recordBeaten(state.config.speed, state.config.level); fitSlider(); }
+    if (won && !isEndless(state.config.level)) {
+      const p = recordBeaten(state.config.speed, state.config.level);
+      fitSlider();
+      if (cloud.signedIn) void sync.mergeProgress(p.beaten).then(m => { if (m) { mergeProgress(m); fitSlider(); } });
+    }
     clearGame();
     if (cloud.signedIn) cloud.remove(); // a finished game is nothing to resume
     audio.stopMusic(); // the music cuts out at the moment it is decided...
@@ -564,6 +578,27 @@ async function main() {
   };
   requestAnimationFrame(frame);
 
+  /**
+   * Signed in: take the account's game settings if they changed more recently than this device's
+   * (otherwise send ours up), and merge unlocked levels both ways.
+   */
+  const syncFromAccount = async () => {
+    const remote = await sync.pullSettings();
+    if (remote && remote.updatedAt > settingsChangedAt()) {
+      const next = applySynced(settings, remote.settings);
+      if (syncedDiffer(settings, next)) {
+        saveSettings(next, remote.updatedAt);
+        settings = next;
+        fillForm();
+        readForm(); // applies sound and music; nothing changed, so nothing is sent back
+      }
+    } else if (settingsChangedAt() > 0) {
+      sync.pushSettings(pickSynced(settings));
+    }
+    const merged = await sync.mergeProgress(loadProgress().beaten);
+    if (merged) { mergeProgress(merged); fitSlider(); }
+  };
+
   /** If the account holds a newer game than this device (played elsewhere), offer it. */
   const offerNewerCloud = async (): Promise<boolean> => {
     const local = loadRecord();
@@ -584,6 +619,7 @@ async function main() {
   await signIn;
   await accountCheck;
   showAccount();
+  if (cloud.signedIn) void syncFromAccount(); // in the background: play never waits on it
   mode = 'menu';
   if (await offerNewerCloud()) {
     // showing the offer

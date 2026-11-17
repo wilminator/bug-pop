@@ -6,7 +6,7 @@
 // write the save, so starting one of those can't clobber it.
 //
 // Server API (same origin, cookie session, see bug-pop-server docs/api.md):
-//   GET    /api/me            200 {sub, name} when signed in, else 401
+//   GET    /api/me            200 {sub, name?, supporter, ads, settings} when signed in, else 401
 //   GET    /api/saves/single  200 SaveRecord, or 404 when there is none
 //   PUT    /api/saves/single  body SaveRecord; 204. Last write wins: whoever paused last.
 //   DELETE /api/saves/single  204

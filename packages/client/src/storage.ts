@@ -6,10 +6,13 @@
 import { deserialize, serialize, type GameState, type Speed } from '@bug-pop/engine';
 import type { ExitStyle } from './skin';
 import { deviceName, type SaveRecord } from './cloud';
+import { syncedDiffer } from './sync';
 
 const SAVE_KEY = 'bugpop.save.v1';
 const SAVED_AT_KEY = 'bugpop.save.at.v1';
 const SETTINGS_KEY = 'bugpop.settings.v1';
+/** When the settings that follow a signed-in player last changed on this device (ms). */
+const SETTINGS_AT_KEY = 'bugpop.settings.at.v1';
 
 export type Settings = {
   level: number;
@@ -77,8 +80,15 @@ export function loadSettings(): Settings {
   }
 }
 
-export function saveSettings(s: Settings) {
+/** `at` is when the change was made; settings taken from the account pass the account's time. */
+export function saveSettings(s: Settings, at = Date.now()) {
+  if (syncedDiffer(loadSettings(), s)) write(SETTINGS_AT_KEY, String(at));
   write(SETTINGS_KEY, JSON.stringify(s));
+}
+
+/** When the synced settings last changed on this device; 0 if never. */
+export function settingsChangedAt(): number {
+  return Number(read(SETTINGS_AT_KEY)) || 0;
 }
 
 /** Ask the browser not to evict our storage under pressure (best effort). */
@@ -119,6 +129,18 @@ export function recordBeaten(speed: Speed, level: number): Progress {
     p.beaten[speed] = level;
     write(PROGRESS_KEY, JSON.stringify(p));
   }
+  return p;
+}
+
+/** Fold in unlocked levels from elsewhere (the account), keeping the higher level per speed. */
+export function mergeProgress(other: readonly number[]): Progress {
+  const p = loadProgress();
+  let changed = false;
+  p.beaten.forEach((n, i) => {
+    const o = other[i];
+    if (Number.isInteger(o) && (o as number) > n) { p.beaten[i] = o as number; changed = true; }
+  });
+  if (changed) write(PROGRESS_KEY, JSON.stringify(p));
   return p;
 }
 
