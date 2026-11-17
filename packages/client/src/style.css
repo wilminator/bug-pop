@@ -6,6 +6,13 @@
   --dim: #9aa3b5;
   --accent: #56b4e9;
   color-scheme: dark;
+  /* The phone's "keep out" margins: the status bar, notch or Dynamic Island on top, the home bar
+     at the bottom, and the rounded corners/notch on the sides in landscape. iOS fills these in
+     because index.html asks for viewport-fit=cover; everywhere else they are 0. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 * { box-sizing: border-box; }
@@ -26,7 +33,7 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
 #stage { flex: 1; min-height: 0; position: relative; }
@@ -71,7 +78,13 @@ body {
   display: grid;
   place-items: center;
   background: rgba(10, 12, 16, 0.72);
-  padding: 16px;
+  /* Overlays are position: fixed, so they ignore the body's padding and would slide under the
+     status bar. Keep 16px of breathing room, or the safe margin plus 8px when that is bigger. */
+  padding:
+    max(16px, calc(var(--safe-top) + 8px))
+    max(16px, calc(var(--safe-right) + 8px))
+    max(16px, calc(var(--safe-bottom) + 8px))
+    max(16px, calc(var(--safe-left) + 8px));
   overflow-y: auto;
 }
 .overlay[hidden] { display: none; }
