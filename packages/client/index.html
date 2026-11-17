@@ -30,6 +30,19 @@
 
     <div id="touch" class="touch" hidden><!-- buttons come from src/layouts.ts --></div>
 
+    <section id="title" class="overlay" hidden>
+      <div class="card">
+        <h1>Bug Pop</h1>
+        <p class="tag">Match four of a color to pop the bugs.</p>
+        <!-- Sign-in goes here in step 4a (Wilminator Games accounts). Empty for now. -->
+        <div id="accountSlot" hidden></div>
+        <button id="play" class="primary" data-primary>Play</button>
+        <!-- Ad space: only a deployment's config.json can switch it on (see README). -->
+        <div id="adSlot" class="ad-slot" hidden aria-label="Advertisement"></div>
+        <p class="fine links"><a href="credits.html">Credits</a><a id="privacyLink" hidden>Privacy</a></p>
+      </div>
+    </section>
+
     <section id="menu" class="overlay" hidden>
       <div class="card">
         <h1>Bug Pop</h1>

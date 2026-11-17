@@ -13,8 +13,15 @@ import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings } from './storage';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
-type Mode = 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
-type SiteConfig = { skin?: string; api?: string };
+type Mode = 'title' | 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
+/**
+ * config.json, written by each deployment (the open-source build ships one with just a skin):
+ *   skin     skin.json to load
+ *   api      game server base (turns on cloud save)
+ *   privacy  link for the title page's Privacy link
+ *   ads      { preview: true } shows an outlined, empty ad space on the title page
+ */
+type SiteConfig = { skin?: string; api?: string; privacy?: string; ads?: { preview?: boolean } };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -153,16 +160,17 @@ async function main() {
   // Audio may only start from a user gesture.
   // The menus have their own title music. Browsers only allow sound after the first tap or
   // key press, so it starts then if a menu is showing.
-  const titleScreens: Mode[] = ['menu', 'offer'];
+  const titleScreens: Mode[] = ['title', 'menu', 'offer'];
   const unlock = () => { audio.unlock(); if (titleScreens.includes(mode)) audio.title(true); };
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { menu: $('menu'), offer: $('offer'), update: $('update'), paused: $('paused'), result: $('result') };
+  const overlays = { title: $('title'), menu: $('menu'), offer: $('offer'), update: $('update'), paused: $('paused'), result: $('result') };
   const show = (m: Mode) => {
     mode = m;
     audio.title(titleScreens.includes(m));
+    overlays.title.hidden = m !== 'title';
     overlays.menu.hidden = m !== 'menu';
     overlays.offer.hidden = m !== 'offer';
     overlays.update.hidden = m !== 'update';
@@ -319,6 +327,11 @@ async function main() {
     resume();
   });
   $('offerNew').addEventListener('click', () => newGame());
+
+  // ---- Title page: the first screen on a fresh start ----
+  $('play').addEventListener('click', () => { audio.unlock(); audio.play('select'); show('menu'); });
+  if (cfg.privacy) { const a = $<HTMLAnchorElement>('privacyLink'); a.href = cfg.privacy; a.hidden = false; }
+  if (cfg.ads?.preview) { const slot = $('adSlot'); slot.classList.add('preview'); slot.hidden = false; }
   $('offerBack').addEventListener('click', () => show('menu'));
   $('resume').addEventListener('click', resume);
   $('quit').addEventListener('click', toMenu);
@@ -485,7 +498,7 @@ async function main() {
     pause('Welcome back. Your game is right where you left it.');
   } else {
     state = null;
-    toMenu();
+    show('title');
   }
 
   if ('serviceWorker' in navigator && import.meta.env.PROD) {

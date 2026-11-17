@@ -87,7 +87,7 @@ export const testSkin: Skin = {
     pause: 'audio/sfx/pause.mp3',
   },
   music: ['audio/music/music-upbeat.mp3', 'audio/music/music-calm.mp3'],
-  titleMusic: 'audio/music/music-extra.mp3',
+  titleMusic: 'audio/music/music-title.mp3',
 };
 
 /** Load sprite images (if any). Resolves even if some images fail. */

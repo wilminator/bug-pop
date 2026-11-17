@@ -31,17 +31,18 @@ CC0: https://creativecommons.org/publicdomain/zero/1.0/
 |---|---|---|---|---|---|---|
 | music/music-upbeat.mp3 | Flowerbed Fields [Loop] (`flowerbed_fields.ogg`, 1:46, seamless loop) | Zane Little Music | https://opengameart.org/content/flowerbed-fields-loop | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
 | music/music-calm.mp3 | Honey Bear (`honey-bear-loop.ogg`, 1:20, loop version) | TinyWorlds | https://opengameart.org/content/honey-bear | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None (author asks to be told if you use it: Twitter @tinyworlds) | Yes |
+| music/music-title.mp3 | Catmint (`catmint_in_c_major_looped.ogg`, 2:35, looped version) | kistol | https://opengameart.org/content/catmint | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
 | music/music-extra.mp3 | Insect Factory (Wii-style music) (`insect_factory.wav`, 2:32, trailing silence trimmed) | Zane Little Music | https://opengameart.org/content/insect-factory-wii-style-music | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | None | Yes |
 
 Notes:
-- `music-extra` is the menu (title) music. It is the full album version of the track. It has a proper ending, so it is **not** a seamless loop: it will restart audibly when it repeats. The upbeat and calm tracks are published as loops.
+- `music-title` is the menu (title) music, published as a loop. `music-extra` (currently unused) is the full album version of its track. It has a proper ending, so it is **not** a seamless loop: it will restart audibly when it repeats. The upbeat and calm tracks are published as loops.
 - MP3 encoding adds a few ms of encoder delay and padding. For gapless looping, play the music through Web Audio (`AudioBufferSourceNode.loop = true`, adjusting `loopStart`/`loopEnd` if a click is heard) rather than `<audio loop>`.
 - Music is mastered louder (about -16 LUFS) than the SFX (about -19 to -20 LUFS). Play music at around 0.4 to 0.6 volume in the game.
 - `chain.mp3` is a pitched copy of `pop.mp3`. Higher combo steps can use `playbackRate` on either file.
 
 ### Courtesy credit line
 
-Sound effects and jingles by Kenney (www.kenney.nl), wubitog and Fupi; music by Zane Little Music and TinyWorlds. All CC0, via kenney.nl and OpenGameArt.org.
+Sound effects and jingles by Kenney (www.kenney.nl), wubitog and Fupi; music by kistol, Zane Little Music and TinyWorlds. All CC0, via kenney.nl and OpenGameArt.org.
 
 ## Art
 
