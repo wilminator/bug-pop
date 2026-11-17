@@ -547,7 +547,9 @@ async function main() {
   window.addEventListener('pageshow', () => { if (!document.hidden) audio.wake(); });
   document.addEventListener('freeze', () => { pause(); save(); audio.suspend(); });
   document.addEventListener('resume', () => { if (!document.hidden) audio.wake(); });
-  window.addEventListener('blur', () => pause());
+  // Switching to another app on a computer only blurs the window (it can still be visible), so sound stops then too.
+  window.addEventListener('blur', () => { pause(); audio.suspend(); });
+  window.addEventListener('focus', () => { if (!document.hidden) audio.wake(); });
 
   // ---- Gamepad navigation for menus ----
   const focusables = () => {
