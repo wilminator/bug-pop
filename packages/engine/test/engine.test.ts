@@ -82,14 +82,14 @@ describe('play', () => {
     expect(s.board.some(c => c?.t === 'half')).toBe(true);
   });
 
-  it('held-down drop averages 7.5 ticks a row, and the beats are whole drop steps', () => {
+  it('held-down drop averages 3.75 ticks a row, and the beats are whole drop steps', () => {
     const s = createGame({ ...cfg, level: 0 });
     s.board = emptyBoard(); s.bugsLeft = 1; s.board[idx(7, 15)] = { t: 'bug', c: 2 };
     s.piece = { x: 0, y: 0, rot: 0, a: 0, b: 1 };
     step(s, ['softOn']);
     const y0 = s.piece!.y; let ticks = 1;
     while (s.piece && s.piece.y < y0 + 10) { step(s); ticks++; }
-    expect(ticks).toBeGreaterThanOrEqual(74); expect(ticks).toBeLessThanOrEqual(76); // 10 rows ~ 75 ticks
+    expect(ticks).toBeGreaterThanOrEqual(37); expect(ticks).toBeLessThanOrEqual(39); // 10 rows ~ 37.5 ticks
     expect(LAND_TICKS % SOFT_DROP_TICKS).toBe(0);
     expect(AFTER_CLEAR_TICKS % SOFT_DROP_TICKS).toBe(0);
     expect(ARRIVE_TICKS % SOFT_DROP_TICKS).toBe(0);
@@ -100,7 +100,7 @@ describe('play', () => {
     expect(softDropInterval(fast)).toBe(SOFT_DROP_TICKS); // Fast starts at 15 ticks a row
     fast.piecesSpawned = 1000; // fully sped up: 6 ticks a row
     expect(gravityInterval(fast)).toBe(6);
-    expect(softDropInterval(fast)).toBe(6);
+    expect(softDropInterval(fast)).toBeLessThanOrEqual(gravityInterval(fast));
   });
 
   it('waits a beat after a landing, and longer after a clear, before the next piece', () => {

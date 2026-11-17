@@ -63,7 +63,7 @@ export type GameState = {
   piece: Piece | null;
   next: { a: Color; b: Color };
   soft: boolean; // soft drop held
-  dropTimer: number; // in half-ticks (see SOFT_DROP_TICKS)
+  dropTimer: number; // in quarter-ticks (see SOFT_DROP_TICKS)
   phaseTimer: number;
   clearing: number[]; // board indices being cleared right now
   piecesSpawned: number;

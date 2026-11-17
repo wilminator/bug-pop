@@ -13,14 +13,14 @@ export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
 export const SETTLE_TICKS = 8; // ticks per row while loose halves fall
 /**
- * Ticks per row while "down" is held: 7.5, i.e. 8 rows a second (history: 2, then 2.5; Mike and
- * Jeanne still found that too fast and asked for 3x slower). Half a tick can't happen, so the
- * drop timer counts in half-ticks and alternates 8-tick and 7-tick rows, which averages exactly 7.5.
+ * Ticks per row while "down" is held: 3.75, i.e. 16 rows a second (history: 2, 2.5, 7.5; Mike
+ * found 7.5 too slow and asked for double). A fraction of a tick can't happen, so the drop timer
+ * counts in quarter-ticks and mixes 4-tick and 3-tick rows (4,4,4,3...), averaging exactly 3.75.
  * Holding down never makes a piece slower than its normal fall (see softDropInterval).
  */
-export const SOFT_DROP_TICKS = 7.5;
-const HALF = 2; // drop timer units per tick
-// Beats before the next piece appears. Both are whole soft-drop steps (4 and 10 of them),
+export const SOFT_DROP_TICKS = 3.75;
+const QUARTER = 4; // drop timer units per tick
+// Beats before the next piece appears. Both are whole soft-drop steps (8 and 20 of them),
 // so they line up with the rhythm of a held "down".
 export const LAND_TICKS = 30; // after a piece lands: 0.5 s, past the 1/3 s landing sound
 export const AFTER_CLEAR_TICKS = 75; // after a clear: 1.25 s
@@ -218,10 +218,10 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
 
   switch (s.phase) {
     case 'falling': {
-      s.dropTimer += HALF;
-      const limit = (s.soft ? softDropInterval(s) : gravityInterval(s)) * HALF;
+      s.dropTimer += QUARTER;
+      const limit = (s.soft ? softDropInterval(s) : gravityInterval(s)) * QUARTER;
       if (s.dropTimer >= limit) {
-        s.dropTimer -= limit; // keep the leftover half-tick so 8,7,8,7... averages 7.5
+        s.dropTimer -= limit; // keep the leftover quarter-ticks so 4,4,4,3... averages 3.75
         const p = s.piece!;
         const lower = { ...p, y: p.y + 1 };
         if (fits(s.board, lower)) s.piece = lower;
