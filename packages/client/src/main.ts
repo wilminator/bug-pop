@@ -124,7 +124,10 @@ async function main() {
   let touchOn = false;
   // The pause button only shows during play; menus have their own buttons.
   const pauseOnTop = () => LAYOUTS[settings.touchLayout].pauseOnTop;
-  const showTouch = (on: boolean) => { touchOn = on; touchBar.hidden = !on; topBar.hidden = !(on && mode === 'playing' && pauseOnTop()); };
+  // With touch, the layout decides whether Pause sits on top or in the button row. With a keyboard,
+  // mouse or gamepad there is no button row, so Pause always sits on top (Esc / P still work).
+  const pauseShownOnTop = () => mode === 'playing' && (!touchOn || pauseOnTop());
+  const showTouch = (on: boolean) => { touchOn = on; touchBar.hidden = !on; topBar.hidden = !pauseShownOnTop(); };
   // Build the button row from the chosen layout. New buttons need their input handlers again.
   if (!isLayout(settings.touchLayout)) settings.touchLayout = 'edges';
   const applyLayout = () => {
@@ -200,7 +203,7 @@ async function main() {
     overlays.settings.hidden = m !== 'settings';
     overlays.offer.hidden = m !== 'offer';
     overlays.update.hidden = m !== 'update';
-    topBar.hidden = !(touchOn && m === 'playing' && pauseOnTop());
+    topBar.hidden = !pauseShownOnTop();
     overlays.paused.hidden = m !== 'paused';
     overlays.result.hidden = m !== 'result';
     input.capture = m === 'playing';
@@ -539,8 +542,8 @@ async function main() {
 
   // ---- Leaving the app: pause and save at once (iOS may kill us next) ----
   document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); save(); } });
-  window.addEventListener('pagehide', save);
-  document.addEventListener('freeze', save);
+  window.addEventListener('pagehide', () => { pause(); save(); });
+  document.addEventListener('freeze', () => { pause(); save(); });
   window.addEventListener('blur', () => pause());
 
   // ---- Gamepad navigation for menus ----
@@ -577,8 +580,12 @@ async function main() {
   let last = performance.now();
   let acc = 0;
   const frame = (now: number) => {
-    const dt = Math.min(now - last, 250); // after a stall, don't fast-forward the game
+    const gap = now - last;
+    const dt = Math.min(gap, 250); // after a stall, don't fast-forward the game
     last = now;
+    // Some phone browsers freeze the page without telling it. Frames stopping for over a second
+    // while a game runs means we were in the background: pause so the player comes back to a pause.
+    if (gap > 1000 && mode === 'playing' && !hintUp) pause();
     if (mode === 'playing' && state && !hintUp) {
       acc += dt;
       while (acc >= TICK_MS && mode === 'playing') {

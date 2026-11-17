@@ -176,7 +176,7 @@ export class InputManager {
       btn.addEventListener('pointerdown', e => {
         e.preventDefault();
         btn.setPointerCapture(e.pointerId);
-        this.use('touch');
+        if (e.pointerType !== 'mouse') this.use('touch'); // a mouse click on Pause doesn't make this a touch device
         if (what === 'left' || what === 'right' || what === 'down') this.setHeld(source, what, true);
         else this.press(what);
       });
