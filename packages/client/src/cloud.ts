@@ -29,6 +29,8 @@ export interface CloudSave {
   /** Check the session. Safe to call any time; never throws. */
   check(): Promise<boolean>;
   get(): Promise<SaveRecord | null>;
+  /** Like get, but tells "the account has no save" (null) apart from "couldn't ask" ('unknown'). */
+  lookup(): Promise<SaveRecord | null | 'unknown'>;
   /** Fire-and-forget upload. Uses keepalive so it survives the page being hidden. */
   put(rec: SaveRecord): void;
   remove(): void;
@@ -39,6 +41,7 @@ export const noCloud: CloudSave = {
   signedIn: false,
   check: async () => false,
   get: async () => null,
+  lookup: async () => null,
   put: () => undefined,
   remove: () => undefined,
 };
@@ -62,14 +65,19 @@ export function httpCloud(apiBase: string, timeoutMs = 2500): CloudSave {
       return signedIn;
     },
     async get() {
-      if (!signedIn) return null;
+      const r = await this.lookup();
+      return r === 'unknown' ? null : r;
+    },
+    async lookup() {
+      if (!signedIn) return 'unknown';
       try {
         const res = await timed(`${base}/saves/single`);
-        if (!res.ok) return null;
+        if (res.status === 404) return null;
+        if (!res.ok) return 'unknown';
         const rec = (await res.json()) as SaveRecord;
         return isRecord(rec) ? rec : null;
       } catch {
-        return null;
+        return 'unknown';
       }
     },
     put(rec) {

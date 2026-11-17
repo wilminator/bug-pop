@@ -10,6 +10,8 @@ import { syncedDiffer } from './sync';
 
 const SAVE_KEY = 'bugpop.save.v1';
 const SAVED_AT_KEY = 'bugpop.save.at.v1';
+/** Whose game the local save is: the account's sub, or '' for a game played signed out. */
+const SAVE_OWNER_KEY = 'bugpop.save.owner.v1';
 const SETTINGS_KEY = 'bugpop.settings.v1';
 /** When the settings that follow a signed-in player last changed on this device (ms). */
 const SETTINGS_AT_KEY = 'bugpop.settings.at.v1';
@@ -45,13 +47,38 @@ function write(key: string, value: string | null): boolean {
   }
 }
 
+/** Who is playing on this device right now: an account's sub, or '' when signed out. */
+let player = '';
+export function setPlayer(sub: string | null) { player = sub ?? ''; }
+
 export function saveGame(s: GameState): boolean {
   const json = serialize(s);
   // Only a real change gets a new timestamp. Otherwise a device sitting paused
   // in the background would look "newer" than progress made on another device.
   if (read(SAVE_KEY) === json) return true;
   write(SAVED_AT_KEY, String(Date.now()));
+  write(SAVE_OWNER_KEY, player); // whoever moved the game on owns it
   return write(SAVE_KEY, json);
+}
+
+/** Keep a copy of a cloud save as this device's save, with the cloud's timestamp, owned by `owner`. */
+export function saveRecord(rec: SaveRecord, owner: string): boolean {
+  write(SAVED_AT_KEY, String(rec.savedAt));
+  write(SAVE_OWNER_KEY, owner);
+  return write(SAVE_KEY, rec.state);
+}
+
+/**
+ * Whose game the local save is: an account's sub, '' for one played signed out, or null when
+ * unknown (saved before saves had owners). Only the owner's account may receive it.
+ */
+export function saveOwner(): string | null {
+  return read(SAVE_OWNER_KEY);
+}
+
+/** The player chose to keep this device's game on their account (or there was nothing to clash with). */
+export function adoptSave(sub: string) {
+  if (read(SAVE_KEY)) write(SAVE_OWNER_KEY, sub);
 }
 
 /** The local save as a record, so it can be compared with the cloud copy. */
@@ -70,6 +97,7 @@ export function loadGame(): GameState | null {
 export function clearGame() {
   write(SAVE_KEY, null);
   write(SAVED_AT_KEY, null);
+  write(SAVE_OWNER_KEY, null);
 }
 
 export function loadSettings(): Settings {

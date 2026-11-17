@@ -136,6 +136,28 @@
       </div>
     </section>
 
+    <!-- Signed in with a game from before signing in (or another account) AND a different game on the account: keep one. -->
+    <section id="choose" class="overlay screen art" hidden>
+      <div class="screen-body">
+      <div class="card">
+        <h2>Which game do you want to keep?</h2>
+        <p class="tag">This device and your account each have a game in progress. Keep one; the other is deleted.</p>
+        <div class="choices">
+          <div class="choice">
+            <div id="chooseLocalShot" class="shot"></div>
+            <p id="chooseLocalText" class="tag"></p>
+            <button id="chooseLocal" data-primary>Keep this one</button>
+          </div>
+          <div class="choice">
+            <div id="chooseCloudShot" class="shot"></div>
+            <p id="chooseCloudText" class="tag"></p>
+            <button id="chooseCloud">Keep this one</button>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
     <section id="offer" class="overlay screen art" hidden>
       <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><button class="gear" data-gear>&#9881; Settings</button></nav>
       <div class="screen-body">

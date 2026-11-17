@@ -12,11 +12,11 @@ import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type Clou
 import { frameCells, inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
-import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt } from './storage';
+import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt } from './storage';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
-type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'offer' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
+type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
 /**
  * config.json, written by each deployment (the open-source build ships one with just a skin):
  *   skin     skin.json to load
@@ -182,7 +182,7 @@ async function main() {
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), settings: $('settingsScreen'), offer: $('offer'), update: $('update'), paused: $('paused'), result: $('result') };
+  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), settings: $('settingsScreen'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
   // A skin may paint its own picture behind the title page and the menu screens (CSS: html.has-art).
   if (skin.title?.background) {
     document.documentElement.style.setProperty('--title-bg', `url(${JSON.stringify(skin.title.background)})`);
@@ -202,6 +202,7 @@ async function main() {
     overlays.setup.hidden = m !== 'setup';
     overlays.settings.hidden = m !== 'settings';
     overlays.offer.hidden = m !== 'offer';
+    overlays.choose.hidden = m !== 'choose';
     overlays.update.hidden = m !== 'update';
     topBar.hidden = !pauseShownOnTop();
     overlays.paused.hidden = m !== 'paused';
@@ -215,7 +216,14 @@ async function main() {
 
   const save = () => { if (state && (mode === 'playing' || mode === 'paused')) saveGame(state); };
   /** Single player only: copy the game to the player's account so another device can pick it up. */
-  const upload = () => { if (state && cloud.signedIn) cloud.put(makeRecord(state)); };
+  // Only a game this account owns goes up: a game played before signing in (or by another account)
+  // must never silently replace the account's game. reconcileSaves() settles that first.
+  // The record is the local one, timestamp included, so both copies compare as the same game.
+  const mySub = () => (account.kind === 'signedIn' ? account.me.sub : null);
+  const upload = () => {
+    const sub = mySub(), rec = loadRecord();
+    if (state && rec && cloud.signedIn && sub && saveOwner() === sub) cloud.put(rec);
+  };
 
   // ---- Settings form ----
   const level = $<HTMLInputElement>('level'), levelOut = $<HTMLOutputElement>('levelOut');
@@ -369,7 +377,7 @@ async function main() {
     offered = rec;
     const shot = $('offerShot');
     shot.replaceChildren(thumbnail(s, skin, images, settings.shapesOnPieces));
-    const where = loadRecord()?.savedAt === rec.savedAt ? 'on this device' : `on your ${rec.device}`;
+    const where = loadRecord()?.state === rec.state ? 'on this device' : `on your ${rec.device}`;
     $('offerText').textContent = `${levelName(currentLevel(s))}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
     show('offer');
   };
@@ -384,6 +392,7 @@ async function main() {
   };
   const singlePlayer = async () => {
     audio.unlock();
+    if (await reconcileSaves()) return; // a clash the server was too slow to show at start-up
     readForm();
     await updateGate();
     const rec = await findSave();
@@ -407,7 +416,7 @@ async function main() {
     const s = offered && recordState(offered);
     if (!s) { newGame(); return; }
     state = s;
-    if (offered!.savedAt !== loadRecord()?.savedAt) saveGame(state); // keep a local copy of a cloud save
+    if (offered!.state !== loadRecord()?.state) saveRecord(offered!, mySub() ?? ''); // keep a local copy of a cloud save
     input.reset();
     pendingActions = [];
     resume();
@@ -445,6 +454,7 @@ async function main() {
     btn.disabled = true;
     if (await logout(cfg.api!)) {
       account = { kind: 'signedOut' };
+      setPlayer(null);
       await cloud.check(); // stops cloud uploads; the local save stays on this device
     }
     btn.disabled = false;
@@ -644,12 +654,61 @@ async function main() {
     if (merged) { mergeProgress(merged); fitSlider(); }
   };
 
+  // ---- Signed in with a game that isn't the account's: keep one, never overwrite silently ----
+  const describe = (rec: SaveRecord, s: GameState, where: string) =>
+    `${levelName(currentLevel(s))}, ${s.bugsLeft} bugs left, score ${s.score}. ${where}, saved ${timeAgo(rec.savedAt)}.`;
+  let choice: { local: SaveRecord; remote: SaveRecord } | null = null;
+  /**
+   * This device's game was played signed out (or by another account). If the account has no game
+   * of its own, this one simply becomes the account's. If the account has a different unfinished
+   * game, the player picks which to keep. If the server can't be reached, wait: nothing uploads
+   * until this is settled. Returns true when the choice screen is showing.
+   */
+  const reconcileSaves = async (): Promise<boolean> => {
+    const sub = mySub();
+    const local = loadRecord(), localState = local && recordState(local);
+    if (!sub || !local || saveOwner() === sub) return false;
+    if (!unfinished(localState)) { adoptSave(sub); return false; }
+    const remote = await cloud.lookup();
+    if (remote === 'unknown') return false;
+    const remoteState = remote && recordState(remote);
+    if (!remote || !unfinished(remoteState) || remote.state === local.state) { adoptSave(sub); return false; }
+    if (mode !== 'menu' && mode !== 'setup' && mode !== 'paused') return false;
+    choice = { local, remote };
+    state = null;
+    audio.stopMusic();
+    $('chooseLocalShot').replaceChildren(thumbnail(localState, skin, images, settings.shapesOnPieces, 120));
+    $('chooseCloudShot').replaceChildren(thumbnail(remoteState, skin, images, settings.shapesOnPieces, 120));
+    $('chooseLocalText').textContent = describe(local, localState, 'On this device');
+    $('chooseCloudText').textContent = describe(remote, remoteState, `On your account (${remote.device})`);
+    show('choose');
+    return true;
+  };
+  const keep = (rec: SaveRecord) => {
+    const sub = mySub(), s = recordState(rec);
+    if (!choice || !sub || !s) return;
+    audio.play('select');
+    saveRecord(rec, sub);
+    choice = null;
+    state = s;
+    input.reset();
+    pendingActions = [];
+    mode = 'playing';
+    pause('Your game is right where you left it.'); // also uploads: the kept game is the account's now
+  };
+  $('chooseLocal').addEventListener('click', () => choice && keep(choice.local));
+  $('chooseCloud').addEventListener('click', () => choice && keep(choice.remote));
+
   /** If the account holds a newer game than this device (played elsewhere), offer it. */
   const offerNewerCloud = async (): Promise<boolean> => {
+    if (await reconcileSaves()) return true;
+    if (mode === 'choose') return true;
+    const sub = mySub();
+    if (sub && saveOwner() !== sub && loadRecord()) return false; // not settled yet (server unreachable)
     const local = loadRecord();
     const remote = await cloud.get();
     const remoteState = remote && recordState(remote);
-    if (!remote || !unfinished(remoteState) || newest(local, remote) !== remote || remote.savedAt === local?.savedAt) return false;
+    if (!remote || !unfinished(remoteState) || newest(local, remote) !== remote || remote.state === local?.state) return false;
     if (mode !== 'menu' && mode !== 'setup' && mode !== 'paused') return false; // the player started something meanwhile
     state = null;
     audio.stopMusic();
@@ -664,6 +723,7 @@ async function main() {
   // If the player's account holds a newer game from another device, offer that instead.
   await signIn;
   await accountCheck;
+  setPlayer(mySub()); // new local saves belong to whoever is signed in ('' when signed out)
   showAccount();
   if (cloud.signedIn) void syncFromAccount(); // in the background: play never waits on it
   mode = 'menu';
