@@ -11,11 +11,17 @@ import { ACTIONS, SAVE_VERSION, type Action, type GameConfig, type GameEvent, ty
 export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
 export const SETTLE_TICKS = 8; // ticks per row while loose halves fall
-// Beats before the next piece appears. Both are whole soft-drop steps (SOFT_DROP_TICKS),
+/**
+ * Ticks per row while "down" is held: 2.5, i.e. 24 rows a second (it was 2; Jeanne found that
+ * too fast). Half a tick can't happen, so the drop timer counts in half-ticks and alternates
+ * 3-tick and 2-tick rows, which averages exactly 2.5.
+ */
+export const SOFT_DROP_TICKS = 2.5;
+const HALF = 2; // drop timer units per tick
+// Beats before the next piece appears. Both are whole soft-drop steps (10 and 30 of them),
 // so they line up with the rhythm of a held "down".
-export const LAND_TICKS = 24; // after a piece lands: 0.4 s, just past the 1/3 s landing sound
-export const AFTER_CLEAR_TICKS = 74; // after a clear: about 1.23 s
-export const SOFT_DROP_TICKS = 2; // ticks per row while soft drop is held
+export const LAND_TICKS = 25; // after a piece lands: about 0.42 s, just past the 1/3 s landing sound
+export const AFTER_CLEAR_TICKS = 75; // after a clear: 1.25 s
 const SPAWN_X = 3;
 const BASE_INTERVAL = [40, 25, 15] as const; // ticks per row at low / medium / high
 const MIN_INTERVAL = 6;
@@ -167,9 +173,10 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
 
   switch (s.phase) {
     case 'falling': {
-      s.dropTimer++;
-      if (s.dropTimer >= (s.soft ? SOFT_DROP_TICKS : gravityInterval(s))) {
-        s.dropTimer = 0;
+      s.dropTimer += HALF;
+      const limit = (s.soft ? SOFT_DROP_TICKS : gravityInterval(s)) * HALF;
+      if (s.dropTimer >= limit) {
+        s.dropTimer -= limit; // keep the leftover half-tick so 3,2,3,2... averages 2.5
         const p = s.piece!;
         const lower = { ...p, y: p.y + 1 };
         if (fits(s.board, lower)) s.piece = lower;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, bugCount, createGame, gravityInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, createGame, gravityInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
 } from '../src';
 
@@ -80,6 +80,18 @@ describe('play', () => {
     play(s, 60 * 30);
     expect(s.piecesSpawned).toBeGreaterThan(first);
     expect(s.board.some(c => c?.t === 'half')).toBe(true);
+  });
+
+  it('held-down drop averages 2.5 ticks a row, and the beats are whole drop steps', () => {
+    const s = createGame({ ...cfg, level: 0 });
+    s.board = emptyBoard(); s.bugsLeft = 1; s.board[idx(7, 15)] = { t: 'bug', c: 2 };
+    s.piece = { x: 0, y: 0, rot: 0, a: 0, b: 1 };
+    step(s, ['softOn']);
+    const y0 = s.piece!.y; let ticks = 1;
+    while (s.piece && s.piece.y < y0 + 10) { step(s); ticks++; }
+    expect(ticks).toBeGreaterThanOrEqual(24); expect(ticks).toBeLessThanOrEqual(26); // 10 rows ~ 25 ticks
+    expect(LAND_TICKS % SOFT_DROP_TICKS).toBe(0);
+    expect(AFTER_CLEAR_TICKS % SOFT_DROP_TICKS).toBe(0);
   });
 
   it('waits a beat after a landing, and longer after a clear, before the next piece', () => {
