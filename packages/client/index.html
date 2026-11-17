@@ -34,8 +34,18 @@
       <div class="card">
         <h1>Bug Pop</h1>
         <p class="tag">Match four of a color to pop the bugs.</p>
-        <!-- Sign-in goes here in step 4a (Wilminator Games accounts). Empty for now. -->
-        <div id="accountSlot" hidden></div>
+        <!-- Wilminator Games account. Only shown when the deployment has a game server that answers. -->
+        <div id="accountSlot" class="account" hidden>
+          <div id="signedOut" hidden>
+            <button id="signIn">Sign in</button>
+            <p class="fine">Optional. Signed in, your game follows you to your other devices.</p>
+          </div>
+          <div id="signedIn" class="who" hidden>
+            <span>Signed in<span id="whoName"></span></span>
+            <span id="whoBadge" class="badge" hidden>Supporter</span>
+            <button id="signOut" class="link">Sign out</button>
+          </div>
+        </div>
         <button id="play" class="primary" data-primary>Play</button>
         <!-- Ad space: only a deployment's config.json can switch it on (see README). -->
         <div id="adSlot" class="ad-slot" hidden aria-label="Advertisement"></div>

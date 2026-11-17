@@ -6,6 +6,8 @@ import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
 import { computeLayout, LEAVE_MS, ARRIVE_MS, render, thumbnail, type Layout, type Leaver } from './render';
+import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
+import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
 import { frameCells, inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
@@ -20,9 +22,10 @@ type Mode = 'title' | 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'endi
  *   api      game server base (turns on cloud save)
  *   privacy  link for the title page's Privacy link
  *   terms    link for the title page's Terms link
- *   ads      { preview: true } shows an outlined, empty ad space on the title page
+ *   ads      { preview: true } shows an outlined, empty ad space on the title page;
+ *            { script: "..." } loads the deployment's own ad code (see src/ads.ts)
  */
-type SiteConfig = { skin?: string; api?: string; privacy?: string; terms?: string; ads?: { preview?: boolean } };
+type SiteConfig = { skin?: string; api?: string; privacy?: string; terms?: string; ads?: AdsConfig };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -74,6 +77,8 @@ async function main() {
   // No server configured (the open-source build): cloud save is simply off.
   const cloud: CloudSave = cfg.api ? httpCloud(cfg.api) : noCloud;
   const signIn = cloud.check(); // runs while the skin loads
+  let account: AccountStatus = { kind: cfg.api ? 'unavailable' : 'off' };
+  const accountCheck = fetchAccount(cfg.api).then((a) => { account = a; }); // also runs while the skin loads
   const loaded = await loadSkin(cfg);
   const skin = inSeason(loaded) ? loaded : testSkin;
   const images = await loadSprites(skin);
@@ -354,7 +359,39 @@ async function main() {
   $('play').addEventListener('click', () => { audio.unlock(); audio.play('select'); show('menu'); });
   if (cfg.privacy) { const a = $<HTMLAnchorElement>('privacyLink'); a.href = cfg.privacy; a.hidden = false; }
   if (cfg.terms) { const a = $<HTMLAnchorElement>('termsLink'); a.href = cfg.terms; a.hidden = false; }
-  if (cfg.ads?.preview) { const slot = $('adSlot'); slot.classList.add('preview'); slot.hidden = false; }
+  // Account box: Sign in when the server says we're signed out; name and Sign out when signed in.
+  // Hidden on the open-source build (no server) and whenever the server doesn't answer.
+  const showAccount = () => {
+    $('accountSlot').hidden = account.kind !== 'signedOut' && account.kind !== 'signedIn';
+    $('signedOut').hidden = account.kind !== 'signedOut';
+    $('signedIn').hidden = account.kind !== 'signedIn';
+    if (account.kind === 'signedIn') {
+      const name = shownName(account.me);
+      const who = $('whoName');
+      who.textContent = '';
+      if (name) { const b = document.createElement('b'); b.textContent = name; who.append(' as ', b); }
+      const badge = supporterBadge(account.me);
+      $('whoBadge').hidden = !badge;
+    }
+    // Ads: only on the title page (never during play), and only if this player may see them.
+    void setAdSlot($('adSlot'), cfg.ads, wantsAds(!!cfg.ads, account), personalizedAds(account));
+  };
+  showAccount();
+  $('signIn').addEventListener('click', () => {
+    audio.play('select');
+    // Off to the account site; the server brings the browser back to this page.
+    location.assign(loginUrl(cfg.api!, location.pathname + location.search));
+  });
+  $('signOut').addEventListener('click', async () => {
+    const btn = $<HTMLButtonElement>('signOut');
+    btn.disabled = true;
+    if (await logout(cfg.api!)) {
+      account = { kind: 'signedOut' };
+      await cloud.check(); // stops cloud uploads; the local save stays on this device
+    }
+    btn.disabled = false;
+    showAccount();
+  });
   $('offerBack').addEventListener('click', () => show('menu'));
   $('resume').addEventListener('click', resume);
   $('quit').addEventListener('click', toMenu);
@@ -529,6 +566,8 @@ async function main() {
   // ---- Start: an unfinished game opens paused, right where it was left ----
   // If the player's account holds a newer game from another device, offer that instead.
   await signIn;
+  await accountCheck;
+  showAccount();
   mode = 'menu';
   if (await offerNewerCloud()) {
     // showing the offer

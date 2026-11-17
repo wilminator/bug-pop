@@ -135,6 +135,14 @@ input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent);
 .links { display: flex; justify-content: center; gap: 18px; }
 .links a { color: var(--dim); }
 .links a[hidden] { display: none; }
+/* Account box above Play */
+.account[hidden], .account [hidden] { display: none; }
+.account .fine { margin: 6px 0 0; }
+.account #signIn { width: 100%; }
+.who { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; color: var(--dim); }
+.who b { color: var(--text); }
+.badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--accent); color: #0b1220; }
+button.link { border: none; background: none; padding: 4px; min-height: 0; color: var(--dim); text-decoration: underline; font-size: 14px; }
 /* Reserved ad space (production site only). Fixed height so nothing jumps when an ad loads. */
 .ad-slot { min-height: 100px; border-radius: 10px; display: grid; place-items: center; overflow: hidden; }
 .ad-slot[hidden] { display: none; }

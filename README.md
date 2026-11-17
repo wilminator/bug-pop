@@ -39,6 +39,22 @@ single player also copies the game to their account each time it pauses
 the newest save, with a picture of the board, to resume or start over. Other
 modes never touch it. Without an `api` (this repo's default) cloud save is off.
 
+## Sign-in and ads (deployments with a server only)
+
+With an `api` in `config.json`, the title page asks the server who is signed
+in (`packages/client/src/account.ts`). A Wilminator Games account shows a
+**Sign in** button above Play, or the player's name, a supporter badge and
+**Sign out**. The browser never holds a token: the server runs the sign-in and
+keeps a session cookie. If the server doesn't answer, the box stays hidden and
+the game plays as usual.
+
+This repo has no ad code. A deployment can add `"ads": {"script": "..."}` to
+load its own ad script into the title page's ad space
+(`packages/client/src/ads.ts` describes what that script must do), or
+`"ads": {"preview": true}` for an empty outlined box. Ads appear only on the
+title page, never during play, and signed-in players see them only when their
+account allows it.
+
 ## Skins
 
 A skin is a `skin.json` plus art and sound files. A deployment picks one with a `config.json` beside the page: `{"skin": "skins/code-bugs/skin.json"}`. Skins can animate bugs (two frames), carry a `season` window (holiday skins) and a `tier` (`supporter` skins).
