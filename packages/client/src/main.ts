@@ -16,7 +16,7 @@ import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, save
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
-type Mode = 'title' | 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
+type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'offer' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
 /**
  * config.json, written by each deployment (the open-source build ships one with just a skin):
  *   skin     skin.json to load
@@ -173,23 +173,31 @@ async function main() {
   // Audio may only start from a user gesture.
   // The menus have their own title music. Browsers only allow sound after the first tap or
   // key press, so it starts then if a menu is showing.
-  const titleScreens: Mode[] = ['title', 'menu', 'offer'];
+  const titleScreens: Mode[] = ['title', 'menu', 'setup', 'settings', 'offer'];
   const unlock = () => { audio.unlock(); if (titleScreens.includes(mode)) audio.title(true); };
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { title: $('title'), menu: $('menu'), offer: $('offer'), update: $('update'), paused: $('paused'), result: $('result') };
-  // A skin may paint its own picture behind the title page (CSS: #title.has-art).
+  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), settings: $('settingsScreen'), offer: $('offer'), update: $('update'), paused: $('paused'), result: $('result') };
+  // A skin may paint its own picture behind the title page and the menu screens (CSS: html.has-art).
   if (skin.title?.background) {
-    overlays.title.style.setProperty('--title-bg', `url(${JSON.stringify(skin.title.background)})`);
-    overlays.title.classList.add('has-art');
+    document.documentElement.style.setProperty('--title-bg', `url(${JSON.stringify(skin.title.background)})`);
+    document.documentElement.classList.add('has-art');
   }
+  // Ads show on the title page and on Choose a game only, never elsewhere, and only if this player may see them.
+  const refreshAds = () => {
+    const want = wantsAds(!!cfg.ads, account), personalized = personalizedAds(account);
+    void setAdSlot($('adSlot'), cfg.ads, want && mode === 'title', personalized);
+    void setAdSlot($('menuAdSlot'), cfg.ads, want && mode === 'menu', personalized);
+  };
   const show = (m: Mode) => {
     mode = m;
     audio.title(titleScreens.includes(m));
     overlays.title.hidden = m !== 'title';
     overlays.menu.hidden = m !== 'menu';
+    overlays.setup.hidden = m !== 'setup';
+    overlays.settings.hidden = m !== 'settings';
     overlays.offer.hidden = m !== 'offer';
     overlays.update.hidden = m !== 'update';
     topBar.hidden = !(touchOn && m === 'playing' && pauseOnTop());
@@ -197,7 +205,9 @@ async function main() {
     overlays.result.hidden = m !== 'result';
     input.capture = m === 'playing';
     const visible = Object.values(overlays).find(o => !o.hidden);
-    visible?.querySelector<HTMLElement>('button.primary:not([hidden])')?.focus({ preventScroll: true });
+    visible?.querySelector<HTMLElement>('button[data-primary]:not([hidden])')?.focus({ preventScroll: true });
+    refreshAds();
+    if (m === 'menu' || m === 'setup') void refreshResume();
   };
 
   const save = () => { if (state && (mode === 'playing' || mode === 'paused')) saveGame(state); };
@@ -279,6 +289,7 @@ async function main() {
     if (cloud.signedIn && syncedDiffer(before, settings)) pushSettings();
   };
   $('settings').addEventListener('input', readForm);
+  $('setupForm').addEventListener('input', readForm);
   // Changing the look reloads the page; the game in progress is saved first.
   const look = $<HTMLSelectElement>('look');
   look.value = settings.look;
@@ -352,6 +363,7 @@ async function main() {
     $('offerText').textContent = `${levelName(currentLevel(s))}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
     show('offer');
   };
+  let offerBackTo: Mode = 'setup';
   const findSave = async (): Promise<SaveRecord | null> => {
     const local = loadRecord();
     const remote = await cloud.get();
@@ -366,10 +378,21 @@ async function main() {
     await updateGate();
     const rec = await findSave();
     const s = rec && recordState(rec);
+    offerBackTo = 'setup';
     if (rec && s) showOffer(rec, s);
     else newGame();
   };
-  $('newGame').addEventListener('click', () => void singlePlayer());
+  // The "Resume level N" tag on the Single player card, and the Start button's wording.
+  const resumeTag = $('resumeTag'), startBtn = $('start');
+  const refreshResume = async () => {
+    const rec = await findSave();
+    const s = rec && recordState(rec);
+    resumeTag.hidden = !s;
+    if (s) resumeTag.textContent = `Resume ${levelName(currentLevel(s))}`;
+    startBtn.textContent = s ? 'Resume or start new' : 'Start';
+  };
+  $('newGame').addEventListener('click', () => { audio.play('select'); show('setup'); });
+  $('start').addEventListener('click', () => void singlePlayer());
   $('offerResume').addEventListener('click', () => {
     const s = offered && recordState(offered);
     if (!s) { newGame(); return; }
@@ -399,8 +422,7 @@ async function main() {
       const badge = supporterBadge(account.me);
       $('whoBadge').hidden = !badge;
     }
-    // Ads: only on the title page (never during play), and only if this player may see them.
-    void setAdSlot($('adSlot'), cfg.ads, wantsAds(!!cfg.ads, account), personalizedAds(account));
+    refreshAds();
   };
   showAccount();
   $('signIn').addEventListener('click', () => {
@@ -418,7 +440,11 @@ async function main() {
     btn.disabled = false;
     showAccount();
   });
-  $('offerBack').addEventListener('click', () => show('menu'));
+  // Back (top left) and the Settings gear (top right) on every menu screen after the title.
+  let settingsFrom: Mode = 'menu';
+  const backTo = (): Mode => (mode === 'menu' ? 'title' : mode === 'setup' ? 'menu' : mode === 'settings' ? settingsFrom : offerBackTo);
+  document.querySelectorAll<HTMLElement>('[data-back]').forEach(b => b.addEventListener('click', () => { audio.play('select'); show(backTo()); }));
+  document.querySelectorAll<HTMLElement>('[data-gear]').forEach(b => b.addEventListener('click', () => { audio.play('select'); settingsFrom = mode; show('settings'); }));
   $('resume').addEventListener('click', resume);
   $('quit').addEventListener('click', toMenu);
   $('toMenu').addEventListener('click', () => { state = null; clearGame(); toMenu(); });
@@ -520,7 +546,7 @@ async function main() {
   // ---- Gamepad navigation for menus ----
   const focusables = () => {
     const o = Object.values(overlays).find(x => !x.hidden);
-    return o ? [...o.querySelectorAll<HTMLElement>('button:not([hidden]), input, select, summary')].filter(el => el.offsetParent !== null) : [];
+    return o ? [...o.querySelectorAll<HTMLElement>('button:not([hidden]):not(:disabled), input, select, summary')].filter(el => el.offsetParent !== null) : [];
   };
   const navigate = (dir: Nav) => {
     const list = focusables();
@@ -605,9 +631,10 @@ async function main() {
     const remote = await cloud.get();
     const remoteState = remote && recordState(remote);
     if (!remote || !unfinished(remoteState) || newest(local, remote) !== remote || remote.savedAt === local?.savedAt) return false;
-    if (mode !== 'menu' && mode !== 'paused') return false; // the player started something meanwhile
+    if (mode !== 'menu' && mode !== 'setup' && mode !== 'paused') return false; // the player started something meanwhile
     state = null;
     audio.stopMusic();
+    offerBackTo = 'menu';
     showOffer(remote, remoteState);
     return true;
   };

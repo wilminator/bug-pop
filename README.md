@@ -49,17 +49,21 @@ keeps a session cookie. If the server doesn't answer, the box stays hidden and
 the game plays as usual.
 
 This repo has no ad code. A deployment can add `"ads": {"script": "..."}` to
-load its own ad script into the title page's ad space
+load its own ad script into the ad spaces (one on the title page, one on Choose a game)
 (`packages/client/src/ads.ts` describes what that script must do), or
 `"ads": {"preview": true}` for an empty outlined box. Ads appear only on the
-title page, never during play, and signed-in players see them only when their
+title page and Choose a game, never during play, and signed-in players see them only when their
 account allows it.
+
+## Menus
+
+Title, then **Choose a game** (Single player; Leaderboard run and Multiplayer are shown as "Coming soon"), then **Set up** (level, speed, colors, Start). Every screen after the title has Back (top left) and a Settings gear (top right) for sound, music, touch buttons, shapes, how bugs leave, auto next level, look and the controls help. The design, including the later multiplayer screens, is in [docs/screens.md](docs/screens.md).
 
 ## Skins
 
 A skin is a `skin.json` plus art and sound files. A deployment picks one with a `config.json` beside the page: `{"skin": "skins/code-bugs/skin.json"}`. Skins can animate bugs (two frames), carry a `season` window (holiday skins) and a `tier` (`supporter` skins).
 
-A skin can also paint the title page: `"title": {"background": "title-bg.svg"}` (path relative to `skin.json`). The picture is stretched to fill the whole screen, not cropped, so make it an SVG that lays itself out to any size (no `viewBox`). A skin without it, like Code Bugs, keeps the plain dimmed backdrop.
+A skin can also paint the title page and the menu screens: `"title": {"background": "title-bg.svg"}` (path relative to `skin.json`). The picture is stretched to fill the whole screen, not cropped, so make it an SVG that lays itself out to any size (no `viewBox`). A skin without it, like Code Bugs, keeps the plain dimmed backdrop.
 
 ## License
 

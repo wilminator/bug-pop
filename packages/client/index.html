@@ -30,7 +30,7 @@
 
     <div id="touch" class="touch" hidden><!-- buttons come from src/layouts.ts --></div>
 
-    <section id="title" class="overlay" hidden>
+    <section id="title" class="overlay art" hidden>
       <div class="card">
         <h1>Bug Pop</h1>
         <p class="tag">Match four of a color to pop the bugs.</p>
@@ -53,55 +53,99 @@
       </div>
     </section>
 
-    <section id="menu" class="overlay" hidden>
-      <div class="card">
-        <h1>Bug Pop</h1>
-        <p class="tag">Match four of a color to pop the bugs.</p>
-        <label>Look
-          <select id="look"><option value="site">Default</option><option value="test">Test pattern</option></select>
-        </label>
-        <form id="settings">
-          <label><span>Level <output id="levelOut">0</output></span>
-            <input type="range" id="level" min="0" max="20" step="1" />
-          </label>
-          <label>Speed
-            <select id="speed"><option value="3" id="sloMo">Slo-mo</option><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select>
-          </label>
-          <label>Colors
-            <select id="colors"><option>2</option><option>3</option><option>4</option><option>5</option></select>
-          </label>
-          <label>Bugs leave by
-            <select id="exit"><option value="">Skin's choice</option><option value="fly">Flying away</option><option value="fall">Falling off</option><option value="explode">Exploding</option><option value="fade">Fading out</option></select>
-          </label>
-          <label>Touch buttons
-            <select id="touchLayout"><option value="edges">Moves on the edges</option><option value="four">Four buttons</option><option value="original">Original</option></select>
-          </label>
-          <div id="layoutPreview" class="touch preview" aria-hidden="true"></div>
-          <label class="check"><input type="checkbox" id="autoNext" /> Go to the next level automatically</label>
-          <label class="check"><input type="checkbox" id="shapes" /> Shapes on pieces</label>
-          <label class="check"><input type="checkbox" id="sound" /> Sound effects</label>
-          <label class="check"><input type="checkbox" id="music" /> Music</label>
-        </form>
-        <button id="newGame" class="primary" data-primary>Single player</button>
-        <details class="help">
-          <summary>Controls</summary>
-          <p><b>Keyboard:</b> ← → move, ↓ drop faster, ↑ or X turn right, Z turn left, Esc or P pause.</p>
-          <p><b>Mouse:</b> the piece follows the pointer. Left click or wheel turns, hold right button to drop.</p>
-          <p><b>Gamepad or joystick:</b> d-pad or stick moves and drops, A / Y turn right, B / X turn left, Start pauses.</p>
-          <p><b>Touch:</b> the buttons under the board (pick a layout under Touch buttons). Or drag on the board to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left.</p>
-        </details>
-        <p class="fine">Your game saves every time a piece lands and whenever you switch apps. Signed in, it follows you to your other devices.</p>
+    <!-- Choose a game: the hub every player passes through after the title. -->
+    <section id="menu" class="overlay screen art" hidden>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><button class="gear" data-gear>&#9881; Settings</button></nav>
+      <div class="screen-body">
+        <h1 class="screen-title">Choose a game</h1>
+        <div class="modes">
+          <button id="newGame" class="mode" data-primary>
+            <span class="mode-name">Single player</span>
+            <span class="mode-desc">Clear the bugs at your own pace.</span>
+            <span id="resumeTag" class="tag-pill" hidden></span>
+          </button>
+          <button class="mode" disabled>
+            <span class="mode-name">Leaderboard run</span>
+            <span class="mode-desc">Fixed rules, your score is ranked.</span>
+            <span class="tag-pill soon">Coming soon</span>
+          </button>
+          <button class="mode" disabled>
+            <span class="mode-name">Multiplayer</span>
+            <span class="mode-desc">Co-op, PvP, teams or deathmatch.</span>
+            <span class="tag-pill soon">Coming soon</span>
+          </button>
+        </div>
+        <!-- Same 320 x 100 ad space as the title page; only a deployment's config.json turns it on. -->
+        <div id="menuAdSlot" class="ad-slot" hidden aria-label="Advertisement"></div>
       </div>
     </section>
 
-    <section id="offer" class="overlay" hidden>
+    <!-- Set up: level, speed and colors, then start. -->
+    <section id="setup" class="overlay screen art" hidden>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><button class="gear" data-gear>&#9881; Settings</button></nav>
+      <div class="screen-body">
+        <h1 class="screen-title">Single player</h1>
+        <div class="card">
+          <form id="setupForm">
+            <label><span>Level <output id="levelOut">0</output></span>
+              <input type="range" id="level" min="0" max="20" step="1" />
+            </label>
+            <label>Speed
+              <select id="speed"><option value="3" id="sloMo">Slo-mo</option><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select>
+            </label>
+            <label>Colors
+              <select id="colors"><option>2</option><option>3</option><option>4</option><option>5</option></select>
+            </label>
+          </form>
+          <button id="start" class="primary" data-primary>Start</button>
+          <p class="fine">Your game saves every time a piece lands and whenever you switch apps. Signed in, it follows you to your other devices.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings (the gear): things that rarely change. -->
+    <section id="settingsScreen" class="overlay screen art" hidden>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button></nav>
+      <div class="screen-body">
+        <h1 class="screen-title">Settings</h1>
+        <div class="card">
+          <label>Look
+            <select id="look"><option value="site">Default</option><option value="test">Test pattern</option></select>
+          </label>
+          <form id="settings">
+            <label class="check"><input type="checkbox" id="sound" /> Sound effects</label>
+            <label class="check"><input type="checkbox" id="music" /> Music</label>
+            <label>Touch buttons
+              <select id="touchLayout"><option value="edges">Moves on the edges</option><option value="four">Four buttons</option><option value="original">Original</option></select>
+            </label>
+            <div id="layoutPreview" class="touch preview" aria-hidden="true"></div>
+            <label class="check"><input type="checkbox" id="shapes" /> Shapes on pieces</label>
+            <label>Bugs leave by
+              <select id="exit"><option value="">Skin's choice</option><option value="fly">Flying away</option><option value="fall">Falling off</option><option value="explode">Exploding</option><option value="fade">Fading out</option></select>
+            </label>
+            <label class="check"><input type="checkbox" id="autoNext" /> Go to the next level automatically</label>
+          </form>
+          <details class="help">
+            <summary>Controls</summary>
+            <p><b>Keyboard:</b> ← → move, ↓ drop faster, ↑ or X turn right, Z turn left, Esc or P pause.</p>
+            <p><b>Mouse:</b> the piece follows the pointer. Left click or wheel turns, hold right button to drop.</p>
+            <p><b>Gamepad or joystick:</b> d-pad or stick moves and drops, A / Y turn right, B / X turn left, Start pauses.</p>
+            <p><b>Touch:</b> the buttons under the board (pick a layout under Touch buttons). Or drag on the board to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="offer" class="overlay screen art" hidden>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><button class="gear" data-gear>&#9881; Settings</button></nav>
+      <div class="screen-body">
       <div class="card">
         <h2>Pick up where you left off?</h2>
         <div id="offerShot" class="shot"></div>
         <p id="offerText" class="tag"></p>
         <button id="offerResume" class="primary" data-primary>Resume</button>
         <button id="offerNew">Start a new game</button>
-        <button id="offerBack">Back</button>
+      </div>
       </div>
     </section>
 

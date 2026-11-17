@@ -76,7 +76,31 @@ body {
 }
 .overlay[hidden] { display: none; }
 /* A skin's title picture replaces the dimmed backdrop and is stretched to the whole screen. */
-#title.has-art { background: var(--title-bg) center / 100% 100% no-repeat; }
+html.has-art .overlay.art { background: var(--title-bg) center / 100% 100% no-repeat; }
+
+/* Menu screens after the title: Back and Settings on top, the content, then (Choose a game) the ad space. */
+.overlay.screen { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.overlay.screen[hidden] { display: none; }
+.navbar { width: min(880px, 100%); display: flex; justify-content: space-between; gap: 8px; }
+.navbar button { padding: 8px 14px; font-size: 15px; border-radius: 12px; background: rgba(20, 22, 30, 0.78); }
+.navbar button:only-child { margin-right: auto; }
+.screen-body { width: min(880px, 100%); flex: 1; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.screen-body .card { width: min(420px, 100%); }
+.screen-title { text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85); font-size: 34px; }
+.modes { width: 100%; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); max-width: 520px; }
+@media (min-width: 820px) { .modes { max-width: none; } }
+.mode {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 16px;
+  background: rgba(24, 27, 36, 0.88); border: 1px solid var(--edge); border-radius: 16px;
+}
+.mode[data-primary] { border: 2px solid var(--accent); }
+.mode:disabled { opacity: 0.7; cursor: default; }
+.mode-name { font-size: 20px; font-weight: 700; }
+.mode-desc { color: var(--dim); font-size: 14px; }
+.tag-pill { margin-top: 4px; padding: 3px 10px; border-radius: 999px; background: var(--accent); color: #0b1220; font-weight: 700; font-size: 13px; }
+.tag-pill.soon { background: transparent; border: 1px solid var(--edge); color: var(--dim); font-weight: 400; }
+.tag-pill[hidden] { display: none; }
+#menuAdSlot { margin-top: auto; width: 320px; max-width: 100%; flex: none; }
 
 .card {
   width: min(420px, 100%);
