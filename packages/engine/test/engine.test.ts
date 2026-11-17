@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, bugZoneRows, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
-  removeCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
+  removeCells, pieceCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
 } from '../src';
 
 const cfg = { seed: 12345, level: 5, speed: 1 as const, colors: 3 };
@@ -216,16 +216,27 @@ describe('save and replay', () => {
     expect(gravityInterval(createGame({ ...cfg, level: 5000 }))).toBe(6);
   });
 
-  it('a piece can be turned upright the moment it appears on the top row', () => {
+  it('a piece can be turned upright the moment it appears, poking above the top line', () => {
     for (const action of ['rotCW', 'rotCCW'] as const) {
       const g = createGame(cfg);
       expect(g.piece!.y).toBe(0);
       step(g, [action]);
       expect(g.piece!.rot % 2).toBe(1);
-      expect(g.piece!.y).toBe(1);
+      expect(g.piece!.y).toBe(0); // stays on the top row; its upper half pokes above the line
+      expect(pieceCells(g.piece!).map(h => h.y).sort()).toEqual([-1, 0]);
       step(g, [action]); // and back to flat
       expect(g.piece!.rot % 2).toBe(0);
     }
+  });
+
+  it('landing while poking above the top line ends the game', () => {
+    const g = createGame(cfg);
+    const x = g.piece!.x;
+    g.board[idx(x, 1)] = { t: 'bug', c: 0 }; // something right under the spawn spot
+    step(g, ['rotCW']);
+    expect(g.piece!.y).toBe(0);
+    for (let i = 0; i < 200 && g.phase === 'falling'; i++) step(g, []);
+    expect(g.phase).toBe('lost');
   });
 
   it('a forged log does not reproduce the score', () => {

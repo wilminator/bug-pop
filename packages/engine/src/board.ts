@@ -26,8 +26,13 @@ export function pieceCells(p: Piece): [PlacedHalf, PlacedHalf] {
   }
 }
 
+/**
+ * Can the piece sit here? A half may poke above the top line (y = -1), so a
+ * piece on the top row can still be stood upright; everything else must be on
+ * the board and empty.
+ */
 export function fits(board: Cell[], p: Piece): boolean {
-  return pieceCells(p).every(h => inBounds(h.x, h.y) && board[idx(h.x, h.y)] === null);
+  return pieceCells(p).every(h => h.y < 0 ? h.y >= -1 && h.x >= 0 && h.x < W : inBounds(h.x, h.y) && board[idx(h.x, h.y)] === null);
 }
 
 /** All cells that sit in a horizontal or vertical run of MATCH_LENGTH+ of one color. */

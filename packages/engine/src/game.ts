@@ -118,17 +118,19 @@ function tryRotate(s: GameState, dir: 1 | -1): boolean {
   if (rot % 2 === 0) {
     const kicked = { ...turned, x: p.x - 1 };
     if (fits(s.board, kicked)) { s.piece = kicked; return true; }
-  } else if (p.y === 0) {
-    // Standing up on the top row would poke above the board: drop it one row instead,
-    // so a piece can be turned the moment it appears.
-    const kicked = { ...turned, y: 1 };
-    if (fits(s.board, kicked)) { s.piece = kicked; return true; }
   }
   return false;
 }
 
 function lock(s: GameState, events: GameEvent[]) {
-  for (const h of pieceCells(s.piece!)) s.board[idx(h.x, h.y)] = { t: 'half', c: h.c, l: h.l };
+  const cells = pieceCells(s.piece!);
+  // Landing while still poking above the top line means the stack has reached the top.
+  if (cells.some(h => h.y < 0)) {
+    s.phase = 'lost';
+    events.push({ type: 'lost' });
+    return;
+  }
+  for (const h of cells) s.board[idx(h.x, h.y)] = { t: 'half', c: h.c, l: h.l };
   s.piece = null;
   events.push({ type: 'lock' });
   resolve(s, events);

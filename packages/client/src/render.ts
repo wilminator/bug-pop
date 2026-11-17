@@ -219,7 +219,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
   // Falling piece and a faint guide showing where it would land.
   if (s.piece && s.phase === 'falling') {
     let ghost = s.piece;
-    const fitsAt = (p: typeof ghost) => pieceCells(p).every(h => h.y >= 0 && h.y < H && h.x >= 0 && h.x < W && s.board[idx(h.x, h.y)] === null);
+    const fitsAt = (p: typeof ghost) => pieceCells(p).every(h => h.y < H && h.x >= 0 && h.x < W && (h.y < 0 || s.board[idx(h.x, h.y)] === null));
     while (fitsAt({ ...ghost, y: ghost.y + 1 })) ghost = { ...ghost, y: ghost.y + 1 };
     if (ghost.y !== s.piece.y) for (const h of pieceCells(ghost)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, false, 0.18, opt.images);
     for (const h of pieceCells(s.piece)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, opt.shapesOnPieces, 1, opt.images);
