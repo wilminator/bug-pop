@@ -13,23 +13,26 @@ export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
 export const SETTLE_TICKS = 8; // ticks per row while loose halves fall
 /**
- * Ticks per row while "down" is held: 3.75, i.e. 16 rows a second (history: 2, 2.5, 7.5; Mike
- * found 7.5 too slow and asked for double). A fraction of a tick can't happen, so the drop timer
- * counts in quarter-ticks and mixes 4-tick and 3-tick rows (4,4,4,3...), averaging exactly 3.75.
- * Holding down never makes a piece slower than its normal fall (see softDropInterval).
+ * Held-down drop: a piece falls at the speed of the next faster setting at the same level
+ * (slo-mo -> low -> medium -> fast), and on fast it is FAST_HELD_BONUS ticks quicker than fast.
+ * Never below MIN_HELD_INTERVAL. See softDropInterval.
  */
-export const SOFT_DROP_TICKS = 3.75;
+const FAST_HELD_BONUS = 4;
+const MIN_HELD_INTERVAL = 2;
 const QUARTER = 4; // drop timer units per tick
-// Beats before the next piece appears. Both are whole soft-drop steps (8 and 20 of them),
-// so they line up with the rhythm of a held "down".
+// Beats before the next piece appears.
 export const LAND_TICKS = 30; // after a piece lands: 0.5 s, past the 1/3 s landing sound
 export const AFTER_CLEAR_TICKS = 75; // after a clear: 1.25 s
-/** Endless: the beat while a new round's bugs crawl in, before the next piece (also whole soft-drop steps). */
+/** Endless: the beat while a new round's bugs crawl in, before the next piece. */
 export const ARRIVE_TICKS = 75;
 const SPAWN_X = 3;
-// Ticks per row at low / medium / high / slo-mo. Slo-mo is numbered last so older saves and
-// progress keep their speed numbers; it is only for 4 or 5 colors (see normalizeConfig).
-const BASE_INTERVAL = [40, 25, 15, 60] as const;
+// Ticks per row at level 1 for low / medium / high / slo-mo. Slo-mo is numbered last so older
+// saves and progress keep their speed numbers; it is only for 4 or 5 colors (see normalizeConfig).
+const BASE_INTERVAL = [45, 30, 20, 60] as const;
+// Pieces fall 1 tick per row faster every this many levels (Mike, 2026-11-17).
+const SPEEDUP_EVERY = [4, 6, 10, 4] as const;
+/** The next faster speed, whose fall a held-down piece uses (fast has none: it uses fast minus a bonus). */
+const NEXT_FASTER = [1, 2, -1, 0] as const;
 const MIN_INTERVAL = 6;
 const SPEED_MULTIPLIER = [1, 2, 3, 0.5] as const; // slo-mo bugs are worth 50, so scores stay whole numbers
 /** The slowest speed, offered only with 4 or 5 colors. */
@@ -43,8 +46,6 @@ export const MAX_LEVEL = 9999;
 export const isEndless = (level: number) => level > FINAL_LEVEL;
 /** The level being played right now: the starting level plus any Endless rounds cleared. */
 export const currentLevel = (s: GameState) => s.config.level + (s.round ?? 0);
-/** After level 20, every 4 levels pieces fall a little faster. (The bug count keeps growing until FULL_BOARD_LEVEL.) */
-const OVERTIME_FROM = 20, OVERTIME_EVERY = 4;
 
 export function normalizeConfig(c: GameConfig): GameConfig {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.floor(v)));
@@ -92,15 +93,22 @@ function randomPair(s: GameState) {
   return { a: randInt(s, s.config.colors), b: randInt(s, s.config.colors) };
 }
 
-/** Ticks per row for the current piece; the game speeds up every 10 pieces. */
-export function gravityInterval(s: GameState): number {
-  const overtime = Math.floor(Math.max(0, currentLevel(s) - OVERTIME_FROM) / OVERTIME_EVERY);
-  return Math.max(MIN_INTERVAL, BASE_INTERVAL[s.config.speed] - overtime - Math.floor(s.piecesSpawned / 10));
+/** Ticks per row at a speed and level: the base, minus 1 every SPEEDUP_EVERY levels after level 1. */
+export function fallInterval(speed: GameConfig['speed'], level: number): number {
+  const steps = Math.floor(Math.max(0, level - 1) / SPEEDUP_EVERY[speed]);
+  return Math.max(MIN_INTERVAL, BASE_INTERVAL[speed] - steps);
 }
 
-/** Ticks per row while "down" is held: SOFT_DROP_TICKS, unless the normal fall is already faster. */
+/** Ticks per row for the current piece. It doesn't change within a level. */
+export function gravityInterval(s: GameState): number {
+  return fallInterval(s.config.speed, currentLevel(s));
+}
+
+/** Ticks per row while "down" is held: the next faster speed's fall, or fast minus a bonus. */
 export function softDropInterval(s: GameState): number {
-  return Math.min(SOFT_DROP_TICKS, gravityInterval(s));
+  const level = currentLevel(s), speed = s.config.speed, next = NEXT_FASTER[speed];
+  const held = next < 0 ? fallInterval(speed, level) - FAST_HELD_BONUS : fallInterval(next as GameConfig['speed'], level);
+  return Math.max(MIN_HELD_INTERVAL, Math.min(held, gravityInterval(s))); // never slower than letting go
 }
 
 function spawn(s: GameState, events: GameEvent[]) {
@@ -221,7 +229,7 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       s.dropTimer += QUARTER;
       const limit = (s.soft ? softDropInterval(s) : gravityInterval(s)) * QUARTER;
       if (s.dropTimer >= limit) {
-        s.dropTimer -= limit; // keep the leftover quarter-ticks so 4,4,4,3... averages 3.75
+        s.dropTimer -= limit; // keep any leftover (only matters for fractional intervals)
         const p = s.piece!;
         const lower = { ...p, y: p.y + 1 };
         if (fits(s.board, lower)) s.piece = lower;

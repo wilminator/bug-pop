@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallInterval, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, pieceCells, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
@@ -82,25 +82,37 @@ describe('play', () => {
     expect(s.board.some(c => c?.t === 'half')).toBe(true);
   });
 
-  it('held-down drop averages 3.75 ticks a row, and the beats are whole drop steps', () => {
-    const s = createGame({ ...cfg, level: 0 });
+  it('falls at the table Mike set: base ticks, 1 faster every 4/6/10/4 levels, not by pieces placed', () => {
+    const at = (speed: number, level: number) => fallInterval(speed as 0, level);
+    // slo-mo, low, medium, fast at levels 1 and 100
+    expect([3, 0, 1, 2].map(sp => at(sp, 1))).toEqual([60, 45, 30, 20]);
+    expect([at(0, 4), at(0, 5), at(0, 9)]).toEqual([45, 44, 43]); // low: 45 at level 1, 44 at level 5
+    expect([3, 0, 1, 2].map(sp => at(sp, 100))).toEqual([36, 21, 14, 11]);
+    expect(at(2, 5000)).toBe(6); // Endless bottoms out at 6
+    const g = createGame({ ...cfg, speed: 2, level: 1 });
+    g.piecesSpawned = 500;
+    expect(gravityInterval(g)).toBe(20); // no speed-up as pieces are placed
+  });
+
+  it('holding down uses the next faster speed; on fast it is 4 ticks quicker', () => {
+    const held = (speed: number, level: number) => softDropInterval(createGame({ ...cfg, colors: 4, speed: speed as 0, level }));
+    expect([3, 0, 1, 2].map(sp => held(sp, 1))).toEqual([45, 30, 20, 16]);
+    expect([3, 0, 1, 2].map(sp => held(sp, 100))).toEqual([21, 14, 11, 7]);
+    for (const sp of [0, 1, 2, 3]) for (const lv of [1, 50, 100, 150, 300, 5000]) {
+      const s = createGame({ ...cfg, colors: 4, speed: sp as 0, level: lv });
+      expect(softDropInterval(s)).toBeLessThanOrEqual(gravityInterval(s));
+      expect(softDropInterval(s)).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('a held-down piece really moves at that rate', () => {
+    const s = createGame({ ...cfg, speed: 0, level: 1 });
     s.board = emptyBoard(); s.bugsLeft = 1; s.board[idx(7, 15)] = { t: 'bug', c: 2 };
     s.piece = { x: 0, y: 0, rot: 0, a: 0, b: 1 };
     step(s, ['softOn']);
     const y0 = s.piece!.y; let ticks = 1;
-    while (s.piece && s.piece.y < y0 + 10) { step(s); ticks++; }
-    expect(ticks).toBeGreaterThanOrEqual(37); expect(ticks).toBeLessThanOrEqual(39); // 10 rows ~ 37.5 ticks
-    expect(LAND_TICKS % SOFT_DROP_TICKS).toBe(0);
-    expect(AFTER_CLEAR_TICKS % SOFT_DROP_TICKS).toBe(0);
-    expect(ARRIVE_TICKS % SOFT_DROP_TICKS).toBe(0);
-  });
-
-  it('holding down never falls slower than the normal fall', () => {
-    const fast = createGame({ ...cfg, speed: 2, level: 0 });
-    expect(softDropInterval(fast)).toBe(SOFT_DROP_TICKS); // Fast starts at 15 ticks a row
-    fast.piecesSpawned = 1000; // fully sped up: 6 ticks a row
-    expect(gravityInterval(fast)).toBe(6);
-    expect(softDropInterval(fast)).toBeLessThanOrEqual(gravityInterval(fast));
+    while (s.piece && s.piece.y < y0 + 5) { step(s); ticks++; }
+    expect(Math.abs(ticks - 5 * softDropInterval(s))).toBeLessThanOrEqual(1); // low holds at medium's 30
   });
 
   it('waits a beat after a landing, and longer after a clear, before the next piece', () => {
