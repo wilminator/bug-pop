@@ -51,6 +51,12 @@ export type GameConfig = {
    * a bonus (see cleanSweepBonus).
    */
   cleanSweep?: boolean;
+  /**
+   * true: classic scoring, where each extra bug cleared by the same piece doubles
+   * (x32 at most) and nothing carries over between pieces. Absent or false: the
+   * running multiplier (see GameState.mult).
+   */
+  classicScoring?: boolean;
 };
 
 /** 'waiting' is the short beat after things land, before the next piece appears. */
@@ -75,7 +81,13 @@ export type GameState = {
   piecesSpawned: number;
   bugsLeft: number;
   score: number;
-  dropBugs: number; // bugs cleared since the current piece landed (for scoring)
+  dropBugs: number; // bugs cleared since the current piece landed (for classic scoring)
+  /**
+   * The running score multiplier in tenths (10 = x1.0). Every bug popped scores at the
+   * current multiplier and then raises it by 0.2; every new piece lowers it by 0.1,
+   * never below x1.0 (Mike, 2026-11-17). Absent in older saves, which means x1.0.
+   */
+  mult?: number;
   chain: number; // match rounds since the current piece landed
   /**
    * Endless rounds cleared so far in this game (continuous play). The level being

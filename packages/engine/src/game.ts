@@ -55,6 +55,7 @@ export function normalizeConfig(c: GameConfig): GameConfig {
     colors,
     ...(c.startScore ? { startScore: Math.max(0, Math.floor(c.startScore)) } : {}),
     ...(c.cleanSweep === false ? { cleanSweep: false } : {}),
+    ...(c.classicScoring ? { classicScoring: true } : {}),
   };
 }
 
@@ -77,6 +78,7 @@ export function createGame(config: GameConfig): GameState {
     bugsLeft: 0,
     score: cfg.startScore ?? 0,
     dropBugs: 0,
+    mult: MULT_MIN,
     chain: 0,
     log: [],
   };
@@ -132,6 +134,7 @@ function spawn(s: GameState, events: GameEvent[]) {
   s.dropTimer = 0;
   s.dropBugs = 0;
   s.chain = 0;
+  s.mult = Math.max(MULT_MIN, (s.mult ?? MULT_MIN) - MULT_DECAY); // each new piece cools the multiplier a little
   if (!fits(s.board, piece)) {
     s.piece = null;
     s.phase = 'lost';
@@ -227,10 +230,30 @@ function checkCleanSweep(s: GameState, events: GameEvent[]) {
   events.push({ type: 'cleanSweep', bonus });
 }
 
-/** Score doubles for each extra bug cleared by the same piece, capped at x32. */
+// The running multiplier, in tenths so it never drifts (floating 0.1 steps would).
+const MULT_MIN = 10; // x1.0
+const MULT_GAIN = 2; // +0.2 for every bug popped
+const MULT_DECAY = 1; // -0.1 for every new piece
+
+/** The multiplier the next popped bug will score at (1.0, 1.2, ...); classic scoring shows its doubling. */
+export function scoreMultiplier(s: GameState): number {
+  return s.config.classicScoring ? 2 ** Math.min(s.dropBugs, 5) : (s.mult ?? MULT_MIN) / 10;
+}
+
+/**
+ * Each bug is worth 100 x the multiplier x the speed multiplier.
+ * Running (default): the multiplier climbs 0.2 per bug and carries over from piece to piece.
+ * Classic: it doubles for each extra bug cleared by the same piece, capped at x32.
+ */
 function scoreBugs(s: GameState, bugs: number) {
   for (let i = 0; i < bugs; i++) {
-    s.score += 100 * 2 ** Math.min(s.dropBugs, 5) * SPEED_MULTIPLIER[s.config.speed];
+    if (s.config.classicScoring) {
+      s.score += 100 * 2 ** Math.min(s.dropBugs, 5) * SPEED_MULTIPLIER[s.config.speed];
+    } else {
+      const m = s.mult ?? MULT_MIN;
+      s.score += 10 * m * SPEED_MULTIPLIER[s.config.speed]; // 100 x (m / 10), whole points at every speed
+      s.mult = m + MULT_GAIN;
+    }
     s.dropBugs++;
   }
 }

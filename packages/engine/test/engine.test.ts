@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
-  removeCells, pieceCells, cleanSweepBonus, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
+  removeCells, pieceCells, cleanSweepBonus, scoreMultiplier, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
 const cfg = { seed: 12345, level: 5, speed: 1 as const, colors: 3 };
@@ -214,6 +214,40 @@ describe('play', () => {
     expect(cleanSweepBonus(2, FINAL_LEVEL)).toBe(33000);
     expect(cleanSweepBonus(SLO_MO, 0)).toBe(500);
     expect(cleanSweepBonus(0, FINAL_LEVEL + 50)).toBe(cleanSweepBonus(0, FINAL_LEVEL));
+  });
+
+  /** Two bugs stacked under one half, and a piece that completes the column (two bugs in one clear). */
+  function twoBugs(extra: { classicScoring?: boolean } = {}) {
+    const s = createGame({ ...cfg, level: 0, cleanSweep: false, ...extra });
+    s.board = emptyBoard();
+    s.board[idx(0, 15)] = { t: 'bug', c: 1 };
+    s.board[idx(0, 14)] = { t: 'bug', c: 1 };
+    s.board[idx(3, 15)] = { t: 'bug', c: 0 }; // one more bug, so the level isn't won
+    s.bugsLeft = 3;
+    s.piece = { x: 0, y: 11, rot: 1, a: 1, b: 1 };
+    return s;
+  }
+
+  it('running multiplier: each popped bug scores at it and adds 0.2; each new piece takes 0.1 off', () => {
+    const s = twoBugs();
+    expect(scoreMultiplier(s)).toBe(1);
+    for (let i = 0; i < 400 && s.piecesSpawned < 2; i++) step(s);
+    // Medium (x2): 100 x 1.0 x 2 + 100 x 1.2 x 2 = 440; then x1.4, and the new piece makes it x1.3.
+    expect(s.score).toBe(440);
+    expect(scoreMultiplier(s)).toBeCloseTo(1.3);
+    for (let n = 0; n < 5; n++) { // let five more pieces fall without popping anything
+      const before = s.piecesSpawned;
+      s.board.fill(null); s.board[idx(3, 15)] = { t: 'bug', c: 0 };
+      for (let i = 0; i < 4000 && s.piecesSpawned === before; i++) step(s);
+    }
+    expect(scoreMultiplier(s)).toBe(1); // 1.3 - 0.5, but never below x1.0
+  });
+
+  it('classicScoring: doubling for each extra bug from the same piece, reset every piece', () => {
+    const s = twoBugs({ classicScoring: true });
+    for (let i = 0; i < 400 && s.piecesSpawned < 2; i++) step(s);
+    expect(s.score).toBe(100 * 2 + 200 * 2); // x1 then x2, at medium
+    expect(scoreMultiplier(s)).toBe(1);
   });
 
   it('cleanSweep: false (classic rules) turns the bonus off', () => {

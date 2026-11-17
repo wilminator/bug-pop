@@ -1,6 +1,6 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
-import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, isEndless, currentLevel, FINAL_LEVEL, type GameState, type Link } from '@bug-pop/engine';
+import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, isEndless, currentLevel, FINAL_LEVEL, scoreMultiplier, type GameState, type Link } from '@bug-pop/engine';
 import { DEFAULT_EXITS, frameCells, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
@@ -318,6 +318,11 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     stat(...levelStat(s), bx, y);
     stat('BUGS', String(s.bugsLeft), bx + c * 2, y);
     stat('SCORE', String(s.score), bx + c * W, y, 'right');
+    // The multiplier sits small under the score, in the gap above the board.
+    ctx.textAlign = 'right';
+    ctx.fillStyle = multColor(s, skin);
+    ctx.font = font(c * 0.5, 700);
+    ctx.fillText(multText(s), bx + c * W, y + c * 1.55);
     drawHalf(ctx, skin, s.next.a, 'R', bx + c * 4, y - c * 0.2, c * 0.9, opt.shapesOnPieces, 1, opt.images);
     drawHalf(ctx, skin, s.next.b, 'L', bx + c * 4.9, y - c * 0.2, c * 0.9, opt.shapesOnPieces, 1, opt.images);
   } else {
@@ -332,8 +337,17 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     stat('SPEED', speedName, x, by + c * 5.2);
     stat('BUGS', String(s.bugsLeft), x, by + c * 7.2);
     stat('SCORE', String(s.score), x, by + c * 9.2);
+    stat('MULTIPLIER', '', x, by + c * 11.2);
+    ctx.fillStyle = multColor(s, skin);
+    ctx.font = font(c * 0.75, 700);
+    ctx.fillText(multText(s), x, by + c * 12.05);
   }
 }
+
+/** "x1.4": the multiplier the next popped bug scores at. */
+const multText = (s: GameState) => `×${scoreMultiplier(s).toFixed(1)}`;
+/** Dim at x1.0, gold once it is working for you. */
+const multColor = (s: GameState, skin: Skin) => (scoreMultiplier(s) > 1 ? '#ffb703' : skin.textDim);
 
 /**
  * A still picture of a saved game, for the "Resume or start new?" screen.
