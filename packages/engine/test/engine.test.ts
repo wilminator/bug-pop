@@ -95,10 +95,14 @@ describe('play', () => {
     expect(gravityInterval(g)).toBe(20); // 3 rows/s, no speed-up as pieces are placed
   });
 
-  it('holding down adds 3 rows a second', () => {
+  it('holding down falls at 6 rows a second, or normal + 0.5 when that is faster', () => {
+    const held = (sp: number, lv: number) => 60 / softDropInterval(createGame({ ...cfg, colors: 4, speed: sp as 0, level: lv }));
+    expect(held(0, 1)).toBeCloseTo(6, 9); // low, level 1: 1.67 normal -> 6
+    expect(held(2, 100)).toBeCloseTo(6.5, 9); // fast, level 100: 6 normal -> 6.5
+    expect(held(2, 5000)).toBeCloseTo(6.5, 9);
     for (const sp of [0, 1, 2, 3]) for (const lv of [1, 50, 100, 300]) {
       const s = createGame({ ...cfg, colors: 4, speed: sp as 0, level: lv });
-      expect(60 / softDropInterval(s) - 60 / gravityInterval(s)).toBeCloseTo(HELD_EXTRA_ROWS_PER_SECOND, 9);
+      expect(60 / softDropInterval(s) - 60 / gravityInterval(s)).toBeGreaterThanOrEqual(HELD_EXTRA_ROWS_PER_SECOND - 1e-9);
     }
   });
 

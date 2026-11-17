@@ -12,8 +12,10 @@ import { ACTIONS, SAVE_VERSION, type Action, type GameConfig, type GameEvent, ty
 export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
 export const SETTLE_TICKS = 8; // ticks per row while loose halves fall
-/** Holding down adds this many rows a second to the normal fall. */
-export const HELD_EXTRA_ROWS_PER_SECOND = 3;
+/** Holding down falls at least this many rows a second... */
+export const HELD_MIN_ROWS_PER_SECOND = 6;
+/** ...and always at least this much faster than the normal fall (Mike, 2026-11-17). */
+export const HELD_EXTRA_ROWS_PER_SECOND = 0.5;
 const TIMER_UNITS = 1000; // drop timer counts in thousandths of a tick, so any speed works
 // Beats before the next piece appears.
 export const LAND_TICKS = 30; // after a piece lands: 0.5 s, past the 1/3 s landing sound
@@ -100,9 +102,10 @@ export function gravityInterval(s: GameState): number {
   return TICKS_PER_SECOND / fallSpeed(s.config.speed, currentLevel(s));
 }
 
-/** Ticks per row while "down" is held: the normal speed plus HELD_EXTRA_ROWS_PER_SECOND. */
+/** Ticks per row while "down" is held: 6 rows/s, or the normal speed + 0.5 if that is faster. */
 export function softDropInterval(s: GameState): number {
-  return TICKS_PER_SECOND / (fallSpeed(s.config.speed, currentLevel(s)) + HELD_EXTRA_ROWS_PER_SECOND);
+  const normal = fallSpeed(s.config.speed, currentLevel(s));
+  return TICKS_PER_SECOND / Math.max(HELD_MIN_ROWS_PER_SECOND, normal + HELD_EXTRA_ROWS_PER_SECOND);
 }
 
 function spawn(s: GameState, events: GameEvent[]) {
