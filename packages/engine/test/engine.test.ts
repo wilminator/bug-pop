@@ -216,6 +216,18 @@ describe('save and replay', () => {
     expect(gravityInterval(createGame({ ...cfg, level: 5000 }))).toBe(6);
   });
 
+  it('a piece can be turned upright the moment it appears on the top row', () => {
+    for (const action of ['rotCW', 'rotCCW'] as const) {
+      const g = createGame(cfg);
+      expect(g.piece!.y).toBe(0);
+      step(g, [action]);
+      expect(g.piece!.rot % 2).toBe(1);
+      expect(g.piece!.y).toBe(1);
+      step(g, [action]); // and back to flat
+      expect(g.piece!.rot % 2).toBe(0);
+    }
+  });
+
   it('a forged log does not reproduce the score', () => {
     const live = createGame(cfg);
     play(live, 60 * 120);

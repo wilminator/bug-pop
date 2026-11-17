@@ -118,6 +118,11 @@ function tryRotate(s: GameState, dir: 1 | -1): boolean {
   if (rot % 2 === 0) {
     const kicked = { ...turned, x: p.x - 1 };
     if (fits(s.board, kicked)) { s.piece = kicked; return true; }
+  } else if (p.y === 0) {
+    // Standing up on the top row would poke above the board: drop it one row instead,
+    // so a piece can be turned the moment it appears.
+    const kicked = { ...turned, y: 1 };
+    if (fits(s.board, kicked)) { s.piece = kicked; return true; }
   }
   return false;
 }
