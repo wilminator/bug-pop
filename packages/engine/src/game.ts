@@ -6,6 +6,7 @@
 
 import { addBugs, bugCount, bugZoneRows, emptyBoard, findMatches, fits, idx, pieceCells, placeBugs, removeCells, settleStep } from './board';
 import { randInt } from './rng';
+import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
 import { ACTIONS, SAVE_VERSION, type Action, type GameConfig, type GameEvent, type GameState, type Piece } from './types';
 
 export const TICKS_PER_SECOND = 60;
@@ -272,12 +273,80 @@ export function replay(config: GameConfig, log: readonly number[], untilTick?: n
   return s;
 }
 
-export function serialize(s: GameState): string {
-  return JSON.stringify(s);
+// Both exist in every browser and in Node 16+; the engine's TypeScript setup leaves out the DOM types.
+declare function btoa(data: string): string;
+declare function atob(data: string): string;
+
+/**
+ * Pack a move record into bytes. Each entry is stored as the difference from the
+ * one before (usually a small number), zigzag-encoded so a rare negative difference
+ * still works, as a variable-length run of bytes (7 bits each): about 2 bytes an
+ * entry instead of about 7 characters of JSON.
+ */
+export function packLog(log: readonly number[]): Uint8Array {
+  const bytes: number[] = [];
+  let prev = 0;
+  for (const code of log) {
+    const d = code - prev;
+    prev = code;
+    let z = d >= 0 ? d * 2 : -d * 2 - 1; // zigzag: 0, -1, 1, -2, 2 ... -> 0, 1, 2, 3, 4 ...
+    while (z >= 0x80) { bytes.push((z % 0x80) | 0x80); z = Math.floor(z / 0x80); }
+    bytes.push(z);
+  }
+  return Uint8Array.from(bytes);
 }
 
-export function deserialize(json: string): GameState {
-  const s = JSON.parse(json) as GameState;
-  if (!s || s.v !== SAVE_VERSION || !Array.isArray(s.board)) throw new Error('unsupported save');
-  return s;
+export function unpackLog(bytes: Uint8Array): number[] {
+  const log: number[] = [];
+  let prev = 0, z = 0, scale = 1;
+  for (const b of bytes) {
+    z += (b & 0x7f) * scale;
+    if (b & 0x80) { scale *= 0x80; continue; }
+    prev += z % 2 === 0 ? z / 2 : -(z + 1) / 2;
+    log.push(prev);
+    z = 0;
+    scale = 1;
+  }
+  return log;
+}
+
+const toBase64 = (u: Uint8Array) => {
+  let bin = '';
+  for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(bin);
+};
+const fromBase64 = (b64: string) => Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+
+/** Saves in format 2 start with this; format 1 saves are plain JSON and start with "{". */
+const PACKED_PREFIX = 'z2:';
+
+/**
+ * The saved form of a game, as text (it goes in localStorage and in the cloud save).
+ * Format 2: the game as JSON without its move record, a zero byte, the packed move
+ * record, all deflate-compressed and base64-encoded. Deflate (no gzip header, so no
+ * timestamp) keeps it deterministic: the same game always gives the same text.
+ */
+export function serialize(s: GameState): string {
+  const { log, ...rest } = s;
+  const head = strToU8(JSON.stringify({ ...rest, v: SAVE_VERSION }));
+  const body = packLog(log);
+  const all = new Uint8Array(head.length + 1 + body.length);
+  all.set(head, 0);
+  all.set(body, head.length + 1); // the byte between stays 0; JSON text never contains one
+  return PACKED_PREFIX + toBase64(deflateSync(all, { level: 9 }));
+}
+
+export function deserialize(text: string): GameState {
+  let s: GameState | null;
+  if (text.startsWith(PACKED_PREFIX)) {
+    const all = inflateSync(fromBase64(text.slice(PACKED_PREFIX.length)));
+    const zero = all.indexOf(0);
+    if (zero < 0) throw new Error('unsupported save');
+    s = { ...(JSON.parse(strFromU8(all.subarray(0, zero))) as Omit<GameState, 'log'>), log: unpackLog(all.subarray(zero + 1)) };
+  } else {
+    s = JSON.parse(text) as GameState | null; // format 1: plain JSON, the record as a number array
+    if (!s || s.v !== 1 || !Array.isArray(s.log)) throw new Error('unsupported save');
+  }
+  if (!s || !Array.isArray(s.board)) throw new Error('unsupported save');
+  return { ...s, v: SAVE_VERSION };
 }

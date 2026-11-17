@@ -5,7 +5,12 @@
 
 export const BOARD_WIDTH = 8;
 export const BOARD_HEIGHT = 16;
-export const SAVE_VERSION = 1;
+/**
+ * Saved-game format. 1: the move record as a JSON number array.
+ * 2: the move record packed into bytes (see packLog) and the whole save deflate-compressed.
+ * deserialize() still reads version 1, so older saves keep working.
+ */
+export const SAVE_VERSION = 2;
 
 /** A color index, 0 .. colors-1. Skins decide what each index looks like. */
 export type Color = number;

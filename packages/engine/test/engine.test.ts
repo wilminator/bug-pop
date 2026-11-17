@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, bugZoneRows, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, pieceCells, replay, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
@@ -307,6 +307,23 @@ describe('save and replay', () => {
       if (left.t === 'bug' && right.t === 'half') expect(right.l).toBe(null);
       if (right.t === 'bug' && left.t === 'half') expect(left.l).toBe(null);
     }
+  });
+
+  it('the packed move record round-trips, including out-of-order and huge entries', () => {
+    const logs = [[], [0], [5, 3, 3, 900000, 8, 2 ** 31 + 7], Array.from({ length: 5000 }, (_, i) => i * 37 + (i % 6))];
+    for (const log of logs) expect(unpackLog(packLog(log))).toEqual(log);
+  });
+
+  it('saves are packed and compressed, and old (version 1) saves still load', () => {
+    const live = createGame(cfg);
+    play(live, 60 * 120);
+    const packed = serialize(live);
+    const plain = JSON.stringify({ ...live, v: 1 }); // how version 1 wrote the same game
+    expect(packed.length).toBeLessThan(plain.length);
+    expect(plain.length / packed.length).toBeGreaterThan(2.5);
+    expect(serialize(deserialize(packed))).toBe(packed); // same game, same text (no timestamps inside)
+    expect(deserialize(plain)).toEqual(deserialize(packed));
+    expect(deserialize(plain).v).toBe(2);
   });
 
   it('a forged log does not reproduce the score', () => {
