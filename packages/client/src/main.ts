@@ -7,7 +7,7 @@ import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
 import { computeLayout, LEAVE_MS, render, thumbnail, type Layout, type Leaver } from './render';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
-import { inSeason, loadSprites, testSkin, type Skin } from './skin';
+import { frameCells, inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings, loadProgress, recordBeaten, sliderMax } from './storage';
@@ -53,6 +53,8 @@ async function loadSkin(cfg: SiteConfig): Promise<Skin> {
     if (skin.sounds) for (const k of Object.keys(skin.sounds) as (keyof NonNullable<Skin['sounds']>)[]) skin.sounds[k] = rel(skin.sounds[k]!);
     if (skin.music) skin.music = skin.music.map(rel);
     if (skin.titleMusic) skin.titleMusic = rel(skin.titleMusic);
+    if (skin.board?.inside) skin.board.inside = rel(skin.board.inside);
+    if (skin.board?.frame) skin.board.frame = rel(skin.board.frame);
     if (skin.sprites) {
       skin.sprites.bug = skin.sprites.bug.map(rel);
       skin.sprites.half = skin.sprites.half.map(rel);
@@ -101,7 +103,7 @@ async function main() {
     canvas.width = Math.round(rect.width * devicePixelRatio);
     canvas.height = Math.round(rect.height * devicePixelRatio);
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    layout = computeLayout(rect.width, rect.height, 0);
+    layout = computeLayout(rect.width, rect.height, 0, frameCells(skin));
   };
   new ResizeObserver(resize).observe(canvas);
   resize();

@@ -34,6 +34,14 @@ export type Skin = {
    * 'fade' is used for everything when the player asks for reduced motion.
    */
   exits?: Partial<Record<ObjectKind, ExitStyle>>;
+  /**
+   * Optional pictures for the playing field. `inside` fills the 8x16 cell area
+   * (stretched to it, so draw it at a 1:2 ratio). `frame` is drawn around the field,
+   * `frameWidth` cells thick on every side, with a transparent hole where the field
+   * shows through; draw it at a (8 + 2w):(16 + 2w) ratio. Grid lines go on top of
+   * `inside` in the skin's grid color, so a soft or translucent grid color suits art.
+   */
+  board?: { inside?: string; frame?: string; frameWidth?: number };
   /** Milliseconds per animation frame for bugAlt (default 400). */
   frameMs?: number;
   /** Who may pick this skin. Absent = everyone. */
@@ -48,7 +56,10 @@ export type Skin = {
 };
 
 /** Images decoded from Skin.sprites, attached at load time (not part of skin.json). */
-export type SpriteImages = { bug: HTMLImageElement[]; bugAlt: HTMLImageElement[]; half: HTMLImageElement[] };
+export type SpriteImages = { bug: HTMLImageElement[]; bugAlt: HTMLImageElement[]; half: HTMLImageElement[]; boardInside?: HTMLImageElement; boardFrame?: HTMLImageElement };
+
+/** How thick the skin's frame is, in cells (0 when it has none). */
+export const frameCells = (skin: Skin) => (skin.board?.frame ? Math.max(0, skin.board.frameWidth ?? 0.35) : 0);
 
 export type SoundName = 'move' | 'rotate' | 'lock' | 'fall' | 'pop' | 'chain' | 'win' | 'lose' | 'select' | 'pause';
 
@@ -92,7 +103,7 @@ export const testSkin: Skin = {
 
 /** Load sprite images (if any). Resolves even if some images fail. */
 export async function loadSprites(skin: Skin): Promise<SpriteImages | null> {
-  if (!skin.sprites) return null;
+  if (!skin.sprites && !skin.board) return null;
   const load = (src: string) => new Promise<HTMLImageElement>(resolve => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -100,8 +111,11 @@ export async function loadSprites(skin: Skin): Promise<SpriteImages | null> {
     img.src = src;
   });
   const all = (list: string[] = []) => Promise.all(list.map(load));
-  const [bug, bugAlt, half] = await Promise.all([all(skin.sprites.bug), all(skin.sprites.bugAlt), all(skin.sprites.half)]);
-  return { bug, bugAlt, half };
+  const [bug, bugAlt, half, [boardInside], [boardFrame]] = await Promise.all([
+    all(skin.sprites?.bug), all(skin.sprites?.bugAlt), all(skin.sprites?.half),
+    all(skin.board?.inside ? [skin.board.inside] : []), all(skin.board?.frame ? [skin.board.frame] : []),
+  ]);
+  return { bug, bugAlt, half, boardInside, boardFrame };
 }
 
 /** Is a seasonal skin in season on this date? */

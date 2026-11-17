@@ -1,7 +1,7 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
 import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, isEndless, FINAL_LEVEL, type GameState, type Link } from '@bug-pop/engine';
-import { DEFAULT_EXITS, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
+import { DEFAULT_EXITS, frameCells, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
 
@@ -23,16 +23,20 @@ export type RenderOptions = {
 
 const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
 
-/** Work out where the board goes for a canvas of this CSS size. */
-export function computeLayout(w: number, h: number, reserveBottom: number): Layout {
+/**
+ * Work out where the board goes for a canvas of this CSS size. `frame` is how
+ * many cells of skin frame surround the board; the cells shrink a little to fit it.
+ */
+export function computeLayout(w: number, h: number, reserveBottom: number, frame = 0): Layout {
   const usableH = h - reserveBottom;
   const portrait = w < usableH * 0.8;
+  const f2 = frame * 2;
   const cell = portrait
-    ? Math.floor(Math.min((w * 0.94) / W, (usableH * 0.96) / (H + 2.6)))
-    : Math.floor(Math.min((usableH * 0.94) / H, (w * 0.94) / (W + 6)));
+    ? Math.floor(Math.min((w * 0.94) / (W + f2), (usableH * 0.96) / (H + 2.6 + frame)))
+    : Math.floor(Math.min((usableH * 0.94) / (H + f2), (w * 0.94) / (W + 6 + frame)));
   const boardW = cell * W, boardH = cell * H;
   const boardX = portrait ? Math.round((w - boardW) / 2) : Math.round((w - boardW - cell * 5.5) / 2);
-  const boardY = portrait ? Math.round(usableH - boardH - cell * 0.3) : Math.round((usableH - boardH) / 2);
+  const boardY = portrait ? Math.round(usableH - boardH - cell * Math.max(0.3, frame)) : Math.round((usableH - boardH) / 2);
   return { boardX, boardY, cell, portrait };
 }
 
@@ -149,20 +153,32 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
   ctx.fillStyle = skin.background;
   ctx.fillRect(0, 0, cw, ch);
 
-  // Board
-  ctx.fillStyle = skin.boardFill;
-  ctx.strokeStyle = skin.boardEdge;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(bx - 4, by - 4, c * W + 8, c * H + 8, 8);
-  ctx.fill();
-  ctx.stroke();
+  // Board: the skin's pictures when it has them, else a plain rounded box.
+  const inside = opt.images?.boardInside, frame = opt.images?.boardFrame;
+  const hasFrame = ready(frame);
+  if (!hasFrame) {
+    ctx.fillStyle = skin.boardFill;
+    ctx.strokeStyle = skin.boardEdge;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(bx - 4, by - 4, c * W + 8, c * H + 8, 8);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = skin.boardFill;
+    ctx.fillRect(bx, by, c * W, c * H);
+  }
+  if (ready(inside)) ctx.drawImage(inside, bx, by, c * W, c * H);
   ctx.strokeStyle = skin.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = 1; x < W; x++) { ctx.moveTo(bx + x * c + 0.5, by); ctx.lineTo(bx + x * c + 0.5, by + H * c); }
   for (let y = 1; y < H; y++) { ctx.moveTo(bx, by + y * c + 0.5); ctx.lineTo(bx + W * c, by + y * c + 0.5); }
   ctx.stroke();
+  if (hasFrame) {
+    const t = frameCells(skin) * c;
+    ctx.drawImage(frame, bx - t, by - t, c * W + 2 * t, c * H + 2 * t);
+  }
 
   if (opt.hidden) {
     ctx.fillStyle = skin.textDim;
@@ -304,7 +320,7 @@ export function thumbnail(s: GameState, skin: Skin, images: SpriteImages | null,
   const ctx = canvas.getContext('2d')!;
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   // time 0 and reduced motion give a calm, repeatable picture.
-  render(ctx, s, skin, computeLayout(cssW, cssH, 0), { shapesOnPieces, reducedMotion: true, time: 0, images, leavers: [] });
+  render(ctx, s, skin, computeLayout(cssW, cssH, 0, frameCells(skin)), { shapesOnPieces, reducedMotion: true, time: 0, images, leavers: [] });
   return canvas;
 }
 
