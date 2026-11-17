@@ -66,6 +66,11 @@ export type GameState = {
   dropBugs: number; // bugs cleared since the current piece landed (for scoring)
   chain: number; // match rounds since the current piece landed
   /**
+   * Endless rounds cleared so far in this game (continuous play). The level being
+   * played is config.level + round. Absent in older saves, which means 0.
+   */
+  round?: number;
+  /**
    * Every action ever passed to step(), encoded as tick * 8 + action index.
    * Together with config this replays the game exactly.
    */
@@ -81,4 +86,6 @@ export type GameEvent =
   | { type: 'match'; cells: number[]; bugs: number; chain: number }
   | { type: 'cleared'; bugs: number }
   | { type: 'won' }
+  /** Endless: a round was cleared and the next round's bugs came in (cells), some taking over halves (replaced). */
+  | { type: 'arrive'; cells: number[]; replaced: number[]; round: number }
   | { type: 'lost' };

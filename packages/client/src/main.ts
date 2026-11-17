@@ -1,11 +1,11 @@
 // App shell: menus, the fixed-rate game loop, saving, and wiring input,
 // rendering and sound together.
 
-import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
+import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, currentLevel, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
-import { computeLayout, LEAVE_MS, render, thumbnail, type Layout, type Leaver } from './render';
+import { computeLayout, LEAVE_MS, ARRIVE_MS, render, thumbnail, type Layout, type Leaver } from './render';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
 import { frameCells, inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
@@ -78,6 +78,8 @@ async function main() {
   const skin = inSeason(loaded) ? loaded : testSkin;
   const images = await loadSprites(skin);
   let leavers: Leaver[] = [];
+  /** Endless: cells whose new bug is crawling in, and when it set off. */
+  let arrivals = new Map<number, number>();
   let matchedBugs: Leaver[] = [];
   const canvas = $<HTMLCanvasElement>('board');
   const ctx = canvas.getContext('2d')!;
@@ -260,6 +262,7 @@ async function main() {
     state = createGame({ seed, level: lvl, speed: settings.speed, colors: settings.colors, startScore });
     input.reset(); // a fresh game starts with soft drop off
     pendingActions = [];
+    arrivals = new Map();
     saveGame(state);
     upload(); // the new game replaces the old save everywhere
     showHint();
@@ -315,7 +318,7 @@ async function main() {
     const shot = $('offerShot');
     shot.replaceChildren(thumbnail(s, skin, images, settings.shapesOnPieces));
     const where = loadRecord()?.savedAt === rec.savedAt ? 'on this device' : `on your ${rec.device}`;
-    $('offerText').textContent = `${levelName(s.config.level)}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
+    $('offerText').textContent = `${levelName(currentLevel(s))}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
     show('offer');
   };
   const findSave = async (): Promise<SaveRecord | null> => {
@@ -378,7 +381,7 @@ async function main() {
   const showResult = (won: boolean) => {
     if (!state) return;
     audio.play(won ? 'win' : 'lose'); // ...and the jingle arrives with the card
-    const lvl = state.config.level, endless = isEndless(lvl), beatGame = won && lvl === FINAL_LEVEL;
+    const lvl = currentLevel(state), endless = isEndless(lvl), beatGame = won && lvl === FINAL_LEVEL;
     $('resultTitle').textContent = beatGame ? 'You beat Bug Pop!' : won ? 'Cleared!' : endless ? 'Endless run over' : 'Game over';
     $('resultText').textContent = beatGame
       ? `Level ${FINAL_LEVEL} cleared. Score ${state.score}. Endless mode is now open at this speed.`
@@ -424,6 +427,14 @@ async function main() {
           const now = performance.now();
           leavers.push(...matchedBugs.map(l => ({ ...l, t0: now })));
           matchedBugs = [];
+          save();
+          break;
+        }
+        case 'arrive': {
+          // The next Endless round: bugs crawl in one after another, about a second in all.
+          const now = performance.now(), gap = Math.min(14, 500 / Math.max(1, e.cells.length));
+          arrivals = new Map(e.cells.map((cell, k) => [cell, now + k * gap]));
+          audio.play('select');
           save();
           break;
         }
@@ -490,7 +501,8 @@ async function main() {
       menuInput(input.poll(null));
     }
     if (leavers.length) leavers = leavers.filter(l => now - l.t0 < LEAVE_MS);
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, hidden: mode === 'paused', bugExit: settings.exit || undefined });
+    if (arrivals.size && [...arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) arrivals = new Map();
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, arrivals, hidden: mode === 'paused', bugExit: settings.exit || undefined });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);

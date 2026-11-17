@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, bugZoneRows, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
-  removeCells, pieceCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, bugZoneRows, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
+  removeCells, pieceCells, replay, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
 const cfg = { seed: 12345, level: 5, speed: 1 as const, colors: 3 };
@@ -237,6 +237,76 @@ describe('save and replay', () => {
     expect(g.piece!.y).toBe(0);
     for (let i = 0; i < 200 && g.phase === 'falling'; i++) step(g, []);
     expect(g.phase).toBe('lost');
+  });
+
+  /** An Endless game one move from clearing its last two bugs, with some loose halves lying around. */
+  function lastBugsEndless(seed = 1) {
+    const g = createGame({ ...cfg, seed, level: FINAL_LEVEL + 1 });
+    g.board = emptyBoard();
+    g.board[idx(5, 15)] = { t: 'bug', c: 1 };
+    g.board[idx(5, 14)] = { t: 'bug', c: 1 };
+    g.board[idx(0, 15)] = { t: 'half', c: 0, l: 'R' };
+    g.board[idx(1, 15)] = { t: 'half', c: 2, l: 'L' };
+    g.bugsLeft = 2;
+    g.piece = { x: 5, y: 2, rot: 1, a: 1, b: 1 };
+    return g;
+  }
+
+  it('Endless is continuous: clearing a round brings the next bugs in around the pieces, never matching', () => {
+    const g = lastBugsEndless();
+    const events: GameEvent[] = [];
+    step(g, ['softOn']);
+    for (let i = 0; i < 2000 && !events.some(e => e.type === 'arrive'); i++) events.push(...step(g));
+    const arrive = events.find(e => e.type === 'arrive') as Extract<GameEvent, { type: 'arrive' }>;
+    expect(arrive).toBeTruthy();
+    expect(events.some(e => e.type === 'won')).toBe(false);
+    expect(g.round).toBe(1);
+    expect(currentLevel(g)).toBe(FINAL_LEVEL + 2);
+    expect(arrive.cells.length).toBe(bugCount(FINAL_LEVEL + 2));
+    expect(g.bugsLeft).toBe(arrive.cells.length);
+    expect(findMatches(g.board)).toEqual([]);
+    expect(g.board[idx(0, 15)]).toEqual({ t: 'half', c: 0, l: 'R' }); // pieces already there stay put
+    expect(g.phase).toBe('waiting');
+    expect(g.phaseTimer).toBeGreaterThanOrEqual(ARRIVE_TICKS - 1);
+    for (let i = 0; i < ARRIVE_TICKS + 5 && g.phase !== 'falling'; i++) step(g);
+    expect(g.phase).toBe('falling'); // and play goes straight on
+  });
+
+  it('Endless rounds replay exactly from the log', () => {
+    const g = lastBugsEndless(9);
+    const start = serialize(g);
+    for (let t = 0; t < 600; t++) step(g, t === 0 ? ['softOn'] : t > 300 && t % 13 === 0 ? ['left'] : []);
+    expect(g.round).toBe(1);
+    const again = deserialize(start);
+    const byTick = new Map<number, Action[]>();
+    for (const code of g.log) { const tk = Math.floor(code / 8); byTick.set(tk, [...(byTick.get(tk) ?? []), (['left','right','rotCW','rotCCW','softOn','softOff'] as Action[])[code % 8]!]); }
+    while (again.tick < g.tick) step(again, byTick.get(again.tick) ?? []);
+    expect(serialize(again)).toBe(serialize(g));
+  });
+
+  it('arriving bugs take over same-color halves only as a last resort, and never make a match', () => {
+    for (let seed = 1; seed <= 100; seed++) {
+      // A crowded board: bug area full of loose halves except a few holes.
+      const board = emptyBoard();
+      const holder = { rng: seed * 7919 };
+      for (let y = 3; y < H; y++) for (let x = 0; x < W; x++) {
+        if ((x + y * 3 + seed) % 9 === 0) continue;
+        board[idx(x, y)] = { t: 'half', c: (x + 2 * y) % 3, l: null };
+      }
+      board[idx(0, 15)] = { t: 'half', c: 0, l: 'R' };
+      board[idx(1, 15)] = { t: 'half', c: 0, l: 'L' };
+      expect(findMatches(board)).toEqual([]);
+      const holes = board.slice(3 * W).filter(c => c === null).length;
+      const { cells, replaced } = addBugs(board, holder, 84, 3, 13);
+      expect(cells.length).toBe(84);
+      expect(replaced.length).toBeGreaterThanOrEqual(84 - holes);
+      expect(findMatches(board)).toEqual([]);
+      for (const i of replaced) expect(board[i]!.t).toBe('bug');
+      // a taken-over half leaves its partner as a lone half
+      const left = board[idx(0, 15)]!, right = board[idx(1, 15)]!;
+      if (left.t === 'bug' && right.t === 'half') expect(right.l).toBe(null);
+      if (right.t === 'bug' && left.t === 'half') expect(left.l).toBe(null);
+    }
   });
 
   it('a forged log does not reproduce the score', () => {

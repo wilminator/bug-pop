@@ -4,7 +4,7 @@
 // player made during that tick. It never reads the clock, the screen or
 // Math.random, so the same config + the same actions always give the same game.
 
-import { emptyBoard, findMatches, fits, idx, pieceCells, placeBugs, removeCells, settleStep } from './board';
+import { addBugs, bugCount, bugZoneRows, emptyBoard, findMatches, fits, idx, pieceCells, placeBugs, removeCells, settleStep } from './board';
 import { randInt } from './rng';
 import { ACTIONS, SAVE_VERSION, type Action, type GameConfig, type GameEvent, type GameState, type Piece } from './types';
 
@@ -22,6 +22,8 @@ const HALF = 2; // drop timer units per tick
 // so they line up with the rhythm of a held "down".
 export const LAND_TICKS = 25; // after a piece lands: about 0.42 s, just past the 1/3 s landing sound
 export const AFTER_CLEAR_TICKS = 75; // after a clear: 1.25 s
+/** Endless: the beat while a new round's bugs crawl in, before the next piece (also whole soft-drop steps). */
+export const ARRIVE_TICKS = 75;
 const SPAWN_X = 3;
 const BASE_INTERVAL = [40, 25, 15] as const; // ticks per row at low / medium / high
 const MIN_INTERVAL = 6;
@@ -31,6 +33,8 @@ export const FINAL_LEVEL = 100;
 /** Levels past FINAL_LEVEL are Endless mode: the board stays full and pieces keep speeding up to the limit. */
 export const MAX_LEVEL = 9999;
 export const isEndless = (level: number) => level > FINAL_LEVEL;
+/** The level being played right now: the starting level plus any Endless rounds cleared. */
+export const currentLevel = (s: GameState) => s.config.level + (s.round ?? 0);
 /** After level 20, every 4 levels pieces fall a little faster. (The bug count keeps growing until FULL_BOARD_LEVEL.) */
 const OVERTIME_FROM = 20, OVERTIME_EVERY = 4;
 
@@ -79,7 +83,7 @@ function randomPair(s: GameState) {
 
 /** Ticks per row for the current piece; the game speeds up every 10 pieces. */
 export function gravityInterval(s: GameState): number {
-  const overtime = Math.floor(Math.max(0, s.config.level - OVERTIME_FROM) / OVERTIME_EVERY);
+  const overtime = Math.floor(Math.max(0, currentLevel(s) - OVERTIME_FROM) / OVERTIME_EVERY);
   return Math.max(MIN_INTERVAL, BASE_INTERVAL[s.config.speed] - overtime - Math.floor(s.piecesSpawned / 10));
 }
 
@@ -142,6 +146,7 @@ function resolve(s: GameState, events: GameEvent[]) {
   if (cells.length === 0) {
     s.phase = 'waiting';
     s.phaseTimer = s.chain > 0 ? AFTER_CLEAR_TICKS : LAND_TICKS;
+    if (s.bugsLeft <= 0) nextRound(s, events); // Endless: everything has settled, bring in more bugs
     return;
   }
   s.chain++;
@@ -150,6 +155,19 @@ function resolve(s: GameState, events: GameEvent[]) {
   s.phaseTimer = CLEAR_TICKS;
   const bugs = cells.filter(i => s.board[i]?.t === 'bug').length;
   events.push({ type: 'match', cells, bugs, chain: s.chain });
+}
+
+/**
+ * Endless is continuous: when a round's bugs are all gone, the next round's bugs
+ * arrive around whatever is on the board, and play goes on with no break.
+ */
+function nextRound(s: GameState, events: GameEvent[]) {
+  s.round = (s.round ?? 0) + 1;
+  const lvl = currentLevel(s);
+  const { cells, replaced } = addBugs(s.board, s, bugCount(lvl), s.config.colors, bugZoneRows(lvl));
+  s.bugsLeft = cells.length;
+  s.phaseTimer = Math.max(s.phaseTimer, ARRIVE_TICKS);
+  events.push({ type: 'arrive', cells, replaced, round: s.round });
 }
 
 /** Score doubles for each extra bug cleared by the same piece, capped at x32. */
@@ -202,7 +220,8 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       s.bugsLeft -= bugs;
       scoreBugs(s, bugs);
       events.push({ type: 'cleared', bugs });
-      if (s.bugsLeft <= 0) {
+      // In Endless the board carries on: the next round starts once things settle (see resolve).
+      if (s.bugsLeft <= 0 && !isEndless(currentLevel(s))) {
         s.phase = 'won';
         events.push({ type: 'won' });
         break;

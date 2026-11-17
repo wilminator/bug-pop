@@ -162,3 +162,86 @@ export function placeBugs(board: Cell[], holder: { rng: number }, level: number,
   }
   return placed;
 }
+
+/** How many cells of color c run from (x, y) in direction (dx, dy), not counting (x, y). */
+function runFrom(board: Cell[], x: number, y: number, c: Color, dx: number, dy: number, max: number): number {
+  let n = 0;
+  for (let s = 1; s <= max; s++) {
+    const nx = x + dx * s, ny = y + dy * s;
+    const cell = inBounds(nx, ny) ? board[idx(nx, ny)] : null;
+    if (!cell || cell.c !== c) break;
+    n++;
+  }
+  return n;
+}
+
+/** Longest line of color c that a new cell at (x, y) would sit in. */
+function lineThrough(board: Cell[], x: number, y: number, c: Color): number {
+  const h = 1 + runFrom(board, x, y, c, -1, 0, 3) + runFrom(board, x, y, c, 1, 0, 3);
+  const v = 1 + runFrom(board, x, y, c, 0, -1, 3) + runFrom(board, x, y, c, 0, 1, 3);
+  return Math.max(h, v);
+}
+
+/**
+ * Continuous play: bring `count` more bugs onto a board that already has pieces on it.
+ * Arrivals never complete a match. Each bug tries, in order:
+ *   1. an empty cell in the bug area where it doesn't even make three in a line;
+ *   2. any empty cell in the bug area where it doesn't make a match;
+ *   3. as a last resort, it takes over a piece half of the same color (Mike, 2026-11-16).
+ *      Same color means no new match can appear; the half's partner becomes a lone half.
+ * If none of those work the bug doesn't come. Returns the cells that got a new bug.
+ */
+export function addBugs(board: Cell[], holder: { rng: number }, count: number, colors: number, zoneRows: number): { cells: number[]; replaced: number[] } {
+  const top = H - zoneRows;
+  const cells: number[] = [], replaced: number[] = [];
+  // One shuffled list of the area's cells; each bug walks it from a random start.
+  const area: number[] = [];
+  for (let y = top; y < H; y++) for (let x = 0; x < W; x++) area.push(idx(x, y));
+  for (let i = area.length - 1; i > 0; i--) { const j = randInt(holder, i + 1); [area[i], area[j]] = [area[j]!, area[i]!]; }
+
+  const tryEmpty = (want: Color, ok: (x: number, y: number, c: Color) => boolean, start: number): boolean => {
+    for (let k = 0; k < area.length; k++) {
+      const i = area[(start + k) % area.length]!;
+      if (board[i] !== null) continue;
+      const x = i % W, y = Math.floor(i / W);
+      for (let d = 0; d < colors; d++) {
+        const c = (want + d) % colors;
+        if (!ok(x, y, c)) continue;
+        board[i] = { t: 'bug', c };
+        cells.push(i);
+        return true;
+      }
+    }
+    return false;
+  };
+  const takeHalf = (want: Color, start: number): boolean => {
+    for (let pass = 0; pass < 2; pass++) { // the wanted color first, then any color
+      for (let k = 0; k < area.length; k++) {
+        const i = area[(start + k) % area.length]!;
+        const cell = board[i];
+        if (!cell || cell.t !== 'half' || (pass === 0 && cell.c !== want)) continue;
+        const x = i % W, y = Math.floor(i / W);
+        const off = { L: [-1, 0], R: [1, 0], U: [0, -1], D: [0, 1] } as const;
+        if (cell.l) {
+          const [dx, dy] = off[cell.l];
+          const partner = board[idx(x + dx, y + dy)];
+          if (partner?.t === 'half') partner.l = null;
+        }
+        board[i] = { t: 'bug', c: cell.c };
+        cells.push(i);
+        replaced.push(i);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (let n = 0; n < count; n++) {
+    const want = n % colors, start = randInt(holder, area.length);
+    if (tryEmpty(want, (x, y, c) => lineThrough(board, x, y, c) < 3, start)) continue;
+    if (tryEmpty(want, (x, y, c) => lineThrough(board, x, y, c) < MATCH_LENGTH, start)) continue;
+    if (takeHalf(want, start)) continue;
+    break;
+  }
+  return { cells, replaced };
+}

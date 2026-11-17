@@ -1,6 +1,6 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
-import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, isEndless, FINAL_LEVEL, type GameState, type Link } from '@bug-pop/engine';
+import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, isEndless, currentLevel, FINAL_LEVEL, type GameState, type Link } from '@bug-pop/engine';
 import { DEFAULT_EXITS, frameCells, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
@@ -8,6 +8,8 @@ export type Layout = { boardX: number; boardY: number; cell: number; portrait: b
 /** A cleared bug on its way off the screen (bugs leave; they are never destroyed). */
 export type Leaver = { kind: ObjectKind; x: number; y: number; c: number; t0: number; dir: 1 | -1 };
 export const LEAVE_MS = 1100;
+/** Endless: how long one arriving bug takes to crawl in from the side of the board. */
+export const ARRIVE_MS = 700;
 
 export type RenderOptions = {
   shapesOnPieces: boolean;
@@ -17,6 +19,8 @@ export type RenderOptions = {
   leavers: Leaver[];
   /** Hide the board's contents (while paused, so pausing can't be used to plan). */
   hidden?: boolean;
+  /** Endless: board cells whose bug is still crawling in, with the time it set off. */
+  arrivals?: Map<number, number>;
   /** Player's choice of exit effect for bugs; overrides the skin's when set. */
   bugExit?: ExitStyle;
 };
@@ -209,6 +213,23 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
         ctx.fill();
         continue;
       }
+      const setOff = cell.t === 'bug' ? opt.arrivals?.get(i) : undefined;
+      if (setOff !== undefined && opt.time - setOff < ARRIVE_MS) {
+        // A new Endless bug crawling in along its row from the nearer side of the board.
+        const p = (opt.time - setOff) / ARRIVE_MS;
+        if (p < 0) continue; // not set off yet
+        if (opt.reducedMotion) {
+          ctx.globalAlpha = p;
+          drawBug(ctx, skin, cell.c, px, py, c, 0, opt.images, opt.time);
+          ctx.globalAlpha = 1;
+          continue;
+        }
+        const fromX = x < W / 2 ? bx - c * 1.2 : bx + W * c + c * 0.2;
+        const ease = 1 - (1 - p) * (1 - p);
+        const hop = -Math.abs(Math.sin(p * Math.PI * 4)) * c * 0.08;
+        drawBug(ctx, skin, cell.c, fromX + (px - fromX) * ease, py, c, hop, opt.images, opt.time / 2);
+        continue;
+      }
       if (cell.t === 'bug') {
         const wiggle = opt.reducedMotion ? 0 : Math.sin(opt.time / 300 + x * 1.7 + y * 0.9) * c * 0.04;
         drawBug(ctx, skin, cell.c, px, py, c, wiggle, opt.images, opt.time + (x * 137 + y * 61));
@@ -326,5 +347,6 @@ export function thumbnail(s: GameState, skin: Skin, images: SpriteImages | null,
 
 /** The HUD shows the round number in Endless mode instead of a level past 100. */
 function levelStat(s: GameState): [string, string] {
-  return isEndless(s.config.level) ? ['ENDLESS', String(s.config.level - FINAL_LEVEL)] : ['LEVEL', String(s.config.level)];
+  const lvl = currentLevel(s);
+  return isEndless(lvl) ? ['ENDLESS', String(lvl - FINAL_LEVEL)] : ['LEVEL', String(lvl)];
 }
