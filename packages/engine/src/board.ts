@@ -94,18 +94,26 @@ export function settleStep(board: Cell[]): boolean {
 
 /** Bugs on level 0, and the most a board ever gets. */
 export const FIRST_BUGS = 4, MAX_BUGS = 84;
-/** 4 more bugs every this many levels, so level 100 is the first with all 84 bugs in the tallest area (Mike, 2026-11-17). */
-export const LEVELS_PER_4_BUGS = 5;
+/** 4 more bugs every this many levels, so the board reaches 84 bugs at level 60 (Mike, 2026-11-17). */
+export const LEVELS_PER_4_BUGS = 3;
 export const FULL_BOARD_LEVEL = ((MAX_BUGS - FIRST_BUGS) / 4) * LEVELS_PER_4_BUGS;
 
 export function bugCount(level: number): number {
   return Math.min(MAX_BUGS, FIRST_BUGS + 4 * Math.floor(level / LEVELS_PER_4_BUGS));
 }
 
-/** How many rows from the bottom may hold bugs: the zone grows as the count gets crowded. */
+/** The bug area opens to its full 13 rows from this level on; before it, at most 12 (Mike, 2026-11-17). */
+export const TALL_ZONE_LEVEL = 61;
+
+/**
+ * How many rows from the bottom may hold bugs. The area grows a row whenever the
+ * bugs get crowded, to keep some wiggle room, but stays at 12 rows or fewer until
+ * TALL_ZONE_LEVEL and never goes past 13.
+ */
 export function bugZoneRows(level: number): number {
   const n = bugCount(level);
-  return n >= 80 ? 13 : n >= 72 ? 12 : n >= 64 ? 11 : 10;
+  const roomy = n >= 80 ? 13 : n >= 72 ? 12 : n >= 64 ? 11 : 10;
+  return level >= TALL_ZONE_LEVEL ? 13 : Math.min(12, roomy);
 }
 
 /**

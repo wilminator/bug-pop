@@ -179,15 +179,27 @@ describe('save and replay', () => {
     expect(replay({ ...next, startScore: 5000 }, live.log, live.tick).score).not.toBe(live.score);
   });
 
-  it('bugs grow 4 every 5 levels from 4; level 100 is the first with 84 bugs in 13 rows', () => {
-    expect([0, 4, 5, 10, 60, 99, 100, 120].map(bugCount)).toEqual([4, 4, 8, 12, 52, 80, 84, 84]);
-    expect([99, 100].map(bugZoneRows)).toEqual([13, 13]);
-    expect(FULL_BOARD_LEVEL).toBe(FINAL_LEVEL);
+  it('bugs grow 4 every 3 levels from 4, reaching 84 at level 60', () => {
+    expect([0, 2, 3, 10, 20, 59, 60, 90].map(bugCount)).toEqual([4, 4, 8, 16, 28, 80, 84, 84]);
+    expect(FULL_BOARD_LEVEL).toBe(60);
+  });
+
+  it('the bug area grows a row as it gets crowded, 12 rows at most until level 61, then 13', () => {
+    expect([0, 44, 45, 51, 57, 60, 61, 100].map(bugZoneRows)).toEqual([10, 10, 11, 12, 12, 12, 13, 13]);
+  });
+
+  it('every bug fits on a crowded level-60 board (84 bugs in 12 rows) without opening matches', () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const s = createGame({ ...cfg, seed, level: 60, colors: 2 + (seed % 4) });
+      expect(s.bugsLeft).toBe(84);
+      expect(s.board.slice(0, (H - 12) * W).every(c => c === null || c.t !== 'bug')).toBe(true);
+      expect(findMatches(s.board).length).toBe(0);
+    }
   });
 
   it('plays on past the full board: same bug count, pieces fall a little faster', () => {
-    const lFull = createGame({ ...cfg, speed: 0, level: 100 }), l90 = createGame({ ...cfg, speed: 0, level: 140 });
-    expect(l90.config.level).toBe(140);
+    const lFull = createGame({ ...cfg, speed: 0, level: 61 }), l90 = createGame({ ...cfg, speed: 0, level: 90 });
+    expect(l90.config.level).toBe(90);
     expect(l90.bugsLeft).toBe(lFull.bugsLeft);
     expect(gravityInterval(l90)).toBeLessThan(gravityInterval(lFull));
     expect(createGame({ ...cfg, level: 50000 }).config.level).toBe(MAX_LEVEL);
