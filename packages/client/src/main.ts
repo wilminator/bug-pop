@@ -541,9 +541,12 @@ async function main() {
   };
 
   // ---- Leaving the app: pause and save at once (iOS may kill us next) ----
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); save(); } });
-  window.addEventListener('pagehide', () => { pause(); save(); });
-  document.addEventListener('freeze', () => { pause(); save(); });
+  // Sound is frozen whenever the page is hidden, on menus and the title screen too.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); save(); audio.suspend(); } else audio.wake(); });
+  window.addEventListener('pagehide', () => { pause(); save(); audio.suspend(); });
+  window.addEventListener('pageshow', () => { if (!document.hidden) audio.wake(); });
+  document.addEventListener('freeze', () => { pause(); save(); audio.suspend(); });
+  document.addEventListener('resume', () => { if (!document.hidden) audio.wake(); });
   window.addEventListener('blur', () => pause());
 
   // ---- Gamepad navigation for menus ----

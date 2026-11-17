@@ -30,6 +30,18 @@ export class AudioManager {
   constructor(private skin: Skin) {}
 
   /** Call from a user gesture. Safe to call repeatedly. */
+  /** The page went to the background: freeze all sound (Android Chrome keeps playing otherwise). */
+  suspend() {
+    this.sleeping = true;
+    if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend();
+  }
+  /** Back in the foreground: sound carries on from where it stopped. */
+  wake() {
+    this.sleeping = false;
+    if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+  private sleeping = false;
+
   unlock() {
     if (!this.ctx) {
       const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -37,7 +49,7 @@ export class AudioManager {
       this.ctx = new Ctor();
       void this.loadSkinSounds();
     }
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    if (this.ctx.state === 'suspended' && !this.sleeping) void this.ctx.resume();
   }
 
   private async loadSkinSounds() {
