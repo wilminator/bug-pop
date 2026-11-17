@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, deserialize, emptyBoard, findMatches, idx,
-  removeCells, pieceCells, replay, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
+  removeCells, pieceCells, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
 const cfg = { seed: 12345, level: 5, speed: 1 as const, colors: 3 };
@@ -331,5 +331,17 @@ describe('save and replay', () => {
     play(live, 60 * 120);
     const forged = live.log.slice(0, Math.floor(live.log.length / 2));
     expect(serialize(replay(cfg, forged, live.tick))).not.toBe(serialize(live));
+  });
+});
+
+describe('slo-mo', () => {
+  it('is slower than low, and only with 4 or 5 colors', () => {
+    const slo = createGame({ ...cfg, speed: SLO_MO, colors: 4 });
+    const low = createGame({ ...cfg, speed: 0, colors: 4 });
+    expect(slo.config.speed).toBe(SLO_MO);
+    expect(gravityInterval(slo)).toBeGreaterThan(gravityInterval(low));
+    expect(createGame({ ...cfg, speed: SLO_MO, colors: 5 }).config.speed).toBe(SLO_MO);
+    // With 2 or 3 colors a slo-mo request falls back to low.
+    expect(createGame({ ...cfg, speed: SLO_MO, colors: 3 }).config.speed).toBe(0);
   });
 });

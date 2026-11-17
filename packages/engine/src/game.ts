@@ -26,9 +26,15 @@ export const AFTER_CLEAR_TICKS = 75; // after a clear: 1.25 s
 /** Endless: the beat while a new round's bugs crawl in, before the next piece (also whole soft-drop steps). */
 export const ARRIVE_TICKS = 75;
 const SPAWN_X = 3;
-const BASE_INTERVAL = [40, 25, 15] as const; // ticks per row at low / medium / high
+// Ticks per row at low / medium / high / slo-mo. Slo-mo is numbered last so older saves and
+// progress keep their speed numbers; it is only for 4 or 5 colors (see normalizeConfig).
+const BASE_INTERVAL = [40, 25, 15, 60] as const;
 const MIN_INTERVAL = 6;
-const SPEED_MULTIPLIER = [1, 2, 3] as const;
+const SPEED_MULTIPLIER = [1, 2, 3, 0.5] as const; // slo-mo bugs are worth 50, so scores stay whole numbers
+/** The slowest speed, offered only with 4 or 5 colors. */
+export const SLO_MO = 3;
+/** Slo-mo needs at least this many colors. */
+export const SLO_MO_COLORS = 4;
 /** Clearing this level beats the game. */
 export const FINAL_LEVEL = 100;
 /** Levels past FINAL_LEVEL are Endless mode: the board stays full and pieces keep speeding up to the limit. */
@@ -41,11 +47,14 @@ const OVERTIME_FROM = 20, OVERTIME_EVERY = 4;
 
 export function normalizeConfig(c: GameConfig): GameConfig {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.floor(v)));
+  const colors = clamp(c.colors, 2, 5);
+  let speed = clamp(c.speed, 0, SLO_MO);
+  if (speed === SLO_MO && colors < SLO_MO_COLORS) speed = 0; // slo-mo is only for 4 or 5 colors: fall back to low
   return {
     seed: c.seed >>> 0,
     level: clamp(c.level, 0, MAX_LEVEL),
-    speed: clamp(c.speed, 0, 2) as GameConfig['speed'],
-    colors: clamp(c.colors, 2, 5),
+    speed: speed as GameConfig['speed'],
+    colors,
     ...(c.startScore ? { startScore: Math.max(0, Math.floor(c.startScore)) } : {}),
   };
 }

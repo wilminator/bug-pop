@@ -30,12 +30,13 @@ export type Cell = BugCell | HalfCell | null;
  */
 export type Piece = { x: number; y: number; rot: 0 | 1 | 2 | 3; a: Color; b: Color };
 
-export type Speed = 0 | 1 | 2;
+/** 0 low, 1 medium, 2 high, 3 slo-mo (slowest; only with 4 or 5 colors). */
+export type Speed = 0 | 1 | 2 | 3;
 
 export type GameConfig = {
   seed: number;
   level: number; // 0 .. 100 is the game (clearing 100 beats it); 101 and up is Endless
-  speed: Speed; // 0 low, 1 medium, 2 high
+  speed: Speed; // 0 low, 1 medium, 2 high, 3 slo-mo
   colors: number; // 2 .. 5
   /**
    * Score carried in from earlier levels of the same run (default 0). It is part of

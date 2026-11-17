@@ -1,7 +1,7 @@
 // App shell: menus, the fixed-rate game loop, saving, and wiring input,
 // rendering and sound together.
 
-import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, currentLevel, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
+import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, SLO_MO, SLO_MO_COLORS, currentLevel, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
@@ -209,6 +209,13 @@ async function main() {
    * The slider reaches the first level not yet beaten at the chosen speed (0 to 20 are always open).
    * Once level 100 is beaten at that speed, one more notch past it starts Endless.
    */
+  /** Slo-mo is offered only with 4 or 5 colors; with fewer it is hidden and a Slo-mo choice drops to Low. */
+  const fitSpeeds = () => {
+    const ok = Number(colors.value) >= SLO_MO_COLORS;
+    const opt = $<HTMLOptionElement>('sloMo');
+    opt.hidden = opt.disabled = !ok;
+    if (!ok && Number(speed.value) === SLO_MO) speed.value = '0';
+  };
   const fitSlider = () => {
     const sp = Number(speed.value) as Settings['speed'];
     const beaten = loadProgress().beaten[sp];
@@ -224,6 +231,8 @@ async function main() {
     fitSlider();
     speed.value = String(settings.speed);
     colors.value = String(settings.colors);
+    fitSpeeds();
+    fitSlider();
     shapes.checked = settings.shapesOnPieces;
     autoNext.checked = settings.autoNext;
     touchLayoutSel.value = settings.touchLayout;
@@ -232,6 +241,7 @@ async function main() {
     exitSel.value = settings.exit;
   };
   const readForm = () => {
+    fitSpeeds(); // the color count decides whether Slo-mo is on offer
     fitSlider(); // the speed may have changed, and with it how far the slider goes
     settings = {
       level: Number(level.value),

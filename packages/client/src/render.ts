@@ -303,7 +303,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.font = font(c * 0.75, 700);
     ctx.fillText(value, x, y + c * 0.85);
   };
-  const speedName = ['Low', 'Med', 'High'][s.config.speed]!;
+  const speedName = ['Low', 'Med', 'High', 'Slo'][s.config.speed]!;
   if (layout.portrait) {
     const y = by - c * 2.3;
     stat(...levelStat(s), bx, y);
