@@ -90,12 +90,15 @@ export function supporterBadge(me: Me): string | null {
 /**
  * Should the title page show an ad?
  * - Only when the deployment's config.json turns ads on (never in the open-source build).
- * - Signed-out players see them; signed-in players only when their account's `ads` says so.
- * - While the server can't be reached we don't know who's playing, so: shown, as signed out.
+ * - Only once the server has confirmed who is playing (Mike, 2026-11-17): signed-out players
+ *   see them; signed-in players only when their account's `ads` says so (supporters don't).
+ * - Until the server answers, or if it can't be reached, no ad: a supporter must never see one.
+ * - A build with no sign-in server at all ('off') has nobody to exempt, so ads show there.
  */
 export function wantsAds(adsOn: boolean, status: AccountStatus): boolean {
   if (!adsOn) return false;
-  return status.kind !== 'signedIn' || status.me.ads === true;
+  if (status.kind === 'signedIn') return status.me.ads === true;
+  return status.kind === 'signedOut' || status.kind === 'off';
 }
 
 /** false = non-personalized ads only; null = let the consent banner decide. */

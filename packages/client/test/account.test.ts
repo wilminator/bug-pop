@@ -33,9 +33,12 @@ describe('ads rule', () => {
     expect(wantsAds(true, signedIn(me({ ads: false, supporter: { tier: 'explorer' } })))).toBe(false);
   });
 
-  it('shows ads to players who are not signed in', () => {
+  it('shows ads to players the server confirms are signed out', () => {
     expect(wantsAds(true, { kind: 'signedOut' })).toBe(true);
-    expect(wantsAds(true, { kind: 'unavailable' })).toBe(true);
+  });
+
+  it('shows no ad until sign-in status is confirmed (still asking, or server unreachable)', () => {
+    expect(wantsAds(true, { kind: 'unavailable' })).toBe(false);
   });
 
   it('asks for non-personalized ads only when the account says so', () => {

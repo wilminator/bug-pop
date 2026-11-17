@@ -82,6 +82,7 @@ async function main() {
   const cloud: CloudSave = cfg.api ? httpCloud(cfg.api) : noCloud;
   const sync: Sync = cfg.api ? httpSync(cfg.api) : noSync;
   const signIn = cloud.check(); // runs while the skin loads
+  // 'unavailable' until the server answers, which also means no ad yet (see wantsAds).
   let account: AccountStatus = { kind: cfg.api ? 'unavailable' : 'off' };
   const accountCheck = fetchAccount(cfg.api).then((a) => { account = a; }); // also runs while the skin loads
   const loaded = await loadSkin(cfg);
