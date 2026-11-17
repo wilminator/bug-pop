@@ -12,12 +12,18 @@ import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { clearGame, loadGame, loadRecord, loadSettings, requestPersistence, saveGame, saveSettings, type Settings } from './storage';
 
-type Mode = 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'result';
+// 'ending': the game is decided and the board stays on screen for a dramatic pause.
+type Mode = 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
 type SiteConfig = { skin?: string; api?: string };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const AUTO_NEXT_MS = 2500;
+// Dramatic pause between the last bug popping (or the board filling) and the result card.
+// Long enough for the last bugs' exit animation (LEAVE_MS, 1.1 s) to finish and a beat of
+// silence after it, short enough not to feel stuck. Competitive modes use the same pause
+// before their win/lose card.
+const FINISH_PAUSE_MS = 1800;
 
 /** A deployment can drop a config.json next to the page to pick a skin and a server. */
 async function loadConfig(): Promise<SiteConfig> {
@@ -325,8 +331,18 @@ async function main() {
     if (!state) return;
     clearGame();
     if (cloud.signedIn) cloud.remove(); // a finished game is nothing to resume
-    audio.stopMusic();
-    audio.play(won ? 'win' : 'lose');
+    audio.stopMusic(); // the music cuts out at the moment it is decided...
+    show('ending'); // ...the board stays visible, inputs stop, the last bugs fly off
+    const decided = state;
+    setTimeout(() => {
+      if (state !== decided || mode !== 'ending') return;
+      showResult(won);
+    }, FINISH_PAUSE_MS);
+  };
+
+  const showResult = (won: boolean) => {
+    if (!state) return;
+    audio.play(won ? 'win' : 'lose'); // ...and the jingle arrives with the card
     $('resultTitle').textContent = won ? 'Cleared!' : 'Game over';
     $('resultText').textContent = won
       ? `Level ${state.config.level} cleared. Score ${state.score}.`
