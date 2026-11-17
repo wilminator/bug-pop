@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallInterval, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, pieceCells, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
@@ -82,26 +82,23 @@ describe('play', () => {
     expect(s.board.some(c => c?.t === 'half')).toBe(true);
   });
 
-  it('falls at the table Mike set: base ticks, 1 faster every 4/6/10/4 levels, not by pieces placed', () => {
-    const at = (speed: number, level: number) => fallInterval(speed as 0, level);
-    // slo-mo, low, medium, fast at levels 1 and 100
-    expect([3, 0, 1, 2].map(sp => at(sp, 1))).toEqual([60, 45, 30, 20]);
-    expect([at(0, 4), at(0, 5), at(0, 9)]).toEqual([45, 44, 43]); // low: 45 at level 1, 44 at level 5
-    expect([3, 0, 1, 2].map(sp => at(sp, 100))).toEqual([36, 21, 14, 11]);
-    expect(at(2, 5000)).toBe(6); // Endless bottoms out at 6
+  it('fall speeds are even in rows per second: speeds spread evenly, levels climb evenly to 100', () => {
+    const r = (speed: number, level: number) => Math.round(fallSpeed(speed as 0, level) * 1000) / 1000;
+    expect([3, 0, 1, 2].map(sp => r(sp, 1))).toEqual([1, 1.667, 2.333, 3]); // slo-mo, low, medium, fast
+    expect([3, 0, 1, 2].map(sp => r(sp, 100))).toEqual([2.5, 3.667, 4.833, 6]);
+    expect(r(2, 5000)).toBe(6); // Endless holds level 100's speed
+    expect(r(2, 0)).toBe(3);
+    // Even climb: the same gain from 1->34 as from 34->67
+    expect(r(2, 34) - r(2, 1)).toBeCloseTo(r(2, 67) - r(2, 34), 6);
     const g = createGame({ ...cfg, speed: 2, level: 1 });
     g.piecesSpawned = 500;
-    expect(gravityInterval(g)).toBe(20); // no speed-up as pieces are placed
+    expect(gravityInterval(g)).toBe(20); // 3 rows/s, no speed-up as pieces are placed
   });
 
-  it('holding down uses the next faster speed; on fast it is 4 ticks quicker', () => {
-    const held = (speed: number, level: number) => softDropInterval(createGame({ ...cfg, colors: 4, speed: speed as 0, level }));
-    expect([3, 0, 1, 2].map(sp => held(sp, 1))).toEqual([45, 30, 20, 16]);
-    expect([3, 0, 1, 2].map(sp => held(sp, 100))).toEqual([21, 14, 11, 7]);
-    for (const sp of [0, 1, 2, 3]) for (const lv of [1, 50, 100, 150, 300, 5000]) {
+  it('holding down adds 3 rows a second', () => {
+    for (const sp of [0, 1, 2, 3]) for (const lv of [1, 50, 100, 300]) {
       const s = createGame({ ...cfg, colors: 4, speed: sp as 0, level: lv });
-      expect(softDropInterval(s)).toBeLessThanOrEqual(gravityInterval(s));
-      expect(softDropInterval(s)).toBeGreaterThanOrEqual(2);
+      expect(60 / softDropInterval(s) - 60 / gravityInterval(s)).toBeCloseTo(HELD_EXTRA_ROWS_PER_SECOND, 9);
     }
   });
 
@@ -112,7 +109,7 @@ describe('play', () => {
     step(s, ['softOn']);
     const y0 = s.piece!.y; let ticks = 1;
     while (s.piece && s.piece.y < y0 + 5) { step(s); ticks++; }
-    expect(Math.abs(ticks - 5 * softDropInterval(s))).toBeLessThanOrEqual(1); // low holds at medium's 30
+    expect(Math.abs(ticks - 5 * softDropInterval(s))).toBeLessThanOrEqual(1);
   });
 
   it('waits a beat after a landing, and longer after a clear, before the next piece', () => {
@@ -226,15 +223,14 @@ describe('save and replay', () => {
     expect(createGame({ ...cfg, level: 50000 }).config.level).toBe(MAX_LEVEL);
   });
 
-  it('level 100 is the final level; Endless levels past it keep speeding up to the limit', () => {
+  it('level 100 is the final level; Endless levels past it keep level 100\'s speed', () => {
     expect(isEndless(FINAL_LEVEL)).toBe(false);
     expect(isEndless(FINAL_LEVEL + 1)).toBe(true);
     const last = createGame({ ...cfg, speed: 0, level: FINAL_LEVEL });
     const endless = createGame({ ...cfg, speed: 0, level: FINAL_LEVEL + 40 });
     expect(endless.config.level).toBe(FINAL_LEVEL + 40);
     expect(endless.bugsLeft).toBe(last.bugsLeft);
-    expect(gravityInterval(endless)).toBeLessThan(gravityInterval(last));
-    expect(gravityInterval(createGame({ ...cfg, level: 5000 }))).toBe(6);
+    expect(gravityInterval(endless)).toBe(gravityInterval(last));
   });
 
   it('a piece can be turned upright the moment it appears, poking above the top line', () => {
