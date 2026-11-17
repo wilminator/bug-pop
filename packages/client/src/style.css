@@ -220,3 +220,17 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .got-it { width: min(560px, 100%); margin-bottom: 8px; }
 /* The title page's How to play sits among the links and looks like one. */
 .links button.link { font-size: 13px; padding: 0; color: var(--dim); }
+
+/* The guided level's banner, over the empty middle of the board (main.ts places it). */
+.coach {
+  position: absolute; transform: translateX(-50%);
+  padding: 10px 14px; border-radius: 14px; background: rgba(10, 12, 16, 0.86); border: 2px solid var(--accent);
+  text-align: center; pointer-events: none; display: flex; flex-direction: column; gap: 4px;
+}
+.coach[hidden] { display: none; }
+.coach p { margin: 0; }
+.coach-title { color: var(--accent); font-weight: 700; font-size: 14px; }
+.coach-text { font-size: 16px; line-height: 1.5; }
+.coach-text canvas { vertical-align: middle; margin: 0 2px; }
+.coach #coachSkip { pointer-events: auto; align-self: center; font-size: 13px; }
+.tutorial-btn { align-self: center; border-color: var(--accent); color: var(--text); }

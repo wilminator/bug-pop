@@ -26,6 +26,11 @@
         <div><span>flick ▲</span>turn left ⟲</div>
         <p class="hint-go">Tap to start</p>
       </div>
+      <!-- The guided first level's banner (src/tutorial.ts). Clicks pass through to the board, except Skip. -->
+      <div id="coach" class="coach" hidden>
+        <div class="coach-body"></div>
+        <button id="coachSkip" class="link">Skip tutorial</button>
+      </div>
     </div>
 
     <div id="touch" class="touch" hidden><!-- buttons come from src/layouts.ts --></div>
@@ -136,6 +141,7 @@
         <h1 class="screen-title">How to play</h1>
         <div class="card howto">
           <h2>Pop every bug</h2>
+          <button id="helpTutorial" class="tutorial-btn">&#9654; Try the guided level</button>
           <p>Bugs sit on the board. Pieces fall from the top, two halves at a time. Steer and turn each piece as it falls. Clear every bug to win the level.</p>
           <div class="figs"><figure><div data-fig="match"></div><figcaption>Four in a line pops</figcaption></figure></div>
           <p>Line up <b>four or more of one color</b>, across or up and down. Bugs and piece halves both count, and everything in the line pops.</p>
@@ -271,6 +277,30 @@
         <p class="tag">Bug Pop has been updated. Your game is saved and will be right where you left it.</p>
         <button id="updateNow" class="primary" data-primary>Update now</button>
         <button id="updateLater">Keep playing this version</button>
+      </div>
+    </section>
+
+    <!-- First Single player game on this device: offer the guided level once. -->
+    <section id="tutorialOffer" class="overlay screen art" hidden>
+      <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button></nav>
+      <div class="screen-body">
+        <div class="card">
+          <h2>New to Bug Pop?</h2>
+          <p class="tag">A short guided level shows you how to move, turn and pop. It takes about a minute.</p>
+          <button id="tutorialYes" class="primary" data-primary>Show me how</button>
+          <button id="tutorialNo">Skip, just play</button>
+          <p class="fine">You can play it any time from How to play.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- The guided level is won. -->
+    <section id="tutorialDone" class="overlay" hidden>
+      <div class="card">
+        <h2>You've got it!</h2>
+        <p class="tag">That's the whole game: pop every bug before the pile reaches the top. Each level brings more bugs and a little more speed.</p>
+        <button id="tutorialPlay" class="primary" data-primary>Play level 0</button>
+        <button id="tutorialMenu">Main menu</button>
       </div>
     </section>
 

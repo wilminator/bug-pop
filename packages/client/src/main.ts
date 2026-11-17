@@ -13,10 +13,11 @@ import { frameCells, inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt } from './storage';
+import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
-type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'help' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
+type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'help' | 'tutorialOffer' | 'tutorialDone' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
 /**
  * config.json, written by each deployment (the open-source build ships one with just a skin):
  *   skin     skin.json to load
@@ -94,6 +95,10 @@ async function main() {
   let matchedBugs: Leaver[] = [];
   let sweep: Sweep | null = null; // a clean sweep being celebrated
   let floats: Float[] = []; // chain-bonus numbers rising off the board
+  // The guided first level, while it runs. Its game lives in `state` like any other, but it is
+  // never saved, uploaded or counted as progress, and the player's real save is reloaded after.
+  let coach: Coach | null = null;
+  let device: Device = 'keyboard';
   const canvas = $<HTMLCanvasElement>('board');
   const ctx = canvas.getContext('2d')!;
   const touchBar = $('touch');
@@ -109,7 +114,7 @@ async function main() {
   requestPersistence();
   cleanUpdateMarker();
   // Read-only handle for debugging and automated browser tests.
-  Object.defineProperty(window, 'bugpop', { value: { get state() { return state; }, get mode() { return mode; }, get cell() { return layout.cell; } } });
+  Object.defineProperty(window, 'bugpop', { value: { get state() { return state; }, get mode() { return mode; }, get cell() { return layout.cell; }, get tutorial() { return coach?.step ?? null; } } });
   audio.soundOn = settings.sound;
   audio.musicOn = settings.music;
 
@@ -120,6 +125,7 @@ async function main() {
     canvas.height = Math.round(rect.height * devicePixelRatio);
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     layout = computeLayout(rect.width, rect.height, 0, frameCells(skin));
+    if (coach) placeCoach(); // the tutorial banner follows the board
   };
   new ResizeObserver(resize).observe(canvas);
   resize();
@@ -148,7 +154,12 @@ async function main() {
     renderPreview($('layoutPreview'), settings.touchLayout);
   };
   showTouch(matchMedia('(pointer: coarse)').matches);
-  input.onDevice = kind => { if (kind === 'touch') showTouch(true); else if (kind === 'keyboard' || kind === 'gamepad') showTouch(false); };
+  input.onDevice = kind => {
+    if (kind === 'touch') showTouch(true); else if (kind === 'keyboard' || kind === 'gamepad') showTouch(false);
+    // The tutorial's words follow whatever the player is using right now.
+    if (device !== kind) { device = kind; coach?.show(device); }
+  };
+  if (touchOn) device = 'touch';
   window.addEventListener('touchstart', () => showTouch(true), { passive: true });
   applyLayout();
   input.attachTouchButtons(topBar);
@@ -188,13 +199,13 @@ async function main() {
   // Audio may only start from a user gesture.
   // The menus have their own title music. Browsers only allow sound after the first tap or
   // key press, so it starts then if a menu is showing.
-  const titleScreens: Mode[] = ['title', 'menu', 'setup', 'settings', 'help', 'offer'];
+  const titleScreens: Mode[] = ['title', 'menu', 'setup', 'settings', 'help', 'tutorialOffer', 'offer'];
   const unlock = () => { audio.unlock(); if (titleScreens.includes(mode)) audio.title(true); };
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), settings: $('settingsScreen'), help: $('helpScreen'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
+  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), settings: $('settingsScreen'), help: $('helpScreen'), tutorialOffer: $('tutorialOffer'), tutorialDone: $('tutorialDone'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
   // A skin may paint its own picture behind the title page and the menu screens (CSS: html.has-art).
   if (skin.title?.background) {
     document.documentElement.style.setProperty('--title-bg', `url(${JSON.stringify(skin.title.background)})`);
@@ -214,6 +225,9 @@ async function main() {
     overlays.setup.hidden = m !== 'setup';
     overlays.settings.hidden = m !== 'settings';
     overlays.help.hidden = m !== 'help';
+    overlays.tutorialOffer.hidden = m !== 'tutorialOffer';
+    overlays.tutorialDone.hidden = m !== 'tutorialDone';
+    $('coach').hidden = !coach || m !== 'playing';
     overlays.offer.hidden = m !== 'offer';
     overlays.choose.hidden = m !== 'choose';
     overlays.update.hidden = m !== 'update';
@@ -227,7 +241,7 @@ async function main() {
     if (m === 'menu' || m === 'setup') void refreshResume();
   };
 
-  const save = () => { if (state && (mode === 'playing' || mode === 'paused')) saveGame(state); };
+  const save = () => { if (state && !coach && (mode === 'playing' || mode === 'paused')) saveGame(state); };
   /** Single player only: copy the game to the player's account so another device can pick it up. */
   // Only a game this account owns goes up: a game played before signing in (or by another account)
   // must never silently replace the account's game. reconcileSaves() settles that first.
@@ -235,7 +249,7 @@ async function main() {
   const mySub = () => (account.kind === 'signedIn' ? account.me.sub : null);
   const upload = () => {
     const sub = mySub(), rec = loadRecord();
-    if (state && rec && cloud.signedIn && sub && saveOwner() === sub) cloud.put(rec);
+    if (state && !coach && rec && cloud.signedIn && sub && saveOwner() === sub) cloud.put(rec);
   };
 
   // ---- Settings form ----
@@ -342,7 +356,7 @@ async function main() {
   const pause = (note = 'Your game is saved.') => {
     if (mode !== 'playing') return;
     pendingActions.push(...input.reset());
-    $('pausedNote').textContent = note;
+    $('pausedNote').textContent = coach ? 'Tutorial paused.' : note;
     save();
     upload();
     audio.pauseMusic();
@@ -367,7 +381,7 @@ async function main() {
   };
   $('updateLater').addEventListener('click', () => keepPlaying?.());
   $('updateNow').addEventListener('click', () => {
-    if (unfinished(state)) { saveGame(state); upload(); } // reopens paused, right where it was
+    if (unfinished(state) && !coach) { saveGame(state); upload(); } // reopens paused, right where it was
     void updateNow();
   });
 
@@ -381,6 +395,7 @@ async function main() {
   };
 
   const toMenu = () => {
+    if (coach) endTutorial();
     save();
     audio.stopMusic();
     show('menu');
@@ -414,8 +429,47 @@ async function main() {
     const s = rec && recordState(rec);
     offerBackTo = 'setup';
     if (rec && s) showOffer(rec, s);
+    else if (!tutorialSeen()) { markTutorialSeen(); show('tutorialOffer'); }
     else newGame();
   };
+
+  // ---- The guided first level (src/tutorial.ts) ----
+  const coachEl = $('coach');
+  // The banner sits over the empty middle of the board, as wide as the board.
+  const placeCoach = () => {
+    coachEl.style.left = `${layout.boardX + (layout.cell * BOARD_WIDTH) / 2}px`;
+    coachEl.style.top = `${layout.boardY + layout.cell * 4}px`;
+    coachEl.style.width = `${Math.max(240, layout.cell * BOARD_WIDTH)}px`;
+  };
+  const startTutorial = () => {
+    markTutorialSeen();
+    coach = new Coach(coachEl, skin, images, settings.shapesOnPieces);
+    state = createTutorialGame();
+    input.reset();
+    pendingActions = [];
+    arrivals = new Map();
+    sweep = null;
+    floats = [];
+    leavers = [];
+    placeCoach();
+    coach.show(device);
+    audio.unlock();
+    audio.play('select');
+    audio.startMusic(true);
+    show('playing');
+  };
+  /** Back to the player's own game (or none): the tutorial game is simply dropped. */
+  const endTutorial = () => {
+    coach = null;
+    coachEl.hidden = true;
+    state = loadGame();
+  };
+  $('tutorialYes').addEventListener('click', startTutorial);
+  $('tutorialNo').addEventListener('click', () => newGame());
+  $('helpTutorial').addEventListener('click', startTutorial);
+  $('coachSkip').addEventListener('click', () => { audio.play('select'); toMenu(); });
+  $('tutorialPlay').addEventListener('click', () => { endTutorial(); show('setup'); });
+  $('tutorialMenu').addEventListener('click', () => { endTutorial(); audio.play('select'); show('menu'); });
   // The "Resume level N" tag on the Single player card, and the Start button's wording.
   const resumeTag = $('resumeTag'), startBtn = $('start');
   const refreshResume = async () => {
@@ -524,6 +578,17 @@ async function main() {
 
   const finish = (won: boolean) => {
     if (!state) return;
+    if (coach) {
+      // The guided level: no progress, no save to clear. A loss just starts it again.
+      audio.stopMusic();
+      show('ending');
+      const decided = state;
+      setTimeout(() => {
+        if (state !== decided || mode !== 'ending') return;
+        if (won) { audio.play('win'); show('tutorialDone'); } else startTutorial();
+      }, FINISH_PAUSE_MS);
+      return;
+    }
     // Progress first: it is what unlocks the next level on the slider.
     if (won && !isEndless(state.config.level)) {
       const p = recordBeaten(state.config.speed, state.config.level);
@@ -571,6 +636,11 @@ async function main() {
   };
 
   const onEvents = (events: GameEvent[]) => {
+    if (coach && state) {
+      const before = coach.step;
+      coach.onEvents(events, state);
+      if (coach.step !== before) { coach.show(device); audio.play('select'); }
+    }
     for (const e of events) {
       switch (e.type) {
         case 'move': audio.play('move'); break;
@@ -685,6 +755,7 @@ async function main() {
         const actions = pendingActions.length ? [...pendingActions, ...f.actions] : f.actions;
         pendingActions = [];
         onEvents(step(state, actions));
+        if (coach?.frozen && state.phase === 'falling') state.dropTimer = 0; // hold the piece still while practising
         acc -= TICK_MS;
       }
     } else {
