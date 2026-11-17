@@ -19,9 +19,10 @@ type Mode = 'title' | 'menu' | 'offer' | 'update' | 'playing' | 'paused' | 'endi
  *   skin     skin.json to load
  *   api      game server base (turns on cloud save)
  *   privacy  link for the title page's Privacy link
+ *   terms    link for the title page's Terms link
  *   ads      { preview: true } shows an outlined, empty ad space on the title page
  */
-type SiteConfig = { skin?: string; api?: string; privacy?: string; ads?: { preview?: boolean } };
+type SiteConfig = { skin?: string; api?: string; privacy?: string; terms?: string; ads?: { preview?: boolean } };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -349,6 +350,7 @@ async function main() {
   // ---- Title page: the first screen on a fresh start ----
   $('play').addEventListener('click', () => { audio.unlock(); audio.play('select'); show('menu'); });
   if (cfg.privacy) { const a = $<HTMLAnchorElement>('privacyLink'); a.href = cfg.privacy; a.hidden = false; }
+  if (cfg.terms) { const a = $<HTMLAnchorElement>('termsLink'); a.href = cfg.terms; a.hidden = false; }
   if (cfg.ads?.preview) { const slot = $('adSlot'); slot.classList.add('preview'); slot.hidden = false; }
   $('offerBack').addEventListener('click', () => show('menu'));
   $('resume').addEventListener('click', resume);
