@@ -80,5 +80,8 @@
     "../../audio/music/music-upbeat.mp3",
     "../../audio/music/music-calm.mp3"
   ],
-  "titleMusic": "../../audio/music/music-title.mp3"
+  "titleMusic": "../../audio/music/music-title.mp3",
+  "title": {
+    "background": "title-bg.svg"
+  }
 }

@@ -1,2 +1,3 @@
 Code Bugs skin art by the Bug Pop project, licensed CC-BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
 Sounds and music it references are CC0; see CREDITS.md at the repository root.
+Exception: the title page background (title-bg.svg, drawn by tools/draw-title-bg.py) is licensed GPL-3.0-only, the same as the code.
