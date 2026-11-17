@@ -106,6 +106,19 @@ describe('play', () => {
     }
   });
 
+  it('pressing down mid-row never drops a burst of rows', () => {
+    const s = createGame({ ...cfg, speed: 0, level: 1 }); // low: 36 ticks a row; held: 10
+    s.board = emptyBoard(); s.bugsLeft = 1; s.board[idx(7, 15)] = { t: 'bug', c: 2 };
+    s.piece = { x: 0, y: 0, rot: 0, a: 0, b: 1 }; s.dropTimer = 0;
+    for (let i = 0; i < 30; i++) step(s); // most of the way through a slow row
+    expect(s.piece!.y).toBe(0);
+    step(s, ['softOn']);
+    const moves: number[] = []; let y = s.piece!.y;
+    for (let t = 1; t <= 40; t++) { step(s); if (s.piece!.y !== y) { moves.push(t); y = s.piece!.y; } }
+    expect(moves[0]).toBeGreaterThanOrEqual(1);
+    for (let i = 1; i < moves.length; i++) expect(moves[i]! - moves[i - 1]!).toBeGreaterThanOrEqual(9); // no two rows close together
+  });
+
   it('a held-down piece really moves at that rate', () => {
     const s = createGame({ ...cfg, speed: 0, level: 1 });
     s.board = emptyBoard(); s.bugsLeft = 1; s.board[idx(7, 15)] = { t: 'bug', c: 2 };

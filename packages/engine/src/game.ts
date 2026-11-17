@@ -108,6 +108,22 @@ export function softDropInterval(s: GameState): number {
   return TICKS_PER_SECOND / Math.max(HELD_MIN_ROWS_PER_SECOND, normal + HELD_EXTRA_ROWS_PER_SECOND);
 }
 
+function dropLimit(s: GameState): number {
+  return Math.round((s.soft ? softDropInterval(s) : gravityInterval(s)) * TIMER_UNITS);
+}
+
+/**
+ * Press or release "down". The drop timer keeps the same fraction of the way through the
+ * current row, so pressing down never lets the time saved up at the slow speed spill out as
+ * a burst of fast rows (it used to drop two rows at once, then settle to the held speed).
+ */
+function setSoft(s: GameState, on: boolean) {
+  if (s.soft === on) return;
+  const before = dropLimit(s);
+  s.soft = on;
+  s.dropTimer = Math.floor(Math.min(s.dropTimer, before) * dropLimit(s) / before);
+}
+
 function spawn(s: GameState, events: GameEvent[]) {
   const piece: Piece = { x: SPAWN_X, y: 0, rot: 0, a: s.next.a, b: s.next.b };
   s.next = randomPair(s);
@@ -200,8 +216,7 @@ function scoreBugs(s: GameState, bugs: number) {
 }
 
 function applyAction(s: GameState, a: Action, events: GameEvent[]) {
-  if (a === 'softOn') { s.soft = true; return; }
-  if (a === 'softOff') { s.soft = false; return; }
+  if (a === 'softOn' || a === 'softOff') { setSoft(s, a === 'softOn'); return; }
   if (s.phase !== 'falling' || !s.piece) return;
   const ok =
     a === 'left' ? tryMove(s, -1) :
@@ -224,7 +239,7 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
   switch (s.phase) {
     case 'falling': {
       s.dropTimer += TIMER_UNITS;
-      const limit = Math.round((s.soft ? softDropInterval(s) : gravityInterval(s)) * TIMER_UNITS);
+      const limit = dropLimit(s);
       if (s.dropTimer >= limit) {
         s.dropTimer -= limit; // keep any leftover (only matters for fractional intervals)
         const p = s.piece!;
