@@ -11,13 +11,14 @@ import { ACTIONS, SAVE_VERSION, type Action, type GameConfig, type GameEvent, ty
 export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
 export const SETTLE_TICKS = 8; // ticks per row while loose halves fall
-// Beats before the next piece appears. Both are whole soft-drop steps (SOFT_DROP_TICKS),
-// so they line up with the rhythm of a held "down".
+/** Ticks per row while "down" is held, at low / medium / high speed: slow is 3x slower than fast. */
+export const SOFT_DROP_TICKS = [6, 4, 2] as const;
+// Beats before the next piece appears. Both are whole soft-drop steps at every speed
+// (multiples of 6, 4 and 2), so they line up with the rhythm of a held "down".
 export const LAND_TICKS = 24; // after a piece lands: 0.4 s, just past the 1/3 s landing sound
-export const AFTER_CLEAR_TICKS = 74; // after a clear: about 1.23 s
-export const SOFT_DROP_TICKS = 2; // ticks per row while soft drop is held
+export const AFTER_CLEAR_TICKS = 72; // after a clear: 1.2 s
 const SPAWN_X = 3;
-const BASE_INTERVAL = [40, 25, 15] as const; // ticks per row at low / medium / high
+const BASE_INTERVAL = [45, 25, 15] as const; // ticks per row at low / medium / high (slow = 3x fast)
 const MIN_INTERVAL = 6;
 const SPEED_MULTIPLIER = [1, 2, 3] as const;
 export const MAX_LEVEL = 99;
@@ -71,6 +72,11 @@ function randomPair(s: GameState) {
 export function gravityInterval(s: GameState): number {
   const overtime = Math.floor(Math.max(0, s.config.level - OVERTIME_FROM) / OVERTIME_EVERY);
   return Math.max(MIN_INTERVAL, BASE_INTERVAL[s.config.speed] - overtime - Math.floor(s.piecesSpawned / 10));
+}
+
+/** Holding down is never slower than just letting the piece fall. */
+export function softDropInterval(s: GameState): number {
+  return Math.min(SOFT_DROP_TICKS[s.config.speed], gravityInterval(s));
 }
 
 function spawn(s: GameState, events: GameEvent[]) {
@@ -168,7 +174,7 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
   switch (s.phase) {
     case 'falling': {
       s.dropTimer++;
-      if (s.dropTimer >= (s.soft ? SOFT_DROP_TICKS : gravityInterval(s))) {
+      if (s.dropTimer >= (s.soft ? softDropInterval(s) : gravityInterval(s))) {
         s.dropTimer = 0;
         const p = s.piece!;
         const lower = { ...p, y: p.y + 1 };

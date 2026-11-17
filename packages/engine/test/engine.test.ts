@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, bugCount, createGame, gravityInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, SOFT_DROP_TICKS, softDropInterval, bugCount, createGame, gravityInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, replay, serialize, settleStep, step, type Action, type Cell, type GameState,
 } from '../src';
 
@@ -80,6 +80,13 @@ describe('play', () => {
     play(s, 60 * 30);
     expect(s.piecesSpawned).toBeGreaterThan(first);
     expect(s.board.some(c => c?.t === 'half')).toBe(true);
+  });
+
+  it('speed sets both falling and held-down drop: slow is 3x slower than fast', () => {
+    const at = (speed: 0 | 1 | 2) => createGame({ ...cfg, speed });
+    expect(gravityInterval(at(0))).toBe(3 * gravityInterval(at(2)));
+    expect(softDropInterval(at(0))).toBe(3 * softDropInterval(at(2)));
+    for (const t of SOFT_DROP_TICKS) { expect(LAND_TICKS % t).toBe(0); expect(AFTER_CLEAR_TICKS % t).toBe(0); }
   });
 
   it('waits a beat after a landing, and longer after a clear, before the next piece', () => {
