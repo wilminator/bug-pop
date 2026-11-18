@@ -65,6 +65,17 @@ A skin is a `skin.json` plus art and sound files. A deployment picks one with a 
 
 A skin can also paint the title page and the menu screens: `"title": {"background": "title-bg.svg"}` (path relative to `skin.json`). The picture is stretched to fill the whole screen, not cropped, so make it an SVG that lays itself out to any size (no `viewBox`). A skin without it, like Code Bugs, keeps the plain dimmed backdrop.
 
+## Logo and publisher link
+
+A deployment can put a logo and a link to its own site on the title page by adding two optional entries to `config.json` (paths relative to the page):
+
+```json
+"logo": {"wide": "brand/logo-wide.png", "stacked": "brand/logo-stacked.png"},
+"home": {"url": "https://example.com/", "name": "More games from Example", "icon": "brand/icon.png"}
+```
+
+The wide logo shows above the title card; screens 600 px wide or less get the stacked one when it is given. With a logo, the plain "Bug Pop" heading is hidden (the logo's alt text keeps the name for screen readers). Without these entries the title page looks as before.
+
 ## License
 
 - Code: [GNU GPL v3.0](LICENSE)

@@ -26,8 +26,16 @@ type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'help' | 'tutorialOffer' |
  *   terms    link for the title page's Terms link
  *   ads      { preview: true } shows an outlined, empty ad space on the title page;
  *            { script: "..." } loads the deployment's own ad code (see src/ads.ts)
+ *   logo     { wide, stacked? } logo pictures for the title page (stacked one on phones)
+ *   home     { url, name, icon? } the publisher's site, linked from the title page
  */
-type SiteConfig = { skin?: string; api?: string; privacy?: string; terms?: string; ads?: AdsConfig };
+type SiteConfig = {
+  skin?: string; api?: string; privacy?: string; terms?: string; ads?: AdsConfig;
+  /** Logo pictures for the title page (paths relative to the page). Without them the title is plain text. */
+  logo?: { wide: string; stacked?: string };
+  /** The publisher's site, linked from the title page, with an optional small icon. */
+  home?: { url: string; name: string; icon?: string };
+};
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -494,6 +502,20 @@ async function main() {
 
   // ---- Title page: the first screen on a fresh start ----
   $('play').addEventListener('click', () => { audio.unlock(); audio.play('select'); show('menu'); void checkUpdateInMenus(); });
+  if (cfg.logo?.wide) {
+    $<HTMLImageElement>('logoWide').src = cfg.logo.wide;
+    if (cfg.logo.stacked) $<HTMLSourceElement>('logoStacked').srcset = cfg.logo.stacked;
+    else $('logoStacked').remove();
+    $('logo').hidden = false;
+    overlays.title.classList.add('has-logo'); // the logo replaces the text heading (kept for screen readers via alt)
+  }
+  if (cfg.home?.url) {
+    const a = $<HTMLAnchorElement>('homeLink');
+    a.href = cfg.home.url;
+    $('homeName').textContent = cfg.home.name;
+    if (cfg.home.icon) { $<HTMLImageElement>('homeIcon').src = cfg.home.icon; $('homeIcon').hidden = false; }
+    a.hidden = false;
+  }
   if (cfg.privacy) { const a = $<HTMLAnchorElement>('privacyLink'); a.href = cfg.privacy; a.hidden = false; }
   if (cfg.terms) { const a = $<HTMLAnchorElement>('termsLink'); a.href = cfg.terms; a.hidden = false; }
   // Account box: Sign in when the server says we're signed out; name and Sign out when signed in.

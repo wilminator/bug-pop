@@ -177,6 +177,18 @@ input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent);
 .touch-hint .hint-go { grid-column: 1 / -1; margin: 2px 0 0; color: var(--accent); font-weight: 700; font-size: 16px; }
 
 /* Title page */
+/* Title page: the logo sits above the card, wide on desktop and stacked on phones. */
+#title { place-content: center; gap: 14px; }
+.logo { display: block; justify-self: center; }
+.logo[hidden] { display: none; }
+.logo img { display: block; width: min(640px, 92vw); height: auto; max-height: 26vh; object-fit: contain; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55)); }
+@media (max-width: 600px) { .logo img { width: min(300px, 78vw); max-height: 30vh; } }
+.has-logo #titleText { display: none; }
+.home-link { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--dim); font-size: 14px; text-decoration: none; }
+.home-link[hidden] { display: none; }
+.home-link img { width: 32px; height: 32px; border-radius: 8px; }
+.home-link img[hidden] { display: none; }
+.home-link:hover span { text-decoration: underline; }
 .links { display: flex; justify-content: center; gap: 18px; }
 .links a { color: var(--dim); }
 .links a[hidden] { display: none; }

@@ -36,8 +36,14 @@
     <div id="touch" class="touch" hidden><!-- buttons come from src/layouts.ts --></div>
 
     <section id="title" class="overlay art" hidden>
+      <!-- The game's logo, when the deployment's config.json names one (see README).
+           Stacked version on narrow screens, wide version elsewhere. -->
+      <picture id="logo" class="logo" hidden>
+        <source id="logoStacked" media="(max-width: 600px)" />
+        <img id="logoWide" alt="Bug Pop" />
+      </picture>
       <div class="card">
-        <h1>Bug Pop</h1>
+        <h1 id="titleText">Bug Pop</h1>
         <p class="tag">Match four of a color to pop the bugs.</p>
         <!-- Wilminator Games account. Only shown when the deployment has a game server that answers. -->
         <div id="accountSlot" class="account" hidden>
@@ -54,6 +60,8 @@
         <button id="play" class="primary" data-primary>Play</button>
         <!-- Ad space: only a deployment's config.json can switch it on (see README). -->
         <div id="adSlot" class="ad-slot" hidden aria-label="Advertisement"></div>
+        <!-- Link to the publisher's site, when config.json names one. -->
+        <a id="homeLink" class="home-link" target="_blank" rel="noopener" hidden><img id="homeIcon" alt="" hidden /><span id="homeName"></span></a>
         <p class="fine links"><button class="link" data-help>How to play</button><a href="credits.html">Credits</a><a id="privacyLink" hidden>Privacy</a><a id="termsLink" hidden>Terms</a></p>
       </div>
     </section>
