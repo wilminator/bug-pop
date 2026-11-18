@@ -5,7 +5,7 @@ import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, SLO_MO, SLO_MO_COL
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
-import { computeLayout, LEAVE_MS, ARRIVE_MS, SWEEP_MS, FLOAT_MS, diagram, render, thumbnail, type Layout, type Leaver, type Sweep, type Float } from './render';
+import { computeLayout, LEAVE_MS, ARRIVE_MS, SWEEP_MS, FLOAT_MS, diagram, loadBubbleFont, render, thumbnail, type Layout, type Leaver, type Sweep, type Float } from './render';
 import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
 import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
@@ -102,6 +102,7 @@ async function main() {
   let arrivals = new Map<number, number>();
   let matchedBugs: Leaver[] = [];
   let sweep: Sweep | null = null; // a clean sweep being celebrated
+  loadBubbleFont(); // the pop-ups' font (28 KB), fetched in the background well before the first combo
   let floats: Float[] = []; // chain-bonus numbers rising off the board
   // The guided first level, while it runs. Its game lives in `state` like any other, but it is
   // never saved, uploaded or counted as progress, and the player's real save is reloaded after.

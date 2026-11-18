@@ -44,6 +44,16 @@ Notes:
 
 Sound effects and jingles by Kenney (www.kenney.nl), wubitog and Fupi; music by kistol, Zane Little Music and TinyWorlds. All CC0, via kenney.nl and OpenGameArt.org.
 
+## Fonts
+
+Files live in `packages/client/public/fonts/`.
+
+| File | Font | Author | Source | License | Private repo OK |
+|---|---|---|---|---|---|
+| LilitaOne-Regular.ttf | Lilita One (unmodified) | Juan Montoreano | https://github.com/google/fonts/tree/main/ofl/lilitaone (also https://fonts.google.com/specimen/Lilita+One) | [SIL Open Font License 1.1](packages/client/public/fonts/OFL.txt) | Yes |
+
+Used for the CLEAN SWEEP! banner and the floating combo numbers (the same "bubble" face as the Bug Pop logo). The OFL lets the font be bundled with any software, open or closed, as long as `OFL.txt` travels with it and the font isn't sold on its own. "Lilita" is a Reserved Font Name, so the file is shipped exactly as published (a converted or subset copy would need a different name). It is served from this site, not from Google Fonts, so players' browsers make no request to Google. Fetched 2026-11-18.
+
 ## Art
 
 The test skin is drawn in code (`packages/client/src/render.ts`). Skin art in `packages/client/public/skins/` is original work for Bug Pop, licensed CC-BY-SA 4.0 unless a file says otherwise.

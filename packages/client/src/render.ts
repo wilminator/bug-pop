@@ -11,6 +11,22 @@ export const LEAVE_MS = 1100;
 /** Endless: how long one arriving bug takes to crawl in from the side of the board. */
 export const ARRIVE_MS = 700;
 
+/**
+ * The "bubble" face of the Bug Pop logo (Lilita One, OFL, bundled in public/fonts) for the
+ * celebration pop-ups. Until it has loaded (or if it can't), the bold system font stands in.
+ */
+let bubbleReady = false; // Lilita One has only one weight: ask for 800 only from the stand-in
+const bubbleFont = (px: number) => bubbleReady
+  ? `${Math.round(px)}px "Lilita One", system-ui, sans-serif`
+  : `800 ${Math.round(px)}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+let bubbleLoad: Promise<unknown> | null = null;
+/** Start loading the bubble font. Safe to call more than once; never throws. */
+export function loadBubbleFont(url = 'fonts/LilitaOne-Regular.ttf') {
+  if (bubbleLoad || typeof FontFace === 'undefined') return;
+  const face = new FontFace('Lilita One', `url(${JSON.stringify(url)})`);
+  bubbleLoad = face.load().then(f => { document.fonts.add(f); bubbleReady = true; }).catch(() => { /* keep the stand-in */ });
+}
+
 /** A chain-bonus number ("x16") rising from where bugs popped. x, y are board cells. */
 export type Float = { text: string; x: number; y: number; t0: number; size: number };
 export const FLOAT_MS = 1000;
@@ -316,7 +332,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.globalAlpha = p < 0.6 ? 1 : 1 - (p - 0.6) / 0.4;
     ctx.translate(fx, by + (f.y + 0.5) * c - rise);
     ctx.scale(pop, pop);
-    ctx.font = `800 ${Math.round(c * f.size)}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    ctx.font = bubbleFont(c * f.size);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
@@ -466,7 +482,7 @@ function drawSweep(ctx: CanvasRenderingContext2D, skin: Skin, layout: Layout, sw
   ctx.beginPath();
   ctx.roundRect(-bw * 0.48, -c * 1.35, bw * 0.96, c * 2.55, c * 0.4);
   ctx.fill();
-  const fontFor = (px: number) => `800 ${Math.round(px)}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  const fontFor = bubbleFont;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = fontFor(c * 0.95);
