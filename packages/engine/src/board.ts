@@ -126,16 +126,16 @@ export function bugZoneRows(level: number, classic = false): number {
   const roomy = n >= 80 ? 13 : n >= 72 ? 12 : n >= 64 ? 11 : 10;
   const normal = level >= TALL_ZONE_LEVEL ? 13 : Math.min(12, roomy);
   if (classic) return normal;
-  // Early levels keep the bugs low (Jeanne's idea, Mike 2026-11-19): the bottom quarter
-  // on level 1, rising a row about every 7 levels, but never packed more than two-thirds
+  // Early levels keep the bugs low (Jeanne's idea, Mike 2026-11-19): the bottom third
+  // on level 1, rising a row about every 8 levels, but never packed more than two-thirds
   // full, so the area is back to its normal height by the mid-40s.
   const ramp = LOW_ZONE_ROWS + Math.floor(((Math.max(1, level) - 1) * (LOW_ZONE_END_ROWS - LOW_ZONE_ROWS)) / (LOW_ZONE_END_LEVEL - 1));
   const roomEnough = Math.ceil((n * 3) / (2 * W));
   return Math.min(normal, Math.max(ramp, roomEnough));
 }
 
-/** Rows of bugs on level 1 (a quarter of the board), and the ramp's end point. */
-export const LOW_ZONE_ROWS = 4, LOW_ZONE_END_ROWS = 11, LOW_ZONE_END_LEVEL = 50;
+/** Rows of bugs on level 1 (about a third of the board, Mike 2026-11-19), and the ramp's end point. */
+export const LOW_ZONE_ROWS = 5, LOW_ZONE_END_ROWS = 11, LOW_ZONE_END_LEVEL = 50;
 
 /**
  * Scatter bugs for a level. Colors cycle so they stay balanced, and we avoid

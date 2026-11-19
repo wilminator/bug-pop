@@ -333,9 +333,9 @@ describe('save and replay', () => {
     expect([0, 44, 45, 51, 57, 60, 61, 100].map(l => bugZoneRows(l, true))).toEqual([10, 10, 11, 12, 12, 12, 13, 13]);
   });
 
-  it('early levels keep bugs low: the bottom quarter on level 1, back to normal by the mid-40s', () => {
+  it('early levels keep bugs low: the bottom third on level 1, back to normal by the mid-40s', () => {
     const levels = [1, 7, 8, 15, 22, 30, 40, 45, 50, 60, 61, 100];
-    expect(levels.map(l => bugZoneRows(l))).toEqual([4, 4, 5, 6, 7, 9, 10, 11, 11, 12, 13, 13]);
+    expect(levels.map(l => bugZoneRows(l))).toEqual([5, 5, 5, 6, 7, 9, 10, 11, 11, 12, 13, 13]);
     // Never taller than the classic area, never shrinking, and while lowered never more than two-thirds full.
     let last = 0;
     for (let l = 1; l <= 100; l++) {
