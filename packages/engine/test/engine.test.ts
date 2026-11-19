@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
-  removeCells, pieceCells, cleanSweepBonus, scoreMultiplier, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
+  removeCells, pieceCells, fits, type Piece, cleanSweepBonus, scoreMultiplier, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
 const cfg = { seed: 12345, level: 5, speed: 1 as const, colors: 3 };
@@ -475,5 +475,74 @@ describe('slo-mo', () => {
     expect(createGame({ ...cfg, speed: SLO_MO, colors: 5 }).config.speed).toBe(SLO_MO);
     // With 2 or 3 colors a slo-mo request falls back to low.
     expect(createGame({ ...cfg, speed: SLO_MO, colors: 3 }).config.speed).toBe(0);
+  });
+});
+
+// Jeanne's report (2026-11-19): two bugs of different colors, one column apart, with three
+// empty rows between them. Three pieces fill both columns; only the bottom bug popped.
+describe('more than one line at once', () => {
+  const RED = 0, BLUE = 1;
+  /** A board with the given bugs plus a far-away green one, so clearing them doesn't win. */
+  function boardWith(bugs: [number, number, number][]): GameState {
+    const s = createGame({ ...cfg, level: 0 });
+    s.board = emptyBoard();
+    for (const [x, y, c] of bugs) s.board[idx(x, y)] = { t: 'bug', c };
+    s.board[idx(7, 15)] = { t: 'bug', c: 2 };
+    s.bugsLeft = bugs.length + 1;
+    return s;
+  }
+  /** Lock a piece where it is, then run until the next piece is falling. Returns the match events. */
+  function land(s: GameState, piece: Piece) {
+    expect(fits(s.board, piece)).toBe(true);
+    expect(fits(s.board, { ...piece, y: piece.y + 1 })).toBe(false); // it's resting on something
+    s.piece = piece; s.phase = 'falling'; s.dropTimer = 1e12; // lock on the next tick
+    const matches: Extract<GameEvent, { type: 'match' }>[] = [];
+    for (let i = 0; i < 2000; i++) {
+      for (const e of step(s)) if (e.type === 'match') matches.push(e);
+      if (s.phase === 'falling' && i > 0) break;
+    }
+    return matches;
+  }
+  // Red bug at the bottom of column 2, blue bug in column 3 with rows 12, 13 and 14 empty between.
+  const jeanne = () => boardWith([[2, 15, RED], [3, 11, BLUE]]);
+  const redPair = { x: 2, y: 14, rot: 1, a: RED, b: RED } as const; // red on rows 14 and 13
+  const bluePair = { x: 3, y: 10, rot: 1, a: BLUE, b: BLUE } as const; // blue on rows 10 and 9, above the blue bug
+  const bridge = { x: 2, y: 12, rot: 0, a: RED, b: BLUE } as const; // red on (2,12), blue on (3,12) just under the blue bug
+
+  it('pops both bugs when the last piece finishes both columns', () => {
+    const s = jeanne();
+    expect(land(s, redPair)).toEqual([]);
+    expect(land(s, bluePair)).toEqual([]);
+    const matches = land(s, bridge); // red finishes column 2, blue finishes column 3
+    expect(matches).toHaveLength(1); // one clear takes both lines together
+    expect(matches[0]!.bugs).toBe(2);
+    expect(s.board[idx(2, 15)]).toBeNull();
+    expect(s.board[idx(3, 11)]).toBeNull();
+    expect(s.bugsLeft).toBe(1);
+  });
+
+  it('a half whose partner pops falls away, so a line it was holding up is no longer whole', () => {
+    // The order that leaves the top bug: the bridge goes second. Its red half finishes column 2
+    // at once; the blue half under the blue bug loses its partner and drops to the floor.
+    const s = jeanne();
+    land(s, redPair);
+    const first = land(s, bridge);
+    expect(first).toHaveLength(1);
+    expect(first[0]!.bugs).toBe(1);
+    expect(s.board[idx(3, 12)]).toBeNull(); // the blue half fell...
+    expect(s.board[idx(3, 15)]).toEqual({ t: 'half', c: BLUE, l: null }); // ...all the way down
+    expect(land(s, bluePair)).toEqual([]); // so column 3 has only three blues in a row
+    expect(s.board[idx(3, 11)]).toEqual({ t: 'bug', c: BLUE });
+  });
+
+  it('pops a row and a column that one piece finishes together', () => {
+    // Red bugs: three along row 12 (x 0-2) and three down column 3 (y 13-15). One red half
+    // landing on (3,12) is the corner of both: a row of four and a column of four.
+    const s = boardWith([[0, 12, RED], [1, 12, RED], [2, 12, RED], [3, 13, RED], [3, 14, RED], [3, 15, RED]]);
+    const matches = land(s, { x: 3, y: 12, rot: 1, a: RED, b: BLUE }); // red at (3,12), blue on top
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.cells).toEqual([idx(0, 12), idx(1, 12), idx(2, 12), idx(3, 12), idx(3, 13), idx(3, 14), idx(3, 15)]);
+    expect(matches[0]!.bugs).toBe(6);
+    expect(s.bugsLeft).toBe(1); // only the far-away green bug is left
   });
 });
