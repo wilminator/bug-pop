@@ -452,16 +452,26 @@ async function main() {
     const other = best === local ? remote : local; // the newest was damaged or finished
     return other && unfinished(recordState(other)) ? other : null;
   };
+  /**
+   * Single player (Mike, 2026-11-19): a saved game is offered FIRST; the game options come only
+   * after "Start a new game", and the old save stays until the new game actually starts.
+   */
+  let setupFrom: Mode = 'menu';
   const singlePlayer = async () => {
     audio.unlock();
     if (await reconcileSaves()) return; // a clash the server was too slow to show at start-up
-    readForm();
-    await updateGate();
     const rec = await findSave();
     const s = rec && recordState(rec);
-    offerBackTo = 'setup';
+    offerBackTo = 'menu';
     if (rec && s) showOffer(rec, s);
-    else if (!tutorialSeen()) { markTutorialSeen(); show('tutorialOffer'); }
+    else { setupFrom = 'menu'; show('setup'); }
+  };
+  /** Start on the options screen: only now is a new game made, replacing any saved one. */
+  const startNew = async () => {
+    audio.unlock();
+    readForm();
+    await updateGate();
+    if (!tutorialSeen()) { markTutorialSeen(); show('tutorialOffer'); }
     else newGame();
   };
 
@@ -500,7 +510,7 @@ async function main() {
   $('tutorialNo').addEventListener('click', () => newGame());
   $('helpTutorial').addEventListener('click', startTutorial);
   $('coachSkip').addEventListener('click', () => { audio.play('select'); toMenu(); });
-  $('tutorialPlay').addEventListener('click', () => { endTutorial(); show('setup'); });
+  $('tutorialPlay').addEventListener('click', () => { endTutorial(); setupFrom = 'menu'; show('setup'); });
   $('tutorialMenu').addEventListener('click', () => { endTutorial(); audio.play('select'); show('menu'); });
   // The "Resume level N" tag on the Single player card, and the Start button's wording.
   const resumeTag = $('resumeTag'), startBtn = $('start');
@@ -509,10 +519,10 @@ async function main() {
     const s = rec && recordState(rec);
     resumeTag.hidden = !s;
     if (s) resumeTag.textContent = `Resume ${levelName(s)}`;
-    startBtn.textContent = s ? 'Resume or start new' : 'Start';
+    startBtn.textContent = 'Start';
   };
-  $('newGame').addEventListener('click', () => { audio.play('select'); show('setup'); });
-  $('start').addEventListener('click', () => void singlePlayer());
+  $('newGame').addEventListener('click', () => { audio.play('select'); void singlePlayer(); });
+  $('start').addEventListener('click', () => void startNew());
   $('offerResume').addEventListener('click', () => {
     const s = offered && recordState(offered);
     if (!s) { newGame(); return; }
@@ -522,7 +532,8 @@ async function main() {
     pendingActions = [];
     resume();
   });
-  $('offerNew').addEventListener('click', () => newGame());
+  // The saved game is kept: it is only replaced once Start on the options screen begins a new one.
+  $('offerNew').addEventListener('click', () => { audio.play('select'); setupFrom = 'offer'; show('setup'); });
 
   // ---- Title page: the first screen on a fresh start ----
   $('play').addEventListener('click', () => { audio.unlock(); audio.play('select'); show('menu'); void checkUpdateInMenus(); });
@@ -578,7 +589,7 @@ async function main() {
   // Back (top left) and the Settings gear (top right) on every menu screen after the title.
   let settingsFrom: Mode = 'menu';
   let helpFrom: Mode = 'menu';
-  const backTo = (): Mode => (mode === 'menu' ? 'title' : mode === 'setup' ? 'menu' : mode === 'settings' ? settingsFrom : mode === 'help' ? helpFrom : offerBackTo);
+  const backTo = (): Mode => (mode === 'menu' ? 'title' : mode === 'setup' ? setupFrom : mode === 'settings' ? settingsFrom : mode === 'help' ? helpFrom : offerBackTo);
   document.querySelectorAll<HTMLElement>('[data-back]').forEach(b => b.addEventListener('click', () => { audio.play('select'); show(backTo()); }));
   document.querySelectorAll<HTMLElement>('[data-gear]').forEach(b => b.addEventListener('click', () => { audio.play('select'); settingsFrom = mode; show('settings'); }));
   // How to play: from the title, any menu screen, or the pause card (Back returns there).
