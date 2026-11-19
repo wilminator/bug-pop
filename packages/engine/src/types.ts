@@ -62,6 +62,12 @@ export type GameConfig = {
    * running multiplier (see GameState.mult).
    */
   classicScoring?: boolean;
+  /**
+   * true: bugs fill the classic tall area from level 1 (10 rows or more). Absent or
+   * false: early levels keep their bugs low, from the bottom quarter on level 1 up to
+   * the normal height by the mid-40s (see bugZoneRows).
+   */
+  classicBugZone?: boolean;
 };
 
 /** 'waiting' is the short beat after things land, before the next piece appears. */

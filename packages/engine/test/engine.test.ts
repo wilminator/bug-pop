@@ -329,8 +329,45 @@ describe('save and replay', () => {
     expect(FULL_BOARD_LEVEL).toBe(60);
   });
 
-  it('the bug area grows a row as it gets crowded, 12 rows at most until level 61, then 13', () => {
-    expect([0, 44, 45, 51, 57, 60, 61, 100].map(bugZoneRows)).toEqual([10, 10, 11, 12, 12, 12, 13, 13]);
+  it('classic bug area grows a row as it gets crowded, 12 rows at most until level 61, then 13', () => {
+    expect([0, 44, 45, 51, 57, 60, 61, 100].map(l => bugZoneRows(l, true))).toEqual([10, 10, 11, 12, 12, 12, 13, 13]);
+  });
+
+  it('early levels keep bugs low: the bottom quarter on level 1, back to normal by the mid-40s', () => {
+    const levels = [1, 7, 8, 15, 22, 30, 40, 45, 50, 60, 61, 100];
+    expect(levels.map(l => bugZoneRows(l))).toEqual([4, 4, 5, 6, 7, 9, 10, 11, 11, 12, 13, 13]);
+    // Never taller than the classic area, never shrinking, and while lowered never more than two-thirds full.
+    let last = 0;
+    for (let l = 1; l <= 100; l++) {
+      const rows = bugZoneRows(l);
+      expect(rows).toBeLessThanOrEqual(bugZoneRows(l, true));
+      if (rows < bugZoneRows(l, true)) expect(bugCount(l)).toBeLessThanOrEqual((rows * W * 2) / 3);
+      expect(rows).toBeGreaterThanOrEqual(last);
+      last = rows;
+    }
+    for (let l = 45; l <= 100; l++) expect(bugZoneRows(l)).toBe(bugZoneRows(l, true));
+  });
+
+  it('every level opens with bugs only in its area and never four bugs in a line', () => {
+    for (const classicBugZone of [false, true]) {
+      for (let level = 1; level <= 100; level++) {
+        for (let seed = 1; seed <= 12; seed++) {
+          const s = createGame({ ...cfg, seed: seed * 7919 + level, level, colors: 2 + (seed % 4), classicBugZone });
+          expect(s.bugsLeft).toBe(bugCount(level));
+          const top = H - bugZoneRows(level, classicBugZone);
+          expect(s.board.slice(0, top * W).every(c => c === null || c.t !== 'bug')).toBe(true);
+          for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const c = s.board[idx(x, y)];
+            if (!c || c.t !== 'bug') continue;
+            const same = (dx: number, dy: number) => [1, 2, 3].every(k => {
+              const o = x + dx * k < W && y + dy * k < H ? s.board[idx(x + dx * k, y + dy * k)] : null;
+              return o?.t === 'bug' && o.c === c.c;
+            });
+            expect(same(1, 0) || same(0, 1)).toBe(false);
+          }
+        }
+      }
+    }
   });
 
   it('every bug fits on a crowded level-60 board (84 bugs in 12 rows) without opening matches', () => {

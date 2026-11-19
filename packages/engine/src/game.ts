@@ -60,6 +60,7 @@ export function normalizeConfig(c: GameConfig): GameConfig {
     ...(c.startScore ? { startScore: Math.max(0, Math.floor(c.startScore)) } : {}),
     ...(c.cleanSweep === false ? { cleanSweep: false } : {}),
     ...(c.classicScoring ? { classicScoring: true } : {}),
+    ...(c.classicBugZone ? { classicBugZone: true } : {}),
     ...(c.endless ? { endless: true } : {}),
   };
 }
@@ -87,7 +88,7 @@ export function createGame(config: GameConfig): GameState {
     chain: 0,
     log: [],
   };
-  s.bugsLeft = placeBugs(s.board, s, cfg.level, cfg.colors);
+  s.bugsLeft = placeBugs(s.board, s, cfg.level, cfg.colors, cfg.classicBugZone);
   s.next = randomPair(s);
   spawn(s, []);
   return s;
@@ -221,7 +222,7 @@ function nextRound(s: GameState, events: GameEvent[]) {
   checkCleanSweep(s, events); // Endless: the board has settled, so this is the sweep check for the round just cleared
   s.round = (s.round ?? 0) + 1;
   const lvl = currentLevel(s);
-  const { cells, replaced } = addBugs(s.board, s, bugCount(lvl), s.config.colors, bugZoneRows(lvl));
+  const { cells, replaced } = addBugs(s.board, s, bugCount(lvl), s.config.colors, bugZoneRows(lvl, s.config.classicBugZone));
   s.bugsLeft = cells.length;
   s.phaseTimer = Math.max(s.phaseTimer, ARRIVE_TICKS);
   events.push({ type: 'arrive', cells, replaced, round: s.round });
