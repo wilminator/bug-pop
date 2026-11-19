@@ -443,6 +443,29 @@ describe('save and replay', () => {
     expect(endlessGame(createGame({ ...cfg, level: FINAL_LEVEL }))).toBe(false);
   });
 
+  it('after the last bug, halves still fall and chains play out before the level is won', () => {
+    // Row 15: green halves at x 0-2, the last bug (red) at x 3, red halves at x 4-5.
+    // A green half rests on the bug. A flat red piece lands at x 6-7: the red line pops the bug,
+    // the green half drops into the green row, that pops too, and the board is empty: a sweep.
+    const g = createGame({ ...cfg, seed: 9, level: 5 });
+    g.board = emptyBoard();
+    for (let x = 0; x < 3; x++) g.board[idx(x, 15)] = { t: 'half', c: 2, l: null };
+    g.board[idx(3, 15)] = { t: 'bug', c: 1 };
+    g.board[idx(3, 14)] = { t: 'half', c: 2, l: null };
+    g.board[idx(4, 15)] = { t: 'half', c: 1, l: null };
+    g.board[idx(5, 15)] = { t: 'half', c: 1, l: null };
+    g.bugsLeft = 1;
+    g.piece = { x: 6, y: 2, rot: 0, a: 1, b: 1 };
+    const events: GameEvent[] = [];
+    step(g, ['softOn']);
+    for (let i = 0; i < 3000 && g.phase !== 'won'; i++) events.push(...step(g));
+    const types = events.map(e => e.type);
+    expect(g.phase).toBe('won');
+    expect(types.filter(t => t === 'match').length).toBe(2); // the red line, then the green one
+    expect(types.indexOf('cleanSweep')).toBe(types.indexOf('won') - 1);
+    expect(g.board.every(c => c === null)).toBe(true);
+  });
+
   it('Endless: halves left lying around mean no sweep bonus', () => {
     const g = lastBugsEndless();
     const events: GameEvent[] = [];

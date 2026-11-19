@@ -192,7 +192,10 @@ function resolve(s: GameState, events: GameEvent[]) {
   if (cells.length === 0) {
     s.phase = 'waiting';
     s.phaseTimer = s.chain > 0 ? AFTER_CLEAR_TICKS : LAND_TICKS;
-    if (s.bugsLeft <= 0) nextRound(s, events); // Endless: everything has settled, bring in more bugs
+    if (s.bugsLeft <= 0) {
+      if (endlessGame(s)) nextRound(s, events); // Endless: everything has settled, bring in more bugs
+      else win(s, events); // the board has settled after the last bug: the level is won
+    }
     return;
   }
   s.chain++;
@@ -201,6 +204,13 @@ function resolve(s: GameState, events: GameEvent[]) {
   s.phaseTimer = CLEAR_TICKS;
   const bugs = cells.filter(i => s.board[i]?.t === 'bug').length;
   events.push({ type: 'match', cells, bugs, chain: s.chain });
+}
+
+/** The last bug is gone and everything has stopped moving: check the sweep, then the level is won. */
+function win(s: GameState, events: GameEvent[]) {
+  checkCleanSweep(s, events);
+  s.phase = 'won';
+  events.push({ type: 'won' });
 }
 
 /**
@@ -306,13 +316,8 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       s.bugsLeft -= bugs;
       scoreBugs(s, bugs);
       events.push({ type: 'cleared', bugs, chainBonus: bugs ? 2 ** Math.min(s.dropBugs - 1, 5) : 1 });
-      // In Endless the board carries on: the next round starts once things settle (see resolve).
-      if (s.bugsLeft <= 0 && !endlessGame(s)) {
-        checkCleanSweep(s, events); // the game stops here, so loose halves still in the air count as left over
-        s.phase = 'won';
-        events.push({ type: 'won' });
-        break;
-      }
+      // Even after the last bug, loose halves fall and any chain plays out before the level ends
+      // (Mike, 2026-11-19): a better chance at a clean sweep. See resolve().
       s.phase = 'settling';
       s.phaseTimer = SETTLE_TICKS;
       break;
