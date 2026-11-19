@@ -34,7 +34,7 @@ const BUGS: [x: number, y: number, c: number][] = [
 const FIRST = { a: YELLOW, b: BLUE };
 const FEED = [{ a: BLUE, b: BLUE }, { a: YELLOW, b: YELLOW }, { a: BLUE, b: YELLOW }, { a: YELLOW, b: YELLOW }, { a: BLUE, b: BLUE }];
 
-/** A fresh tutorial game: level 0 at Slo-mo (one row a second), with the scripted board. */
+/** A fresh tutorial game: level 0 at Slo-mo (one row a second, as at level 1), with the scripted board. */
 export function createTutorialGame(): GameState {
   // 4 colors so Slo-mo is allowed; only blue and yellow ever appear.
   const s = createGame({ seed: 1, level: 0, speed: SLO_MO, colors: 4 });

@@ -114,24 +114,25 @@ describe('play', () => {
     expect(s.board.some(c => c?.t === 'half')).toBe(true);
   });
 
-  it('fall speeds are even in rows per second: speeds spread evenly, levels climb evenly to 100', () => {
+  it('fall speeds in rows per second: each ends on 1.5x the next speed up, levels climb evenly to 100', () => {
     const r = (speed: number, level: number) => Math.round(fallSpeed(speed as 0, level) * 1000) / 1000;
-    expect([3, 0, 1, 2].map(sp => r(sp, 1))).toEqual([1, 1.667, 2.333, 3]); // slo-mo, low, medium, fast
-    expect([3, 0, 1, 2].map(sp => r(sp, 100))).toEqual([2.5, 3.667, 4.833, 6]);
-    expect(r(2, 5000)).toBe(6); // Endless holds level 100's speed
-    expect(r(2, 0)).toBe(3);
+    expect([3, 0, 1, 2].map(sp => r(sp, 1))).toEqual([1, 1.5, 2, 2.5]); // slo-mo, low, medium, fast
+    expect([3, 0, 1, 2].map(sp => r(sp, 100))).toEqual([2.25, 3, 3.75, 5]);
+    expect(r(2, 5000)).toBe(5); // Endless holds level 100's speed
+    expect(r(2, 0)).toBe(2.5);
     // Even climb: the same gain from 1->34 as from 34->67
-    expect(r(2, 34) - r(2, 1)).toBeCloseTo(r(2, 67) - r(2, 34), 6);
+    const f = (lv: number) => fallSpeed(2, lv);
+    expect(f(34) - f(1)).toBeCloseTo(f(67) - f(34), 9);
     const g = createGame({ ...cfg, speed: 2, level: 1 });
     g.piecesSpawned = 500;
-    expect(gravityInterval(g)).toBe(20); // 3 rows/s, no speed-up as pieces are placed
+    expect(gravityInterval(g)).toBe(24); // 2.5 rows/s, no speed-up as pieces are placed
   });
 
   it('holding down falls at 6 rows a second, or normal + 0.5 when that is faster', () => {
     const held = (sp: number, lv: number) => 60 / softDropInterval(createGame({ ...cfg, colors: 4, speed: sp as 0, level: lv }));
-    expect(held(0, 1)).toBeCloseTo(6, 9); // low, level 1: 1.67 normal -> 6
-    expect(held(2, 100)).toBeCloseTo(6.5, 9); // fast, level 100: 6 normal -> 6.5
-    expect(held(2, 5000)).toBeCloseTo(6.5, 9);
+    expect(held(0, 1)).toBeCloseTo(6, 9); // low, level 1: 1.5 normal -> 6
+    expect(held(2, 100)).toBeCloseTo(6, 9); // fast, level 100: 5 normal -> 6 (5.5 is slower)
+    expect(held(2, 5000)).toBeCloseTo(6, 9);
     for (const sp of [0, 1, 2, 3]) for (const lv of [1, 50, 100, 300]) {
       const s = createGame({ ...cfg, colors: 4, speed: sp as 0, level: lv });
       expect(60 / softDropInterval(s) - 60 / gravityInterval(s)).toBeGreaterThanOrEqual(HELD_EXTRA_ROWS_PER_SECOND - 1e-9);
@@ -139,7 +140,7 @@ describe('play', () => {
   });
 
   it('pressing down mid-row never drops a burst of rows', () => {
-    const s = createGame({ ...cfg, speed: 0, level: 1 }); // low: 36 ticks a row; held: 10
+    const s = createGame({ ...cfg, speed: 0, level: 1 }); // low: 40 ticks a row; held: 10
     s.board = emptyBoard(); s.bugsLeft = 1; s.board[idx(7, 15)] = { t: 'bug', c: 2 };
     s.piece = { x: 0, y: 0, rot: 0, a: 0, b: 1 }; s.dropTimer = 0;
     for (let i = 0; i < 30; i++) step(s); // most of the way through a slow row

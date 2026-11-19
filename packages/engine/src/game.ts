@@ -24,12 +24,16 @@ export const AFTER_CLEAR_TICKS = 75; // after a clear: 1.25 s
 export const ARRIVE_TICKS = 75;
 const SPAWN_X = 3;
 // Fall speeds are designed in rows per second (Mike, 2026-11-17): equal steps in ticks feel
-// uneven, because speed is 60 / ticks. Slo-mo and fast set the ends; low and medium sit evenly
-// between them, and every speed climbs evenly from level 1 to FINAL_LEVEL, then holds.
-const SLOWEST = { first: 1.0, last: 2.5 }; // slo-mo, rows/s at level 1 and level 100
-const FASTEST = { first: 3.0, last: 6.0 }; // fast
-/** Where each speed (low / medium / high / slo-mo) sits between slo-mo (0) and fast (3). */
-const SPEED_RANK = [1, 2, 3, 0] as const;
+// uneven, because speed is 60 / ticks. Every speed climbs evenly from level 1 to FINAL_LEVEL,
+// then holds. Mike, 2026-11-19: level 1 starts at 1.0 / 1.5 / 2.0 / 2.5, and each speed ends at
+// level 100 on 1.5x the next faster speed's start (fast ends on 5).
+/** Rows per second at level 1 and level 100, by speed: low, medium, high (fast), slo-mo. */
+const FALL_SPEEDS = [
+  { first: 1.5, last: 3.0 }, // low
+  { first: 2.0, last: 3.75 }, // medium
+  { first: 2.5, last: 5.0 }, // fast
+  { first: 1.0, last: 2.25 }, // slo-mo
+] as const;
 const SPEED_MULTIPLIER = [1, 2, 3, 0.5] as const; // slo-mo bugs are worth 50, so scores stay whole numbers
 /** The slowest speed, offered only with 4 or 5 colors. */
 export const SLO_MO = 3;
@@ -101,8 +105,7 @@ function randomPair(s: GameState) {
 /** Rows per second at a speed and level (no holding down). */
 export function fallSpeed(speed: GameConfig['speed'], level: number): number {
   const t = Math.min(1, Math.max(0, level - 1) / (FINAL_LEVEL - 1)); // 0 at level 1, 1 at level 100+
-  const first = SLOWEST.first + (FASTEST.first - SLOWEST.first) * SPEED_RANK[speed] / 3;
-  const last = SLOWEST.last + (FASTEST.last - SLOWEST.last) * SPEED_RANK[speed] / 3;
+  const { first, last } = FALL_SPEEDS[speed];
   return first + (last - first) * t;
 }
 
