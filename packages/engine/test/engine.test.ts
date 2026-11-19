@@ -44,9 +44,41 @@ describe('board rules', () => {
     const b = emptyBoard();
     for (let x = 1; x <= 4; x++) b[idx(x, 15)] = { t: 'bug', c: 1 };
     for (let y = 10; y <= 12; y++) b[idx(7, y)] = { t: 'half', c: 2, l: null };
-    expect(findMatches(b)).toEqual([idx(1, 15), idx(2, 15), idx(3, 15), idx(4, 15)]);
+    b[idx(5, 15)] = { t: 'half', c: 1, l: null }; // a half joins the bugs' line
+    expect(findMatches(b)).toEqual([idx(1, 15), idx(2, 15), idx(3, 15), idx(4, 15), idx(5, 15)]);
     b[idx(7, 13)] = { t: 'half', c: 2, l: null };
-    expect(findMatches(b)).toHaveLength(8);
+    expect(findMatches(b)).toHaveLength(9);
+  });
+
+  it('bugs alone never pop, however many line up; one half in the line pops them all', () => {
+    const b = emptyBoard();
+    for (let x = 0; x < 6; x++) b[idx(x, 15)] = { t: 'bug', c: 0 }; // six in a row
+    for (let y = 9; y <= 14; y++) b[idx(7, y)] = { t: 'bug', c: 2 }; // six in a column
+    expect(findMatches(b)).toEqual([]);
+    b[idx(7, 8)] = { t: 'half', c: 2, l: null }; // on top of the column
+    expect(findMatches(b)).toHaveLength(7);
+    b[idx(7, 8)] = null;
+    b[idx(6, 15)] = { t: 'half', c: 1, l: null }; // wrong color: nothing
+    expect(findMatches(b)).toEqual([]);
+  });
+
+  it('halves alone still pop', () => {
+    const b = emptyBoard();
+    for (let x = 2; x < 6; x++) b[idx(x, 15)] = { t: 'half', c: 1, l: null };
+    expect(findMatches(b)).toHaveLength(4);
+  });
+
+  it('Endless lets a new bug line up with other bugs', () => {
+    // The bug area (bottom 4 rows) is all color-0 bugs except one hole. Any bug there makes a
+    // line of bugs. Before this rule it could not come at all (no half to take over).
+    const board = emptyBoard();
+    for (let y = H - 4; y < H; y++) for (let x = 0; x < W; x++) board[idx(x, y)] = { t: 'bug', c: 0 };
+    board[idx(3, H - 1)] = null;
+    expect(findMatches(board)).toEqual([]);
+    const { cells, replaced } = addBugs(board, { rng: 1 }, 1, 1, 4);
+    expect(cells).toEqual([idx(3, H - 1)]);
+    expect(replaced).toEqual([]);
+    expect(findMatches(board)).toEqual([]);
   });
 
   it('turns a half into a lone half when its partner is removed', () => {

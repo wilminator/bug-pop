@@ -35,7 +35,11 @@ export function fits(board: Cell[], p: Piece): boolean {
   return pieceCells(p).every(h => h.y < 0 ? h.y >= -1 && h.x >= 0 && h.x < W : inBounds(h.x, h.y) && board[idx(h.x, h.y)] === null);
 }
 
-/** All cells that sit in a horizontal or vertical run of MATCH_LENGTH+ of one color. */
+/**
+ * All cells that sit in a horizontal or vertical run of MATCH_LENGTH+ of one color that holds at
+ * least one piece half. Bugs alone never pop, however many line up (Mike, 2026-11-19): it lets
+ * Endless bring bugs in beside other bugs. A half joining such a line pops the whole run.
+ */
 export function findMatches(board: Cell[]): number[] {
   const hit = new Set<number>();
   const scan = (cells: number[]) => {
@@ -44,7 +48,9 @@ export function findMatches(board: Cell[]): number[] {
       const prev = board[cells[i - 1]!];
       const cur = i < cells.length ? board[cells[i]!] : null;
       if (cur && prev && cur.c === prev.c) continue;
-      if (prev && i - start >= MATCH_LENGTH) for (let k = start; k < i; k++) hit.add(cells[k]!);
+      if (prev && i - start >= MATCH_LENGTH && cells.slice(start, i).some(j => board[j]!.t === 'half')) {
+        for (let k = start; k < i; k++) hit.add(cells[k]!);
+      }
       start = i;
     }
   };
@@ -182,12 +188,31 @@ function lineThrough(board: Cell[], x: number, y: number, c: Color): number {
   return Math.max(h, v);
 }
 
+/** Would a bug of color c at (x, y) complete a line that pops (four or more, with a half in it)? */
+function wouldPop(board: Cell[], x: number, y: number, c: Color): boolean {
+  for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+    let len = 1, half = false;
+    for (const sgn of [-1, 1]) {
+      for (let k = 1; ; k++) {
+        const nx = x + dx * k * sgn, ny = y + dy * k * sgn;
+        const cell = inBounds(nx, ny) ? board[idx(nx, ny)] : null;
+        if (!cell || cell.c !== c) break;
+        len++;
+        if (cell.t === 'half') half = true;
+      }
+    }
+    if (len >= MATCH_LENGTH && half) return true;
+  }
+  return false;
+}
+
 /**
  * Continuous play: bring `count` more bugs onto a board that already has pieces on it.
  * Arrivals never complete a match. Each bug tries, in order:
  *   1. an empty cell in the bug area where it doesn't even make three in a line;
- *   2. any empty cell in the bug area where it doesn't make a match;
- *   3. as a last resort, it takes over a piece half of the same color (Mike, 2026-11-16).
+ *   2. any empty cell in the bug area where it doesn't make four in a line;
+ *   3. any empty cell where it only lines up with other bugs (bugs alone never pop);
+ *   4. as a last resort, it takes over a piece half of the same color (Mike, 2026-11-16).
  *      Same color means no new match can appear; the half's partner becomes a lone half.
  * If none of those work the bug doesn't come. Returns the cells that got a new bug.
  */
@@ -240,6 +265,7 @@ export function addBugs(board: Cell[], holder: { rng: number }, count: number, c
     const want = n % colors, start = randInt(holder, area.length);
     if (tryEmpty(want, (x, y, c) => lineThrough(board, x, y, c) < 3, start)) continue;
     if (tryEmpty(want, (x, y, c) => lineThrough(board, x, y, c) < MATCH_LENGTH, start)) continue;
+    if (tryEmpty(want, (x, y, c) => !wouldPop(board, x, y, c), start)) continue;
     if (takeHalf(want, start)) continue;
     break;
   }
