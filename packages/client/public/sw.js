@@ -13,7 +13,28 @@ self.addEventListener('activate', event => {
   event.waitUntil(caches.keys()
     .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
+  // Then, in the background, fetch every file the game could need (all music and sounds
+  // included), so the first offline play is complete even for things not used yet.
+  fillCache();
 });
+
+// precache.json is written by the build (vite.config.ts; the official site's build rewrites it
+// after adding its own files). Files already in the cache are skipped, one file at a time so a
+// phone on mobile data isn't flooded. Best effort: anything missed is cached when first used.
+async function fillCache() {
+  try {
+    const res = await fetch('./precache.json', { cache: 'no-cache' });
+    if (!res.ok) return;
+    const { files } = await res.json();
+    const cache = await caches.open(CACHE);
+    for (const file of files) {
+      const url = new URL(file, self.registration.scope).href;
+      if (await cache.match(url)) continue;
+      const got = await fetch(url, { cache: 'no-cache' }).catch(() => null);
+      if (got && got.ok && got.status === 200) await cache.put(url, got);
+    }
+  } catch { /* offline or no list: the fetch handler below still caches as files are used */ }
+}
 
 // cache: 'no-cache' makes the browser re-check with the server instead of trusting its own
 // HTTP cache. Hashed files in assets/ never change under the same name, so they skip that.
