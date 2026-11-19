@@ -153,6 +153,9 @@ label.check { grid-template-columns: auto 1fr; }
 label.check.soon { color: var(--dim); cursor: default; }
 label.check.soon .tag-pill { margin-left: 6px; vertical-align: middle; }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
+/* A long option must not push a select past the card's edge. */
+label > select { min-width: 0; width: 100%; }
+.setting-note { margin: -4px 0 0; font-size: 13px; color: var(--dim); }
 select { font: inherit; padding: 8px; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--edge); }
 input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); }
 

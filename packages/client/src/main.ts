@@ -12,7 +12,7 @@ import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type Clou
 import { frameCells, inSeason, loadSprites, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
-import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt } from './storage';
+import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt } from './storage';
 import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
@@ -118,7 +118,9 @@ async function main() {
   let mode: Mode = 'menu';
   let layout: Layout = computeLayout(1, 1, 0);
   let pendingActions: Action[] = [];
-  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Animations: the player's choice, or on Automatic, Calm when the device asks for reduced motion.
+  const deviceCalm = matchMedia('(prefers-reduced-motion: reduce)');
+  const motion = (): Motion => (settings.motion !== 'auto' ? settings.motion : deviceCalm.matches ? 'calm' : 'full');
 
   requestPersistence();
   cleanUpdateMarker();
@@ -267,6 +269,7 @@ async function main() {
   const exitSel = $<HTMLSelectElement>('exit');
   const autoNext = $<HTMLInputElement>('autoNext');
   const touchLayoutSel = $<HTMLSelectElement>('touchLayout');
+  const motionSel = $<HTMLSelectElement>('motion');
   const shapes = $<HTMLInputElement>('shapes'), sound = $<HTMLInputElement>('sound'), music = $<HTMLInputElement>('music');
   // The Paused card has its own Sound effects and Music boxes; they mirror the two on the Settings screen.
   const pauseSound = $<HTMLInputElement>('pauseSound'), pauseMusic = $<HTMLInputElement>('pauseMusic');
@@ -303,6 +306,7 @@ async function main() {
     shapes.checked = settings.shapesOnPieces;
     autoNext.checked = settings.autoNext;
     touchLayoutSel.value = settings.touchLayout;
+    motionSel.value = settings.motion;
     sound.checked = pauseSound.checked = settings.sound;
     music.checked = pauseMusic.checked = settings.music;
     exitSel.value = settings.exit;
@@ -328,6 +332,7 @@ async function main() {
       look: settings.look,
       autoNext: autoNext.checked,
       touchLayout: isLayout(touchLayoutSel.value) ? touchLayoutSel.value : 'edges',
+      motion: (['auto', 'full', 'calm', 'off'] as const).find(m => m === motionSel.value) ?? 'auto',
     };
     if (touchBar.dataset.layout !== settings.touchLayout) applyLayout();
     audio.soundOn = settings.sound;
@@ -751,7 +756,7 @@ async function main() {
           sweep = { t0: performance.now(), bonus: e.bonus };
           audio.play('sweep');
           // A pop with each firework burst (they go off every 260 ms; see drawSweep).
-          if (!reducedMotion) for (let k = 1; k < 7; k++) setTimeout(() => audio.play('pop', 0.7 + (k % 3) * 0.2), k * 260);
+          if (motion() === 'full') for (let k = 1; k < 7; k++) setTimeout(() => audio.play('pop', 0.7 + (k % 3) * 0.2), k * 260);
           break;
         }
         case 'won': finish(true); break;
@@ -833,7 +838,7 @@ async function main() {
     if (sweep && now - sweep.t0 >= SWEEP_MS) sweep = null;
     if (floats.length) floats = floats.filter(f => now - f.t0 < FLOAT_MS);
     if (arrivals.size && [...arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) arrivals = new Map();
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, reducedMotion, time: now, images, leavers, arrivals, hidden: mode === 'paused' || (mode === 'help' && helpFrom === 'paused'), bugExit: settings.exit || undefined, sweep, floats });
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, motion: motion(), time: now, images, leavers, arrivals, hidden: mode === 'paused' || (mode === 'help' && helpFrom === 'paused'), bugExit: settings.exit || undefined, sweep, floats });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);

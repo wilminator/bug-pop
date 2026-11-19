@@ -1,6 +1,7 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
 import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, endlessGame, endlessRound, currentLevel, scoreMultiplier, type GameState, type Link } from '@bug-pop/engine';
+import type { Motion } from './storage';
 import { DEFAULT_EXITS, frameCells, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
@@ -38,7 +39,8 @@ export type Sweep = { t0: number; bonus: number };
 
 export type RenderOptions = {
   shapesOnPieces: boolean;
-  reducedMotion: boolean;
+  /** Full, Calm or Off (see Motion in storage.ts). */
+  motion: Motion;
   time: number;
   images: SpriteImages | null;
   leavers: Leaver[];
@@ -181,6 +183,8 @@ function drawHalf(ctx: CanvasRenderingContext2D, skin: Skin, color: number, link
 }
 
 export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, layout: Layout, opt: RenderOptions) {
+  // Calm and Off both drop the wiggles, hops, flights and fireworks; Off also drops fades and floating text.
+  const reducedMotion = opt.motion !== 'full', still = opt.motion === 'off';
   const { boardX: bx, boardY: by, cell: c } = layout;
   const cw = ctx.canvas.width / devicePixelRatio, ch = ctx.canvas.height / devicePixelRatio;
   ctx.fillStyle = skin.background;
@@ -221,7 +225,8 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     return;
   }
   const clearing = new Set(s.clearing);
-  const flashOn = s.phase === 'clearing' && Math.floor(s.phaseTimer / 4) % 2 === 0;
+  // Matched halves blink while they clear; with less motion they stay lit instead of blinking.
+  const flashOn = s.phase === 'clearing' && (reducedMotion || Math.floor(s.phaseTimer / 4) % 2 === 0);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = idx(x, y);
@@ -231,12 +236,13 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
       const fading = clearing.has(i);
       if (fading && cell.t === 'bug') {
         // Matched bugs get excited before they leave.
-        const hop = opt.reducedMotion ? 0 : -Math.abs(Math.sin(opt.time / 70)) * c * 0.18;
-        drawBug(ctx, skin, cell.c, px, py, c, hop, opt.images, opt.time / 2);
+        const hop = reducedMotion ? 0 : -Math.abs(Math.sin(opt.time / 70)) * c * 0.18;
+        drawBug(ctx, skin, cell.c, px, py, c, hop, opt.images, reducedMotion ? 0 : opt.time / 2);
         continue;
       }
       if (fading && flashOn) {
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        if (reducedMotion) drawHalf(ctx, skin, cell.c, cell.t === 'half' ? cell.l : null, px, py, c, opt.shapesOnPieces, 1, opt.images);
+        ctx.fillStyle = reducedMotion ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.85)';
         ctx.beginPath();
         ctx.roundRect(px + c * 0.1, py + c * 0.1, c * 0.8, c * 0.8, c * 0.3);
         ctx.fill();
@@ -247,8 +253,8 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
         // A new Endless bug crawling in along its row from the nearer side of the board.
         const p = (opt.time - setOff) / ARRIVE_MS;
         if (p < 0) continue; // not set off yet
-        if (opt.reducedMotion) {
-          ctx.globalAlpha = p;
+        if (reducedMotion) {
+          ctx.globalAlpha = still ? 1 : p;
           drawBug(ctx, skin, cell.c, px, py, c, 0, opt.images, opt.time);
           ctx.globalAlpha = 1;
           continue;
@@ -260,8 +266,9 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
         continue;
       }
       if (cell.t === 'bug') {
-        const wiggle = opt.reducedMotion ? 0 : Math.sin(opt.time / 300 + x * 1.7 + y * 0.9) * c * 0.04;
-        drawBug(ctx, skin, cell.c, px, py, c, wiggle, opt.images, opt.time + (x * 137 + y * 61));
+        const wiggle = reducedMotion ? 0 : Math.sin(opt.time / 300 + x * 1.7 + y * 0.9) * c * 0.04;
+        // Time 0 holds every bug on its first frame, so skins with walking bugs keep them still.
+        drawBug(ctx, skin, cell.c, px, py, c, wiggle, opt.images, reducedMotion ? 0 : opt.time + (x * 137 + y * 61));
       } else drawHalf(ctx, skin, cell.c, cell.l, px, py, c, opt.shapesOnPieces, 1, opt.images);
     }
   }
@@ -278,8 +285,9 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
   // Cleared objects leave the board, each kind in the skin's chosen style.
   const boardBottom = by + H * c;
   const styleFor = (kind: ObjectKind): ExitStyle =>
-    opt.reducedMotion ? 'fade' : (kind === 'bug' ? opt.bugExit : undefined) ?? skin.exits?.[kind] ?? DEFAULT_EXITS[kind];
-  for (const l of opt.leavers) {
+    reducedMotion ? 'fade' : (kind === 'bug' ? opt.bugExit : undefined) ?? skin.exits?.[kind] ?? DEFAULT_EXITS[kind];
+  // Off: cleared pieces are simply gone.
+  for (const l of still ? [] : opt.leavers) {
     const style = styleFor(l.kind);
     const t = Math.min(1, (opt.time - l.t0) / LEAVE_MS);
     const px = bx + l.x * c, py = by + l.y * c;
@@ -322,11 +330,11 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
   }
 
   // Chain-bonus numbers: rise about two cells and fade out, gold with a dark outline.
-  for (const f of opt.floats ?? []) {
+  for (const f of still ? [] : opt.floats ?? []) {
     const p = (opt.time - f.t0) / FLOAT_MS;
     if (p < 0 || p >= 1) continue;
-    const rise = opt.reducedMotion ? 0 : c * 2 * (1 - (1 - p) * (1 - p));
-    const pop = opt.reducedMotion ? 1 : p < 0.15 ? 0.6 + (p / 0.15) * 0.5 : p < 0.25 ? 1.1 - ((p - 0.15) / 0.1) * 0.1 : 1;
+    const rise = reducedMotion ? 0 : c * 2 * (1 - (1 - p) * (1 - p));
+    const pop = reducedMotion ? 1 : p < 0.15 ? 0.6 + (p / 0.15) * 0.5 : p < 0.25 ? 1.1 - ((p - 0.15) / 0.1) * 0.1 : 1;
     const fx = Math.min(Math.max(bx + (f.x + 0.5) * c, bx + c), bx + c * (W - 1));
     ctx.save();
     ctx.globalAlpha = p < 0.6 ? 1 : 1 - (p - 0.6) / 0.4;
@@ -344,7 +352,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.restore();
   }
 
-  if (opt.sweep && opt.time - opt.sweep.t0 < SWEEP_MS) drawSweep(ctx, skin, layout, opt.sweep, opt.time, opt.reducedMotion);
+  if (opt.sweep && opt.time - opt.sweep.t0 < SWEEP_MS) drawSweep(ctx, skin, layout, opt.sweep, opt.time, opt.motion);
 
   // Side panel: next piece and stats.
   const font = (px: number, weight = 600) => `${weight} ${Math.round(px)}px system-ui, -apple-system, Segoe UI, sans-serif`;
@@ -409,7 +417,7 @@ export function thumbnail(s: GameState, skin: Skin, images: SpriteImages | null,
   const ctx = canvas.getContext('2d')!;
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   // time 0 and reduced motion give a calm, repeatable picture.
-  render(ctx, s, skin, computeLayout(cssW, cssH, 0, frameCells(skin)), { shapesOnPieces, reducedMotion: true, time: 0, images, leavers: [] });
+  render(ctx, s, skin, computeLayout(cssW, cssH, 0, frameCells(skin)), { shapesOnPieces, motion: 'off', time: 0, images, leavers: [] });
   return canvas;
 }
 
@@ -418,7 +426,8 @@ export function thumbnail(s: GameState, skin: Skin, images: SpriteImages | null,
  * skin's piece colors, and a "CLEAN SWEEP!" banner with the bonus that pops in,
  * holds, and fades. Everything is a function of time, so it needs no state.
  */
-function drawSweep(ctx: CanvasRenderingContext2D, skin: Skin, layout: Layout, sweep: Sweep, time: number, reducedMotion: boolean) {
+function drawSweep(ctx: CanvasRenderingContext2D, skin: Skin, layout: Layout, sweep: Sweep, time: number, motion: Motion) {
+  const reducedMotion = motion !== 'full';
   const { boardX: bx, boardY: by, cell: c } = layout;
   const t = time - sweep.t0; // ms since the sweep
   const bw = c * W, bh = c * H;
@@ -470,7 +479,8 @@ function drawSweep(ctx: CanvasRenderingContext2D, skin: Skin, layout: Layout, sw
   // Banner: pops in with a little overshoot, holds, then fades out over the last 0.4 s.
   const popIn = Math.min(1, t / 350);
   const scale = reducedMotion ? 1 : popIn < 1 ? 1.25 * Math.sin(popIn * Math.PI * 0.62) / Math.sin(Math.PI * 0.62) : 1;
-  const alpha = Math.min(popIn * 2, 1, (SWEEP_MS - t) / 400);
+  // Off: the banner just appears and goes, with no fade.
+  const alpha = motion === 'off' ? 1 : Math.min(popIn * 2, 1, (SWEEP_MS - t) / 400);
   if (alpha <= 0) return;
   const cx = bx + bw / 2, cy = by + bh * 0.55;
   ctx.save();

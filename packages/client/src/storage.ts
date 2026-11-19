@@ -29,9 +29,15 @@ export type Settings = {
   autoNext: boolean;
   /** Which on-screen button row touch players see (see layouts.ts). */
   touchLayout: 'edges' | 'four' | 'original';
+  /** How much things move: 'auto' follows the device's Reduce motion setting (calm when it is on). */
+  motion: 'auto' | Motion;
 };
 
-export const defaultSettings: Settings = { level: 1, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site', autoNext: false, touchLayout: 'edges' };
+/** Full: every effect. Calm: nothing wiggles, flashes or flies; things fade. Off: no decorative movement at all. */
+export type Motion = 'full' | 'calm' | 'off';
+const MOTIONS = ['auto', 'full', 'calm', 'off'] as const;
+
+export const defaultSettings: Settings = { level: 1, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site', autoNext: false, touchLayout: 'edges', motion: 'auto' };
 
 function read(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -102,7 +108,10 @@ export function clearGame() {
 
 export function loadSettings(): Settings {
   try {
-    return { ...defaultSettings, ...(JSON.parse(read(SETTINGS_KEY) ?? '{}') as Partial<Settings>) };
+    // Settings saved by an older version simply lack the newer keys, which take their defaults.
+    const s: Settings = { ...defaultSettings, ...(JSON.parse(read(SETTINGS_KEY) ?? '{}') as Partial<Settings>) };
+    if (!MOTIONS.includes(s.motion)) s.motion = 'auto';
+    return s;
   } catch {
     return { ...defaultSettings };
   }
