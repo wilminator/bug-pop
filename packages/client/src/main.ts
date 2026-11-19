@@ -348,7 +348,28 @@ async function main() {
   /** startScore carries the score over when moving on to the next level. */
   const newGame = (lvl = settings.level, startScore = 0) => {
     const seed = crypto.getRandomValues(new Uint32Array(1))[0]!;
-    state = createGame({ seed, level: lvl, speed: settings.speed, colors: settings.colors, startScore });
+    begin(createGame({ seed, level: lvl, speed: settings.speed, colors: settings.colors, startScore }));
+  };
+  /**
+   * The level after a cleared one, set up and saved the moment the level is won, so the run
+   * (level and score) survives Main menu, closing the app or an update. Next level plays it.
+   */
+  let upNext: GameState | null = null;
+  const prepareNext = (won: GameState) => {
+    const seed = crypto.getRandomValues(new Uint32Array(1))[0]!;
+    const { speed: spd, colors: cols } = won.config;
+    upNext = createGame({ seed, level: Math.min(MAX_LEVEL, currentLevel(won) + 1), speed: spd, colors: cols, startScore: won.score });
+    saveGame(upNext);
+    const sub = mySub(), rec = loadRecord();
+    if (rec && cloud.signedIn && sub && saveOwner() === sub) cloud.put(rec); // the run, everywhere
+  };
+  const playNext = () => {
+    if (upNext && loadRecord() && loadGame()?.config.seed === upNext.config.seed) begin(upNext);
+    else if (state) newGame(Math.min(MAX_LEVEL, currentLevel(state) + 1), state.score); // the save was replaced meanwhile
+  };
+  const begin = (s: GameState) => {
+    upNext = null;
+    state = s;
     input.reset(); // a fresh game starts with soft drop off
     pendingActions = [];
     arrivals = new Map();
@@ -594,10 +615,11 @@ async function main() {
   };
   $('resume').addEventListener('click', resume);
   $('quit').addEventListener('click', toMenu);
-  $('toMenu').addEventListener('click', () => { state = null; clearGame(); toMenu(); });
+  // A cleared level's run stays saved (the next level is waiting); a lost game has nothing to keep.
+  $('toMenu').addEventListener('click', () => { state = null; upNext = null; toMenu(); });
   // Play again repeats the level with the score it started with; Next level keeps the score.
   $('retry').addEventListener('click', async () => { const s = state; await updateGate(); newGame(s?.config.level, s?.config.startScore); });
-  $('nextLevel').addEventListener('click', async () => { const s = state; await updateGate(); newGame(Math.min(MAX_LEVEL, (s?.config.level ?? 0) + 1), s?.score); });
+  $('nextLevel').addEventListener('click', async () => { await updateGate(); playNext(); });
 
   const finish = (won: boolean) => {
     if (!state) return;
@@ -618,8 +640,11 @@ async function main() {
       fitSlider();
       if (cloud.signedIn) void sync.mergeProgress(p.beaten).then(m => { if (m) { mergeProgress(m); fitSlider(); } });
     }
-    clearGame();
-    if (cloud.signedIn) cloud.remove(); // a finished game is nothing to resume
+    if (won && currentLevel(state) < MAX_LEVEL) prepareNext(state); // the run goes on: save the next level now
+    else {
+      clearGame();
+      if (cloud.signedIn) cloud.remove(); // a lost game is nothing to resume
+    }
     audio.stopMusic(); // the music cuts out at the moment it is decided...
     show('ending'); // ...the board stays visible, inputs stop, the last bugs fly off
     const decided = state;
@@ -653,7 +678,7 @@ async function main() {
       $('resultText').textContent += ` ${levelName(next)} starts in a moment...`;
       setTimeout(() => {
         // Skip if the player already chose something, or switched away (it would start unseen).
-        if (mode === 'result' && state === startedFor && !document.hidden) newGame(next, startedFor.score);
+        if (mode === 'result' && state === startedFor && !document.hidden) playNext();
       }, AUTO_NEXT_MS);
     }
   };
