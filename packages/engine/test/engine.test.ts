@@ -521,7 +521,7 @@ describe('more than one line at once', () => {
     expect(s.bugsLeft).toBe(1);
   });
 
-  it("pops both bugs in Mike's 2 x 5 box: three sideways pieces stacked from the bottom", () => {
+  it("pops both bugs in Mike's 2 x 5 box (3 colors): three sideways pieces stacked from the bottom", () => {
     // Red bug bottom-left (2,15), blue bug top-right (3,11). Each red|blue piece sits on the red
     // stack with its blue half hanging over column 3; the third one finishes both columns.
     for (const mirror of [false, true]) {
@@ -534,6 +534,32 @@ describe('more than one line at once', () => {
       expect(matches).toHaveLength(1);
       expect(matches[0]!.bugs).toBe(2);
       expect(s.bugsLeft).toBe(1);
+    }
+  });
+
+  it("pops both bugs in the same box turned on its side: two rows, three upright pieces", () => {
+    // Red bug at one end of the bottom row, blue bug at the other end of the row above.
+    // Each upright piece (red bottom, blue top) stands on the floor; the third finishes both rows.
+    for (const topRight of [true, false]) {
+      const [low, high] = topRight ? [1, 5] : [5, 1];
+      const s = boardWith([[low, 15, RED], [high, 14, BLUE]]);
+      const order = topRight ? [2, 3, 4] : [4, 3, 2];
+      expect(land(s, { x: order[0]!, y: 15, rot: 1, a: RED, b: BLUE })).toEqual([]);
+      expect(land(s, { x: order[1]!, y: 15, rot: 1, a: RED, b: BLUE })).toEqual([]);
+      const matches = land(s, { x: order[2]!, y: 15, rot: 1, a: RED, b: BLUE });
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.bugs).toBe(2);
+      expect(s.bugsLeft).toBe(1);
+    }
+  });
+
+  it('pops both in every order the three upright pieces go in', () => {
+    for (const topRight of [true, false]) for (const order of [[2, 3, 4], [2, 4, 3], [3, 2, 4], [3, 4, 2], [4, 2, 3], [4, 3, 2]]) {
+      const [low, high] = topRight ? [1, 5] : [5, 1];
+      const s = boardWith([[low, 15, RED], [high, 14, BLUE]]);
+      const all = order.flatMap(x => land(s, { x, y: 15, rot: 1, a: RED, b: BLUE }));
+      expect(all).toHaveLength(1);
+      expect(all[0]!.bugs).toBe(2);
     }
   });
 
