@@ -403,6 +403,9 @@ async function main() {
     upload();
     audio.pauseMusic();
     audio.play('pause');
+    // The switches were last filled when the page loaded; Settings may have changed them since.
+    pauseSound.checked = settings.sound;
+    pauseMusic.checked = settings.music;
     show('paused');
   };
 
