@@ -1,7 +1,7 @@
 // App shell: menus, the fixed-rate game loop, saving, and wiring input,
 // rendering and sound together.
 
-import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, SLO_MO, SLO_MO_COLORS, currentLevel, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
+import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, endlessGame, endlessRound, SLO_MO, SLO_MO_COLORS, currentLevel, TICKS_PER_SECOND, BOARD_WIDTH, type GameEvent, type GameState, type Action } from '@bug-pop/engine';
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
@@ -268,10 +268,10 @@ async function main() {
   const autoNext = $<HTMLInputElement>('autoNext');
   const touchLayoutSel = $<HTMLSelectElement>('touchLayout');
   const shapes = $<HTMLInputElement>('shapes'), sound = $<HTMLInputElement>('sound'), music = $<HTMLInputElement>('music');
-  /** "Level 7", or "Endless round 3" past the final level. */
-  const levelName = (l: number) => (isEndless(l) ? `Endless round ${l - FINAL_LEVEL}` : `Level ${l}`);
+  /** "Level 7", or "Endless round 3" in an Endless run. */
+  const levelName = (s: GameState) => (endlessGame(s) ? `Endless round ${endlessRound(s)}` : `Level ${currentLevel(s)}`);
   /**
-   * The slider reaches the first level not yet beaten at the chosen speed (0 to 20 are always open).
+   * The slider reaches the first level not yet beaten at the chosen speed (1 to 20 are always open).
    * Once level 100 is beaten at that speed, one more notch past it starts Endless.
    */
   /** Slo-mo is offered only with 4 or 5 colors; with fewer it is hidden and a Slo-mo choice drops to Low. */
@@ -348,7 +348,9 @@ async function main() {
   /** startScore carries the score over when moving on to the next level. */
   const newGame = (lvl = settings.level, startScore = 0) => {
     const seed = crypto.getRandomValues(new Uint32Array(1))[0]!;
-    begin(createGame({ seed, level: lvl, speed: settings.speed, colors: settings.colors, startScore }));
+    // The notch past level 100 is Endless: a run that starts as level 1 and climbs (Mike, 2026-11-19).
+    const endless = isEndless(lvl);
+    begin(createGame({ seed, level: endless ? 1 : Math.max(1, lvl), endless, speed: settings.speed, colors: settings.colors, startScore: endless ? 0 : startScore }));
   };
   /**
    * The level after a cleared one, set up and saved the moment the level is won, so the run
@@ -365,7 +367,7 @@ async function main() {
   };
   const playNext = () => {
     if (upNext && loadRecord() && loadGame()?.config.seed === upNext.config.seed) begin(upNext);
-    else if (state) newGame(Math.min(MAX_LEVEL, currentLevel(state) + 1), state.score); // the save was replaced meanwhile
+    else if (state) newGame(currentLevel(state) + 1, state.score); // the save was replaced, or level 100 was beaten: Endless
   };
   const begin = (s: GameState) => {
     upNext = null;
@@ -438,7 +440,7 @@ async function main() {
     const shot = $('offerShot');
     shot.replaceChildren(thumbnail(s, skin, images, settings.shapesOnPieces));
     const where = loadRecord()?.state === rec.state ? 'on this device' : `on your ${rec.device}`;
-    $('offerText').textContent = `${levelName(currentLevel(s))}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
+    $('offerText').textContent = `${levelName(s)}, ${s.bugsLeft} bugs left, score ${s.score}. Saved ${where}, ${timeAgo(rec.savedAt)}.`;
     show('offer');
   };
   let offerBackTo: Mode = 'setup';
@@ -506,7 +508,7 @@ async function main() {
     const rec = await findSave();
     const s = rec && recordState(rec);
     resumeTag.hidden = !s;
-    if (s) resumeTag.textContent = `Resume ${levelName(currentLevel(s))}`;
+    if (s) resumeTag.textContent = `Resume ${levelName(s)}`;
     startBtn.textContent = s ? 'Resume or start new' : 'Start';
   };
   $('newGame').addEventListener('click', () => { audio.play('select'); show('setup'); });
@@ -635,12 +637,13 @@ async function main() {
       return;
     }
     // Progress first: it is what unlocks the next level on the slider.
-    if (won && !isEndless(state.config.level)) {
+    if (won && !endlessGame(state)) {
       const p = recordBeaten(state.config.speed, state.config.level);
       fitSlider();
       if (cloud.signedIn) void sync.mergeProgress(p.beaten).then(m => { if (m) { mergeProgress(m); fitSlider(); } });
     }
-    if (won && currentLevel(state) < MAX_LEVEL) prepareNext(state); // the run goes on: save the next level now
+    // The run goes on: save the next level now. Beating level 100 ends the run (Endless is a new one).
+    if (won && currentLevel(state) < FINAL_LEVEL) prepareNext(state);
     else {
       clearGame();
       if (cloud.signedIn) cloud.remove(); // a lost game is nothing to resume
@@ -659,13 +662,13 @@ async function main() {
   const showResult = (won: boolean) => {
     if (!state) return;
     audio.play(won ? 'win' : 'lose'); // ...and the jingle arrives with the card
-    const lvl = currentLevel(state), endless = isEndless(lvl), beatGame = won && lvl === FINAL_LEVEL;
+    const lvl = currentLevel(state), endless = endlessGame(state), beatGame = won && lvl === FINAL_LEVEL;
     $('resultTitle').textContent = beatGame ? 'You beat Bug Pop!' : won ? 'Cleared!' : endless ? 'Endless run over' : 'Game over';
     $('resultText').textContent = beatGame
       ? `Level ${FINAL_LEVEL} cleared. Score ${state.score}. Endless mode is now open at this speed.`
       : won
-        ? `${levelName(lvl)} cleared. Score ${state.score}.`
-        : `${state.bugsLeft} bugs left on ${levelName(lvl).toLowerCase()}. Score ${state.score}.`;
+        ? `${levelName(state)} cleared. Score ${state.score}.`
+        : `${state.bugsLeft} bugs left on ${levelName(state).toLowerCase()}. Score ${state.score}.`;
     $('nextLevel').hidden = !won || lvl >= MAX_LEVEL;
     $('nextLevel').textContent = beatGame ? 'Play Endless' : endless ? 'Next round' : 'Next level';
     show('result');
@@ -675,7 +678,7 @@ async function main() {
     if (won && !beatGame && (settings.autoNext || endless) && lvl < MAX_LEVEL) {
       const next = lvl + 1;
       const startedFor = state;
-      $('resultText').textContent += ` ${levelName(next)} starts in a moment...`;
+      $('resultText').textContent += ` Level ${next} starts in a moment...`;
       setTimeout(() => {
         // Skip if the player already chose something, or switched away (it would start unseen).
         if (mode === 'result' && state === startedFor && !document.hidden) playNext();
@@ -846,7 +849,7 @@ async function main() {
 
   // ---- Signed in with a game that isn't the account's: keep one, never overwrite silently ----
   const describe = (rec: SaveRecord, s: GameState, where: string) =>
-    `${levelName(currentLevel(s))}, ${s.bugsLeft} bugs left, score ${s.score}. ${where}, saved ${timeAgo(rec.savedAt)}.`;
+    `${levelName(s)}, ${s.bugsLeft} bugs left, score ${s.score}. ${where}, saved ${timeAgo(rec.savedAt)}.`;
   let choice: { local: SaveRecord; remote: SaveRecord } | null = null;
   /**
    * This device's game was played signed out (or by another account). If the account has no game

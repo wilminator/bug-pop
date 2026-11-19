@@ -101,7 +101,7 @@
         <div class="card">
           <form id="setupForm">
             <label><span>Level <output id="levelOut">0</output></span>
-              <input type="range" id="level" min="0" max="20" step="1" />
+              <input type="range" id="level" min="1" max="20" step="1" />
             </label>
             <label>Speed
               <select id="speed"><option value="3" id="sloMo">Slo-mo</option><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select>
@@ -210,7 +210,7 @@
 
         <div class="card howto">
           <h2>Levels and speed</h2>
-          <p>Each level adds more bugs: 4 on level 0, then 4 more every 3 levels, up to a full board at level 60. Pieces also fall a little faster each level.</p>
+          <p>Each level adds more bugs: 4 on level 1, then 4 more every 3 levels, up to a full board at level 60. Pieces also fall a little faster each level.</p>
           <table class="speeds">
             <thead><tr><th>Speed</th><th>Points</th></tr></thead>
             <tbody>
@@ -221,7 +221,7 @@
             </tbody>
           </table>
           <p>The <b>Level</b> slider starts with levels 0 to 20 open. Clear a level to open the next one. Each speed keeps its own progress.</p>
-          <p>Beat level 100 to open <b>Endless</b> at that speed. In Endless the board never resets: when you clear the bugs, a new wave crawls in around whatever is left, and your score keeps going.</p>
+          <p>Beat level 100 to open <b>Endless</b> at that speed. Endless starts like level 1 and climbs a level each round: when you clear the bugs, the next level's bugs crawl in around whatever is left, pieces get a little faster (up to level 100's speed), and your score keeps going.</p>
         </div>
 
         <div class="card howto">
@@ -307,7 +307,7 @@
       <div class="card">
         <h2>You've got it!</h2>
         <p class="tag">That's the whole game: pop every bug before the pile reaches the top. Each level brings more bugs and a little more speed.</p>
-        <button id="tutorialPlay" class="primary" data-primary>Play level 0</button>
+        <button id="tutorialPlay" class="primary" data-primary>Play level 1</button>
         <button id="tutorialMenu">Main menu</button>
       </div>
     </section>

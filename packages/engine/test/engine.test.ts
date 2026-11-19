@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, endlessGame, endlessRound, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
   removeCells, pieceCells, fits, type Piece, cleanSweepBonus, scoreMultiplier, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
@@ -406,6 +406,41 @@ describe('save and replay', () => {
     const types = events.map(e => e.type);
     expect(types.indexOf('cleanSweep')).toBe(types.indexOf('arrive') - 1);
     expect(types.filter(t => t === 'cleanSweep').length).toBe(1);
+  });
+
+  it('an Endless run starts as level 1 (its bugs and speed) and climbs a level each round', () => {
+    const g = createGame({ ...cfg, seed: 3, level: 1, endless: true });
+    expect(endlessGame(g)).toBe(true);
+    expect(endlessRound(g)).toBe(1);
+    expect(currentLevel(g)).toBe(1);
+    expect(g.bugsLeft).toBe(bugCount(1));
+    expect(gravityInterval(g)).toBe(gravityInterval(createGame({ ...cfg, seed: 3, level: 1 })));
+    // Clear round 1's bugs: the board carries on and round 2 (level 2) arrives, a little faster.
+    const before = gravityInterval(g);
+    g.board = g.board.map(c => (c?.t === 'bug' ? null : c));
+    g.board[idx(5, 15)] = { t: 'bug', c: 1 };
+    g.board[idx(5, 14)] = { t: 'bug', c: 1 };
+    g.bugsLeft = 2;
+    g.piece = { x: 5, y: 2, rot: 1, a: 1, b: 1 };
+    const events: GameEvent[] = [];
+    step(g, ['softOn']);
+    for (let i = 0; i < 2000 && !events.some(e => e.type === 'arrive'); i++) events.push(...step(g));
+    expect(events.some(e => e.type === 'won')).toBe(false);
+    expect(endlessRound(g)).toBe(2);
+    expect(currentLevel(g)).toBe(2);
+    expect(g.bugsLeft).toBe(bugCount(2));
+    expect(gravityInterval(g)).toBeLessThan(before);
+    // Past level 100 the speed holds.
+    g.round = 150;
+    expect(endlessRound(g)).toBe(151);
+    expect(gravityInterval(g)).toBe(gravityInterval(createGame({ ...cfg, seed: 3, level: FINAL_LEVEL })));
+  });
+
+  it('old Endless saves (started past level 100) still count rounds from 1', () => {
+    const g = createGame({ ...cfg, level: FINAL_LEVEL + 1 });
+    expect(endlessGame(g)).toBe(true);
+    expect(endlessRound(g)).toBe(1);
+    expect(endlessGame(createGame({ ...cfg, level: FINAL_LEVEL }))).toBe(false);
   });
 
   it('Endless: halves left lying around mean no sweep bonus', () => {

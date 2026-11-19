@@ -37,11 +37,15 @@ export const SLO_MO = 3;
 export const SLO_MO_COLORS = 4;
 /** Clearing this level beats the game. */
 export const FINAL_LEVEL = 100;
-/** Levels past FINAL_LEVEL are Endless mode: the board stays full and pieces keep level 100's speed. */
+/** Levels past FINAL_LEVEL are Endless: the board never resets and pieces keep level 100's speed. */
 export const MAX_LEVEL = 9999;
 export const isEndless = (level: number) => level > FINAL_LEVEL;
 /** The level being played right now: the starting level plus any Endless rounds cleared. */
 export const currentLevel = (s: GameState) => s.config.level + (s.round ?? 0);
+/** Is this game an Endless run? (config.endless, or an old save that started past level 100) */
+export const endlessGame = (s: GameState) => !!s.config.endless || isEndless(s.config.level);
+/** The Endless round being played, counted from 1. */
+export const endlessRound = (s: GameState) => currentLevel(s) - (s.config.endless ? s.config.level - 1 : FINAL_LEVEL);
 
 export function normalizeConfig(c: GameConfig): GameConfig {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.floor(v)));
@@ -56,6 +60,7 @@ export function normalizeConfig(c: GameConfig): GameConfig {
     ...(c.startScore ? { startScore: Math.max(0, Math.floor(c.startScore)) } : {}),
     ...(c.cleanSweep === false ? { cleanSweep: false } : {}),
     ...(c.classicScoring ? { classicScoring: true } : {}),
+    ...(c.endless ? { endless: true } : {}),
   };
 }
 
@@ -302,7 +307,7 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       scoreBugs(s, bugs);
       events.push({ type: 'cleared', bugs, chainBonus: bugs ? 2 ** Math.min(s.dropBugs - 1, 5) : 1 });
       // In Endless the board carries on: the next round starts once things settle (see resolve).
-      if (s.bugsLeft <= 0 && !isEndless(currentLevel(s))) {
+      if (s.bugsLeft <= 0 && !endlessGame(s)) {
         checkCleanSweep(s, events); // the game stops here, so loose halves still in the air count as left over
         s.phase = 'won';
         events.push({ type: 'won' });

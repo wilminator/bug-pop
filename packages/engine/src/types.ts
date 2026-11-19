@@ -35,7 +35,12 @@ export type Speed = 0 | 1 | 2 | 3;
 
 export type GameConfig = {
   seed: number;
-  level: number; // 0 .. 100 is the game (clearing 100 beats it); 101 and up is Endless
+  level: number; // 1 .. 100 is the game (clearing 100 beats it). Old saves may hold 0, or 101+ (old Endless)
+  /**
+   * Endless mode (Mike, 2026-11-19): starts as `level` (normally 1: its bugs and speed) and climbs
+   * one level per round with no break; past 100 the speed holds. Never won, only lost.
+   */
+  endless?: boolean;
   speed: Speed; // 0 low, 1 medium, 2 high, 3 slo-mo
   colors: number; // 2 .. 5
   /**

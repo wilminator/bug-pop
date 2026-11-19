@@ -1,6 +1,6 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
-import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, isEndless, currentLevel, FINAL_LEVEL, scoreMultiplier, type GameState, type Link } from '@bug-pop/engine';
+import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, endlessGame, endlessRound, currentLevel, scoreMultiplier, type GameState, type Link } from '@bug-pop/engine';
 import { DEFAULT_EXITS, frameCells, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
@@ -524,10 +524,9 @@ function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, co
   ctx.fill();
 }
 
-/** The HUD shows the round number in Endless mode instead of a level past 100. */
+/** The HUD shows the round number in an Endless run instead of a level. */
 function levelStat(s: GameState): [string, string] {
-  const lvl = currentLevel(s);
-  return isEndless(lvl) ? ['ENDLESS', String(lvl - FINAL_LEVEL)] : ['LEVEL', String(lvl)];
+  return endlessGame(s) ? ['ENDLESS', String(endlessRound(s))] : ['LEVEL', String(currentLevel(s))];
 }
 
 /**
