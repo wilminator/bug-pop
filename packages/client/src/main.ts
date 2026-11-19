@@ -268,6 +268,8 @@ async function main() {
   const autoNext = $<HTMLInputElement>('autoNext');
   const touchLayoutSel = $<HTMLSelectElement>('touchLayout');
   const shapes = $<HTMLInputElement>('shapes'), sound = $<HTMLInputElement>('sound'), music = $<HTMLInputElement>('music');
+  // The Paused card has its own Sound effects and Music boxes; they mirror the two on the Settings screen.
+  const pauseSound = $<HTMLInputElement>('pauseSound'), pauseMusic = $<HTMLInputElement>('pauseMusic');
   /** "Level 7", or "Endless round 3" in an Endless run. */
   const levelName = (s: GameState) => (endlessGame(s) ? `Endless round ${endlessRound(s)}` : `Level ${currentLevel(s)}`);
   /**
@@ -301,8 +303,8 @@ async function main() {
     shapes.checked = settings.shapesOnPieces;
     autoNext.checked = settings.autoNext;
     touchLayoutSel.value = settings.touchLayout;
-    sound.checked = settings.sound;
-    music.checked = settings.music;
+    sound.checked = pauseSound.checked = settings.sound;
+    music.checked = pauseMusic.checked = settings.music;
     exitSel.value = settings.exit;
   };
   /** A signed-in player's game settings go to their account a moment after the last change. */
@@ -337,6 +339,9 @@ async function main() {
   };
   $('settings').addEventListener('input', readForm);
   $('setupForm').addEventListener('input', readForm);
+  for (const [quick, main] of [[pauseSound, sound], [pauseMusic, music]] as const) {
+    quick.addEventListener('input', () => { main.checked = quick.checked; readForm(); });
+  }
   // Changing the look reloads the page; the game in progress is saved first.
   const look = $<HTMLSelectElement>('look');
   look.value = settings.look;

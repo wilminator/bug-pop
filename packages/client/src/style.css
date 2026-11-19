@@ -148,6 +148,8 @@ form { display: grid; gap: 10px; }
 label { display: grid; grid-template-columns: 1fr 1.4fr; align-items: center; gap: 8px; }
 label output { color: var(--accent); font-weight: 700; margin-left: 0.3em; }
 label.check { grid-template-columns: auto 1fr; }
+/* Sound switches on the Paused card: side by side under Resume. */
+.pause-audio { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; margin: 4px 0; }
 label.check.soon { color: var(--dim); cursor: default; }
 label.check.soon .tag-pill { margin-left: 6px; vertical-align: middle; }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
