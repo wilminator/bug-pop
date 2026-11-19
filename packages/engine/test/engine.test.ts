@@ -521,6 +521,22 @@ describe('more than one line at once', () => {
     expect(s.bugsLeft).toBe(1);
   });
 
+  it("pops both bugs in Mike's 2 x 5 box: three sideways pieces stacked from the bottom", () => {
+    // Red bug bottom-left (2,15), blue bug top-right (3,11). Each red|blue piece sits on the red
+    // stack with its blue half hanging over column 3; the third one finishes both columns.
+    for (const mirror of [false, true]) {
+      const [low, high] = mirror ? [3, 2] : [2, 3];
+      const s = boardWith([[low, 15, RED], [high, 11, BLUE]]);
+      const piece = (y: number): Piece => ({ x: 2, y, rot: mirror ? 2 : 0, a: RED, b: BLUE });
+      expect(land(s, piece(14))).toEqual([]);
+      expect(land(s, piece(13))).toEqual([]);
+      const matches = land(s, piece(12));
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.bugs).toBe(2);
+      expect(s.bugsLeft).toBe(1);
+    }
+  });
+
   it('a half whose partner pops falls away, so a line it was holding up is no longer whole', () => {
     // The order that leaves the top bug: the bridge goes second. Its red half finishes column 2
     // at once; the blue half under the blue bug loses its partner and drops to the floor.
