@@ -60,6 +60,53 @@ export type RenderOptions = {
 
 const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
 
+/** A repeatable pseudo-random number in [0, 1) for flake i (no state, so nothing to save). */
+const rand = (i: number, salt: number) => {
+  const x = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/**
+ * The skin's weather (Skin.ambient) drifting across the board behind the pieces. Every flake's
+ * place is worked out from the time alone, so it needs no state; time 0 freezes it (Calm motion).
+ */
+function drawAmbient(ctx: CanvasRenderingContext2D, skin: Skin, bx: number, by: number, c: number, time: number) {
+  const a = skin.ambient!, w = c * W, h = c * H, t = time / 1000;
+  const colors = a.colors?.length ? a.colors : ['#ffffff'];
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(bx, by, w, h);
+  ctx.clip();
+  for (let i = 0; i < (a.count ?? 18); i++) {
+    const r1 = rand(i, 1), r2 = rand(i, 2), r3 = rand(i, 3);
+    ctx.fillStyle = colors[Math.floor(r3 * colors.length)]!;
+    if (a.kind === 'fireflies') {
+      // Fireflies wander slowly and glow on and off.
+      const x = bx + (r1 * w + Math.sin(t * 0.4 + i) * c * 0.8 + w) % w;
+      const y = by + (r2 * h + Math.cos(t * 0.3 + i * 2) * c * 0.8 + h) % h;
+      const glow = time ? 0.25 + 0.55 * Math.max(0, Math.sin(t * 1.3 + i * 1.7)) : 0.5;
+      ctx.globalAlpha = glow * 0.35;
+      ctx.beginPath(); ctx.arc(x, y, c * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = glow;
+      ctx.beginPath(); ctx.arc(x, y, c * 0.07, 0, Math.PI * 2); ctx.fill();
+      continue;
+    }
+    // Snow, leaves and petals fall, sway, and wrap round to the top.
+    const speed = a.kind === 'snow' ? 0.5 + r3 * 0.4 : 0.7 + r3 * 0.5; // cells per second
+    const y = by + ((r2 * h + t * speed * c) % (h + c)) - c / 2;
+    const x = bx + r1 * w + Math.sin(t * (0.6 + r2) + i) * c * 0.4;
+    ctx.globalAlpha = a.kind === 'snow' ? 0.55 : a.kind === 'petals' ? 0.75 : 0.45;
+    ctx.beginPath();
+    if (a.kind === 'snow') ctx.arc(x, y, c * (0.04 + r1 * 0.05), 0, Math.PI * 2);
+    else {
+      const size = c * (a.kind === 'leaves' ? 0.16 : 0.11);
+      ctx.ellipse(x, y, size, size * 0.55, t * (1 + r1) + i, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 /**
  * Work out where the board goes for a canvas of this CSS size. `frame` is how
  * many cells of skin frame surround the board; the cells shrink a little to fit it.
@@ -401,6 +448,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
   for (let x = 1; x < W; x++) { ctx.moveTo(bx + x * c + 0.5, by); ctx.lineTo(bx + x * c + 0.5, by + H * c); }
   for (let y = 1; y < H; y++) { ctx.moveTo(bx, by + y * c + 0.5); ctx.lineTo(bx + W * c, by + y * c + 0.5); }
   ctx.stroke();
+  if (skin.ambient && !still) drawAmbient(ctx, skin, bx, by, c, reducedMotion ? 0 : opt.time);
   if (hasFrame) {
     const t = frameCells(skin) * c;
     ctx.drawImage(frame, bx - t, by - t, c * W + 2 * t, c * H + 2 * t);

@@ -9,10 +9,10 @@ import { computeLayout, powerIconRect, LEAVE_MS, ARRIVE_MS, SWEEP_MS, FLOAT_MS, 
 import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
 import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
-import { frameCells, inSeason, loadSprites, powerName, testSkin, type Skin } from './skin';
+import { frameCells, inSeason, lookChoices, loadSprites, powerName, seasonKey, testSkin, type SiteLook, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
-import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt } from './storage';
+import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt, lookNoticeSeen, markLookNotice } from './storage';
 import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
@@ -28,6 +28,8 @@ type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'help' | 'tutorialOffer' |
  *            { script: "..." } loads the deployment's own ad code (see src/ads.ts)
  *   logo     { wide, stacked? } logo pictures for the title page (stacked one on phones)
  *   home     { url, name, icon? } the publisher's site, linked from the title page
+ *   looks    [{ id, name, skin, season? }] extra looks offered in Settings, e.g. seasonal ones
+ *            (season { from: 'MM-DD', to: 'MM-DD' }; they are only listed while in season)
  */
 type SiteConfig = {
   skin?: string; api?: string; privacy?: string; terms?: string; ads?: AdsConfig;
@@ -35,6 +37,8 @@ type SiteConfig = {
   logo?: { wide: string; stacked?: string };
   /** The publisher's site, linked from the title page, with an optional small icon. */
   home?: { url: string; name: string; icon?: string };
+  /** Extra looks for the Settings picker (see SiteLook in skin.ts). */
+  looks?: SiteLook[];
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -59,10 +63,21 @@ async function loadConfig(): Promise<SiteConfig> {
 }
 
 async function loadSkin(cfg: SiteConfig): Promise<Skin> {
-  if (loadSettings().look === 'test' || new URLSearchParams(location.search).get('skin') === 'test') return testSkin;
+  const look = loadSettings().look;
+  if (look === 'test' || new URLSearchParams(location.search).get('skin') === 'test') return testSkin;
+  // A picked look that is in season; if its files fail to load, fall back to the site's own skin.
+  const picked = lookChoices(cfg.looks).find(l => l.id === look);
+  if (picked) {
+    const skin = await fetchSkin(picked.skin);
+    if (skin !== testSkin) return skin;
+  }
+  return fetchSkin(cfg.skin);
+}
+
+async function fetchSkin(path: string | undefined): Promise<Skin> {
   try {
-    if (!cfg.skin) return testSkin;
-    const skinUrl = new URL(cfg.skin, location.href);
+    if (!path) return testSkin;
+    const skinUrl = new URL(path, location.href);
     const skin = (await (await fetch(skinUrl)).json()) as Skin;
     // Sound and music paths in skin.json are relative to the skin file.
     const rel = (p: string) => new URL(p, skinUrl).href;
@@ -116,6 +131,12 @@ async function main() {
   const input = new InputManager();
   const audio = new AudioManager(skin);
   let settings: Settings = loadSettings();
+  // A seasonal look whose season has ended (or a look the site no longer offers) goes back to the default.
+  const looks = lookChoices(cfg.looks);
+  if (settings.look !== 'site' && settings.look !== 'test' && !looks.some(l => l.id === settings.look)) {
+    settings.look = 'site';
+    saveSettings(settings);
+  }
   let state: GameState | null = loadGame();
   let mode: Mode = 'menu';
   let layout: Layout = computeLayout(1, 1, 0);
@@ -364,9 +385,28 @@ async function main() {
   // Changing the look reloads the page; the game in progress is saved first.
   const look = $<HTMLSelectElement>('look');
   look.value = settings.look;
-  if (skin === testSkin && settings.look !== 'test') look.querySelector('option[value="site"]')!.textContent = 'Default (test pattern)';
-  else look.querySelector('option[value="site"]')!.textContent = skin.name;
-  look.addEventListener('change', () => { settings.look = look.value as Settings['look']; saveSettings(settings); location.reload(); });
+  const siteOption = look.querySelector('option[value="site"]')!;
+  // The site's own skin is named by the skin it loaded, unless a picked look is showing instead.
+  const siteName = settings.look === 'site' ? (skin === testSkin ? 'Default (test pattern)' : skin.name) : 'Default';
+  siteOption.textContent = siteName;
+  for (const l of looks) siteOption.after(Object.assign(document.createElement('option'), { value: l.id, textContent: l.name }));
+  // Keep the order: Default, then the looks as config.json lists them, then Test pattern last.
+  const testOption = look.querySelector('option[value="test"]')!;
+  look.append(testOption);
+  look.value = settings.look;
+  look.addEventListener('change', () => { settings.look = look.value; saveSettings(settings); location.reload(); });
+
+  // Once per season, the title page says that new looks are out for this time of year.
+  const seasonal = looks.filter(l => l.season);
+  const noticeKey = seasonal.length ? seasonKey(seasonal[0]!.season!) : '';
+  const notice = $('lookNotice');
+  if (noticeKey && !lookNoticeSeen(noticeKey) && !seasonal.some(l => l.id === settings.look)) {
+    $('lookNoticeNames').textContent = seasonal.map(l => l.name).join(', ');
+    notice.hidden = false;
+    const done = () => { markLookNotice(noticeKey); notice.hidden = true; };
+    $('lookNoticeTry').addEventListener('click', () => { done(); audio.play('select'); settingsFrom = mode; show('settings'); look.focus(); });
+    $('lookNoticeLater').addEventListener('click', done);
+  }
   fillForm();
 
   /** startScore carries the score over when moving on to the next level. */

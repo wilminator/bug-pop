@@ -6,6 +6,8 @@ export type ExitStyle = 'fly' | 'fall' | 'explode' | 'fade';
 export type ObjectKind = 'bug' | 'piece' | 'powerup';
 export const DEFAULT_EXITS: Record<ObjectKind, ExitStyle> = { bug: 'fly', piece: 'explode', powerup: 'explode' };
 
+export type AmbientKind = 'snow' | 'leaves' | 'petals' | 'fireflies';
+
 export type ShapeKind = 'circle' | 'triangle' | 'square' | 'diamond' | 'star';
 
 export type Skin = {
@@ -59,6 +61,13 @@ export type Skin = {
    * stretched to the notch's box, e.g. a bud and a flower), `socket` (behind the held icon).
    */
   meter?: { empty?: string; full?: string; ready?: string; notch?: string; notchFull?: string; socket?: string };
+  /**
+   * Optional weather drifting across the board behind the pieces (seasonal looks):
+   * snow, falling leaves, spring petals or summer fireflies. `colors` picks the flakes'
+   * colors (one at random per flake), `count` how many (default 18). It stands still
+   * with Calm motion and is left out with motion Off.
+   */
+  ambient?: { kind: AmbientKind; colors?: string[]; count?: number };
   /** Milliseconds per animation frame for bugAlt (default 400). */
   frameMs?: number;
   /** Who may pick this skin. Absent = everyone. */
@@ -152,10 +161,39 @@ export async function loadSprites(skin: Skin): Promise<SpriteImages | null> {
   return { bug, bugAlt, half, boardInside, boardFrame, power, meter: { notch, notchFull, socket } };
 }
 
-/** Is a seasonal skin in season on this date? */
-export function inSeason(skin: Skin, now = new Date()): boolean {
-  if (!skin.season) return true;
-  const md = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const { from, to } = skin.season;
-  return from <= to ? md >= from && md <= to : md >= from || md <= to; // windows may wrap the new year
+export type Season = { from: string; to: string };
+
+const monthDay = (d: Date) => `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Is this date inside a season window (MM-DD to MM-DD, inclusive)? Windows may wrap the new year. */
+export function inWindow(season: Season | undefined, now = new Date()): boolean {
+  if (!season) return true;
+  const md = monthDay(now), { from, to } = season;
+  return from <= to ? md >= from && md <= to : md >= from || md <= to;
 }
+
+/** Is a seasonal skin in season on this date? */
+export const inSeason = (skin: Skin, now = new Date()) => inWindow(skin.season, now);
+
+/**
+ * Which time round of a season this is, e.g. "12-01@2026" for the winter that starts
+ * on Dec 1, 2026 (it stays "@2026" through February 2027). Used to show the
+ * "new looks" note once per season. Empty when the date is outside the window.
+ */
+export function seasonKey(season: Season, now = new Date()): string {
+  if (!inWindow(season, now)) return '';
+  const wraps = season.from > season.to, md = monthDay(now);
+  const year = wraps && md <= season.to ? now.getFullYear() - 1 : now.getFullYear();
+  return `${season.from}@${year}`;
+}
+
+/**
+ * An extra look a deployment offers in Settings, listed in its config.json. Seasonal
+ * looks only show (and only stay picked) while their window is open; out of season
+ * the game goes back to the default look.
+ */
+export type SiteLook = { id: string; name: string; skin: string; season?: Season };
+
+/** The looks a player can pick today, in the order config.json lists them. */
+export const lookChoices = (looks: SiteLook[] | undefined, now = new Date()) =>
+  (looks ?? []).filter(l => l.id && l.id !== 'site' && l.id !== 'test' && inWindow(l.season, now));

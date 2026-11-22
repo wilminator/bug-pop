@@ -59,6 +59,12 @@
             <button id="signOut" class="link">Sign out</button>
           </div>
         </div>
+        <!-- Once per season, when the site offers looks for this time of year (config.json looks). -->
+        <div id="lookNotice" class="look-notice" hidden>
+          <p><strong>New looks for this time of year</strong></p>
+          <p class="fine" id="lookNoticeNames"></p>
+          <p class="look-notice-buttons"><button id="lookNoticeTry">Choose a look</button><button id="lookNoticeLater" class="link">Not now</button></p>
+        </div>
         <button id="play" class="primary" data-primary>Play</button>
         <!-- Ad space: only a deployment's config.json can switch it on (see README). -->
         <div id="adSlot" class="ad-slot" hidden aria-label="Advertisement"></div>

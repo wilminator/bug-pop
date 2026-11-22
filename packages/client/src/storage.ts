@@ -24,7 +24,8 @@ export type Settings = {
   sound: boolean;
   music: boolean;
   exit: ExitStyle | '';
-  look: 'site' | 'test';
+  /** 'site' (the deployment's own skin), 'test', or the id of a look from config.json's looks. */
+  look: string;
   /** After clearing a level, start the next one by itself. */
   autoNext: boolean;
   /** Which on-screen button row touch players see (see layouts.ts). */
@@ -113,10 +114,22 @@ export function loadSettings(): Settings {
     // Settings saved by an older version simply lack the newer keys, which take their defaults.
     const s: Settings = { ...defaultSettings, ...(JSON.parse(read(SETTINGS_KEY) ?? '{}') as Partial<Settings>) };
     if (!MOTIONS.includes(s.motion)) s.motion = 'auto';
+    if (typeof s.look !== 'string' || !s.look) s.look = 'site';
     return s;
   } catch {
     return { ...defaultSettings };
   }
+}
+
+const LOOK_NOTICE_KEY = 'bugpop.lookNotice.v1';
+/** The seasons (see seasonKey in skin.ts) whose "new looks" note this device has already shown. */
+export function lookNoticeSeen(key: string): boolean {
+  return (read(LOOK_NOTICE_KEY) ?? '').split(' ').includes(key);
+}
+export function markLookNotice(key: string) {
+  // Keep only the last few seasons: older ones never come round again.
+  const seen = (read(LOOK_NOTICE_KEY) ?? '').split(' ').filter(Boolean).filter(k => k !== key).slice(-7);
+  write(LOOK_NOTICE_KEY, [...seen, key].join(' '));
 }
 
 /** `at` is when the change was made; settings taken from the account pass the account's time. */

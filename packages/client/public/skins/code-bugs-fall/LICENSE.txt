@@ -1,0 +1,2 @@
+Code Bugs skin art by the Bug Pop project, licensed CC-BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+Drawn by tools/draw-seasons.py from the Code Bugs art.

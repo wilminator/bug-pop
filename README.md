@@ -63,6 +63,18 @@ Title, then **Choose a game** (Single player; Leaderboard run and Multiplayer ar
 
 A skin is a `skin.json` plus art and sound files. A deployment picks one with a `config.json` beside the page: `{"skin": "skins/code-bugs/skin.json"}`. Skins can animate bugs (two frames), carry a `season` window (holiday skins) and a `tier` (`supporter` skins).
 
+### Seasonal looks
+
+A deployment can offer extra looks in Settings → Look by listing them in `config.json`:
+
+```json
+"looks": [{"id": "code-bugs-winter", "name": "Snow Day Bugs", "skin": "skins/code-bugs-winter/skin.json", "season": {"from": "12-01", "to": "02-29"}}]
+```
+
+A look with a `season` (MM-DD to MM-DD, inclusive, may wrap the new year) is listed only while it is in season. Nothing changes by itself: once per season the title page says new looks are out, with a button to Settings. When the picked look's season ends, the game goes back to the default look. The Look setting stays on each device. A skin can add weather over its board with `"ambient": {"kind": "snow" | "leaves" | "petals" | "fireflies", "colors": [...], "count": 18}`; it stands still with Calm motion and is left out with motion Off.
+
+The open-source build ships four seasonal Code Bugs looks (winter, spring, summer, fall), drawn from the Code Bugs art by `python3 tools/draw-seasons.py`, which also writes the `looks` list into `packages/client/public/config.json`.
+
 A skin can also paint the title page and the menu screens: `"title": {"background": "title-bg.svg"}` (path relative to `skin.json`). The picture is stretched to fill the whole screen, not cropped, so make it an SVG that lays itself out to any size (no `viewBox`). A skin without it, like Code Bugs, keeps the plain dimmed backdrop.
 
 ## Logo and publisher link

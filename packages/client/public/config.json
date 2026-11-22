@@ -1,1 +1,41 @@
-{"skin": "skins/code-bugs/skin.json"}
+{
+  "skin": "skins/code-bugs/skin.json",
+  "looks": [
+    {
+      "id": "code-bugs-winter",
+      "name": "Snow Day Bugs",
+      "skin": "skins/code-bugs-winter/skin.json",
+      "season": {
+        "from": "12-01",
+        "to": "02-29"
+      }
+    },
+    {
+      "id": "code-bugs-spring",
+      "name": "Spring Sprint Bugs",
+      "skin": "skins/code-bugs-spring/skin.json",
+      "season": {
+        "from": "03-01",
+        "to": "05-31"
+      }
+    },
+    {
+      "id": "code-bugs-summer",
+      "name": "Summer Patch Bugs",
+      "skin": "skins/code-bugs-summer/skin.json",
+      "season": {
+        "from": "06-01",
+        "to": "08-31"
+      }
+    },
+    {
+      "id": "code-bugs-fall",
+      "name": "Fall Release Bugs",
+      "skin": "skins/code-bugs-fall/skin.json",
+      "season": {
+        "from": "09-01",
+        "to": "11-30"
+      }
+    }
+  ]
+}
