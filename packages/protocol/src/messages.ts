@@ -346,6 +346,8 @@ export function parseTableStart(raw: string): TableStart | null {
 // Each person can give up their seat or say Watch only at any time, and take a computer's seat.
 // Every device can watch any game: it rebuilds every board from the moves, like the players do.
 
+/** Rooms speak protocol 5 (the 1 against 1 relay stays on PROTOCOL_VERSION until it moves to tables). */
+export const ROOM_VERSION = 5;
 /** At most this many people in a room, and on one device. */
 export const MAX_ROOM = 16;
 export const MAX_PER_DEVICE = 4;
