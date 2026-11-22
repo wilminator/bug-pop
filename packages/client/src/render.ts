@@ -472,8 +472,15 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
       // A bomb or drill: one cell. Its guide shows where it lands, and (faintly) what it will take with it.
       const t = reducedMotion ? 0 : opt.time;
       if (ghost.y !== s.piece.y) drawPower(ctx, skin, k, bx + ghost.x * c, by + ghost.y * c, c, opt.images, 0, 0.25);
-      ctx.fillStyle = 'rgba(255,183,3,0.18)';
-      for (const i of blastCells(s, ghost)) ctx.fillRect(bx + (i % W) * c + 1, by + Math.floor(i / W) * c + 1, c - 2, c - 2);
+      ctx.fillStyle = 'rgba(255,183,3,0.22)';
+      ctx.strokeStyle = 'rgba(255,214,90,0.9)';
+      ctx.lineWidth = Math.max(1, c * 0.05);
+      for (const i of blastCells(s, ghost)) {
+        ctx.beginPath();
+        ctx.roundRect(bx + (i % W) * c + 2, by + Math.floor(i / W) * c + 2, c - 4, c - 4, c * 0.2);
+        ctx.fill();
+        ctx.stroke();
+      }
       drawPower(ctx, skin, k, bx + s.piece.x * c, by + s.piece.y * c, c, opt.images, t);
     } else {
       if (ghost.y !== s.piece.y) for (const h of pieceCells(ghost)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, false, 0.18, opt.images, wild);
