@@ -5,10 +5,10 @@
 // Math.random, so the same config + the same actions always give the same game.
 
 import { BOARD_HEIGHT, BOARD_WIDTH } from './types';
-import { addBugs, bugCount, bugZoneRows, emptyBoard, findMatches, fits, idx, pieceCells, placeBugs, removeCells, settleStep } from './board';
+import { addBugs, bugCount, bugZoneRows, emptyBoard, findMatches, fits, idx, matchLines, pieceCells, placeBugs, removeCells, settleStep } from './board';
 import { randInt } from './rng';
 import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
-import { ACTIONS, POWER_KINDS, SOLO_POWER_KINDS, SAVE_VERSION, type Action, type PowerKind, type PowerState, type GameConfig, type GameEvent, type GameState, type Piece } from './types';
+import { ACTIONS, POWER_KINDS, SOLO_POWER_KINDS, SAVE_VERSION, type Action, type Attack, type ReceivedAttack, type PowerKind, type PowerState, type GameConfig, type GameEvent, type GameState, type Piece } from './types';
 
 export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
@@ -68,6 +68,7 @@ export function normalizeConfig(c: GameConfig): GameConfig {
     ...(c.classicBugZone ? { classicBugZone: true } : {}),
     ...(c.endless ? { endless: true } : {}),
     ...(c.powerUps ? { powerUps: true } : {}),
+    ...(c.versus ? { versus: true } : {}),
     ...(c.powerUps && c.startPower ? { startPower: {
       meter: clamp(c.startPower.meter, 0, METER_FULL),
       held: POWER_KINDS.includes(c.startPower.held as PowerKind) ? c.startPower.held : null,
@@ -98,6 +99,7 @@ export function createGame(config: GameConfig): GameState {
     chain: 0,
     log: [],
   };
+  if (cfg.versus) s.versus = { lines: 0, waiting: [], received: [], fallTicks: null };
   if (cfg.powerUps) s.power = { meter: cfg.startPower?.meter ?? 0, held: cfg.startPower?.held ?? null, freeze: 0, recent: [], queued: null, blast: false };
   s.bugsLeft = placeBugs(s.board, s, cfg.level, cfg.colors, cfg.classicBugZone);
   s.next = randomPair(s);
@@ -156,6 +158,7 @@ function spawn(s: GameState, events: GameEvent[]) {
   s.dropTimer = 0;
   s.dropBugs = 0;
   s.chain = 0;
+  if (s.versus) s.versus.lines = 0;
   s.mult = Math.max(MULT_MIN, (s.mult ?? MULT_MIN) - MULT_DECAY); // each new piece cools the multiplier a little
   if (!fits(s.board, piece)) {
     s.piece = null;
@@ -208,15 +211,21 @@ function lock(s: GameState, events: GameEvent[]) {
 /** After anything lands or falls: start a clear, or hand over to the next piece. */
 function resolve(s: GameState, events: GameEvent[]) {
   const cells = findMatches(s.board);
+  const v = s.versus;
+  if (v) v.fallTicks = null; // attack halves (if any) have landed
   if (cells.length === 0) {
     s.phase = 'waiting';
     s.phaseTimer = s.chain > 0 ? AFTER_CLEAR_TICKS : LAND_TICKS;
+    if (v && v.lines >= 2) events.push({ type: 'attack', attack: { n: Math.min(v.lines, MAX_WAITING), r: attackRate(s) } });
+    if (v && v.lines > 0) v.lines = 0;
     if (s.bugsLeft <= 0) {
       if (endlessGame(s)) nextRound(s, events); // Endless: everything has settled, bring in more bugs
       else win(s, events); // the board has settled after the last bug: the level is won
     }
+    if (v && v.waiting.length && s.phase === 'waiting') dropAttack(s, events);
     return;
   }
+  if (v && v.lines >= 0) v.lines += Math.max(1, matchLines(s.board));
   s.chain++;
   s.clearing = cells;
   s.phase = 'clearing';
@@ -347,12 +356,12 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       // Even after the last bug, loose halves fall and any chain plays out before the level ends
       // (Mike, 2026-11-19): a better chance at a clean sweep. See resolve().
       s.phase = 'settling';
-      s.phaseTimer = SETTLE_TICKS;
+      s.phaseTimer = settleTicks(s);
       break;
     }
     case 'settling': {
       if (--s.phaseTimer > 0) break;
-      if (settleStep(s.board)) { s.phaseTimer = SETTLE_TICKS; events.push({ type: 'fall' }); }
+      if (settleStep(s.board)) { s.phaseTimer = settleTicks(s); events.push({ type: 'fall' }); }
       else resolve(s, events);
       break;
     }
@@ -450,6 +459,82 @@ function scoreBlastBugs(s: GameState, bugs: number) {
   }
 }
 
+// ---- Versus play (only when config.versus is on) -----------------------------------------
+
+/** The most attack halves that can wait for a player at once; more are thrown away (Mike, 2026-11-22). */
+export const MAX_WAITING = 4;
+/** The two middle columns, where new pieces come in. Attack halves use them last. */
+export const ENTRY_COLUMNS: readonly number[] = [SPAWN_X, SPAWN_X + 1];
+
+/** Ticks per row for loose halves: the quick settle, or the slow fall of attack halves. */
+function settleTicks(s: GameState): number {
+  return s.versus?.fallTicks ?? SETTLE_TICKS;
+}
+
+/** How fast this board's attacks fall on the receiver: half this board's normal speed, in ticks per row. */
+export function attackRate(s: GameState): number {
+  return Math.max(1, Math.round(2 * gravityInterval(s)));
+}
+
+/**
+ * An attack reaches this board. Call it between steps (never inside one); it is recorded with the
+ * tick it arrived on, so replay() can land it at the same moment. Halves over the cap are thrown away.
+ */
+export function receiveAttack(s: GameState, attack: Attack): GameEvent[] {
+  const v = s.versus;
+  if (!v || s.phase === 'won' || s.phase === 'lost') return [];
+  const n = Math.max(0, Math.min(MAX_WAITING, Math.floor(attack.n)));
+  const r = Math.max(1, Math.floor(attack.r));
+  v.received.push({ t: s.tick, n, r });
+  return [admit(v, n, r)];
+}
+
+function admit(v: NonNullable<GameState['versus']>, n: number, r: number): GameEvent {
+  const room = MAX_WAITING - waitingHalves(v);
+  const take = Math.max(0, Math.min(n, room));
+  if (take > 0) v.waiting.push({ n: take, r });
+  return { type: 'incoming', waiting: waitingHalves(v), dropped: n - take };
+}
+
+/** Attack halves waiting to drop on this board. */
+export function waitingHalves(v: NonNullable<GameState['versus']>): number {
+  return v.waiting.reduce((a, w) => a + w.n, 0);
+}
+
+/**
+ * Drop the waiting attack halves: one per column, in random columns with room at the top, the
+ * entry columns only once every other column is full (Mike, 2026-11-22). They fall at the sender's
+ * slow rate and the next piece waits for them. No room for them all means the board has topped out.
+ */
+function dropAttack(s: GameState, events: GameEvent[]) {
+  const v = s.versus!;
+  const n = waitingHalves(v);
+  const r = Math.max(...v.waiting.map(w => w.r));
+  v.waiting = [];
+  const shuffle = (cols: number[]) => {
+    for (let i = cols.length - 1; i > 0; i--) { const j = randInt(s, i + 1); [cols[i], cols[j]] = [cols[j]!, cols[i]!]; }
+    return cols;
+  };
+  const free = (x: number) => s.board[idx(x, 0)] === null;
+  const outer = shuffle(Array.from({ length: BOARD_WIDTH }, (_, x) => x).filter(x => free(x) && !ENTRY_COLUMNS.includes(x)));
+  const entry = shuffle(ENTRY_COLUMNS.filter(free));
+  const cols = [...outer, ...entry].slice(0, n);
+  const cells = cols.map(x => {
+    s.board[idx(x, 0)] = { t: 'half', c: randInt(s, s.config.colors), l: null };
+    return idx(x, 0);
+  });
+  events.push({ type: 'garbage', cells });
+  if (cols.length < n) {
+    s.phase = 'lost';
+    events.push({ type: 'lost' });
+    return;
+  }
+  v.lines = -1; // whatever these halves set off is not this player's chain: it sends no attack
+  v.fallTicks = r;
+  s.phase = 'settling';
+  s.phaseTimer = r;
+}
+
 /** Decode the input log into per-tick action lists. */
 export function decodeLog(log: readonly number[]): Map<number, Action[]> {
   const byTick = new Map<number, Action[]>();
@@ -469,11 +554,15 @@ export function decodeLog(log: readonly number[]): Map<number, Action[]> {
  * that a submitted score is real. `untilTick` stops early (default: run until
  * the last logged tick, then until the game ends or maxTicks passes).
  */
-export function replay(config: GameConfig, log: readonly number[], untilTick?: number, maxTicks = 60 * 60 * 60 * 3): GameState {
+export function replay(config: GameConfig, log: readonly number[], untilTick?: number, maxTicks = 60 * 60 * 60 * 3, received: readonly ReceivedAttack[] = []): GameState {
   const s = createGame(config);
   const byTick = decodeLog(log);
   const end = untilTick ?? maxTicks;
-  while (s.tick < end && s.phase !== 'won' && s.phase !== 'lost') step(s, byTick.get(s.tick) ?? []);
+  let next = 0; // versus: attacks land at the tick they arrived, before that tick's step
+  while (s.tick < end && s.phase !== 'won' && s.phase !== 'lost') {
+    while (next < received.length && received[next]!.t <= s.tick) receiveAttack(s, received[next++]!);
+    step(s, byTick.get(s.tick) ?? []);
+  }
   return s;
 }
 

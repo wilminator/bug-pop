@@ -260,3 +260,25 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .coach-text canvas { vertical-align: middle; margin: 0 2px; }
 .coach #coachSkip { pointer-events: auto; align-self: center; font-size: 13px; }
 .tutorial-btn { align-self: center; border-color: var(--accent); color: var(--text); }
+
+/* ---- Multiplayer on one device (src/versus.ts) ---- */
+.vs-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 6px 8px 0; gap: 4px; }
+.vs-stage[hidden] { display: none; }
+.vs-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.vs-bar button { padding: 6px 14px; font-size: 15px; border-radius: 10px; border: 1px solid var(--edge); background: var(--card); color: var(--text); }
+.vs-rule { color: var(--dim); font-size: 14px; }
+.vs-boards { flex: 1; min-height: 0; display: flex; gap: 8px; }
+.vs-side { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vs-side canvas { flex: 1 1 0; min-height: 0; height: 0; width: 100%; touch-action: none; display: block; }
+.vs-label { text-align: center; font-size: 15px; min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vs-info { color: var(--dim); }
+.vs-incoming { color: #ffb347; font-weight: 700; }
+.vs-incoming[hidden] { display: none; }
+/* A phone: your board big, the other one small beside it (one human), or two equal halves. */
+@media (max-width: 700px) { .vs-boards.one-human .vs-side:last-child { flex: 0 0 34%; } .vs-label { font-size: 13px; } }
+.vs-setup fieldset { border: 1px solid var(--edge); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 8px; }
+.vs-setup legend { padding: 0 6px; font-weight: 700; }
+.vs-setup form { display: grid; gap: 10px; }
+.vs-setup label { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.vs-setup input[type=number] { width: 5em; }
+.vs-skill-row[hidden] { display: none; }

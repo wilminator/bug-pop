@@ -37,6 +37,14 @@ export class InputManager {
   capture = false;
   private mouseColumn: number | null = null;
   private mouseCooldown = 0;
+  /**
+   * Which input sources this manager listens to (multiplayer on one device splits them between
+   * players). Sources: 'kb-l' (left-hand keys: W A S D Q Z X E), 'kb-r' (arrows and the rest),
+   * 'mouse', 'swipe', 'touch', 'pad-0', 'pad-1'... Single player accepts everything.
+   */
+  accept: (source: string) => boolean = () => true;
+  /** Elements already wired to this manager, so wiring the same buttons again does nothing. */
+  private wired = new WeakSet<Element>();
   /** Last device used; the UI uses it to show the right hints. */
   lastDevice: DeviceKind = 'keyboard';
   onDevice?: (kind: DeviceKind) => void;
@@ -80,8 +88,15 @@ export class InputManager {
     KeyE: 'power', // Space also uses a power-up while playing (see onKey)
   };
 
+  /** The keys on the left of the keyboard; everything else counts as the right side. */
+  private static leftKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyZ', 'KeyX', 'KeyE']);
+  /** Player 2's extra turn key on a shared keyboard (Up turns right, / turns left). */
+  private static sharedKeys: Record<string, Press> = { Slash: 'rotCCW', Period: 'rotCCW', ShiftRight: 'rotCCW' };
+
   private onKey(e: KeyboardEvent, down: boolean) {
-    const what = InputManager.keyMap[e.code];
+    const side = InputManager.leftKeys.has(e.code) ? 'kb-l' : 'kb-r';
+    if (!this.accept(side)) return;
+    const what = InputManager.keyMap[e.code] ?? (this.accept('kb-l') ? undefined : InputManager.sharedKeys[e.code]);
     if (!what) return;
     if (!this.capture) {
       if (what === 'pause' && down && !e.repeat) { e.preventDefault(); this.press('pause'); }
@@ -100,15 +115,17 @@ export class InputManager {
 
   // ---- Mouse: the piece follows the pointer; left click turns, right button drops ----
   attachMouse(el: HTMLElement, columnAt: (clientX: number) => number | null) {
+    if (this.wired.has(el)) return;
+    this.wired.add(el);
     el.addEventListener('pointermove', e => {
-      if (e.pointerType !== 'mouse') return;
+      if (e.pointerType !== 'mouse' || !this.accept('mouse')) return;
       const col = columnAt(e.clientX);
       if (col === null) return;
       this.use('mouse');
       this.mouseColumn = col;
     });
     el.addEventListener('pointerdown', e => {
-      if (e.pointerType !== 'mouse') return;
+      if (e.pointerType !== 'mouse' || !this.accept('mouse')) return;
       this.use('mouse');
       if (e.button === 0) this.press('rotCW');
       if (e.button === 1) this.press('rotCCW');
@@ -121,6 +138,7 @@ export class InputManager {
     el.addEventListener('pointerleave', up);
     el.addEventListener('contextmenu', e => e.preventDefault());
     el.addEventListener('wheel', e => {
+      if (!this.accept('mouse')) return;
       e.preventDefault();
       this.use('mouse');
       this.press(e.deltaY > 0 ? 'rotCW' : 'rotCCW');
@@ -132,10 +150,12 @@ export class InputManager {
   // travels, so the piece stays under the finger. Dragging down holds soft drop until
   // the finger lifts. A quick tap turns right; a quick flick up turns left.
   attachSwipe(el: HTMLElement, cellSize: () => number) {
+    if (this.wired.has(el)) return;
+    this.wired.add(el);
     let id: number | null = null;
     let x0 = 0, y0 = 0, lastX = 0, t0 = 0, moved = false, dropping = false;
     el.addEventListener('pointerdown', e => {
-      if (e.pointerType === 'mouse' || id !== null || !this.capture) return;
+      if (e.pointerType === 'mouse' || id !== null || !this.capture || !this.accept('swipe')) return;
       e.preventDefault();
       el.setPointerCapture(e.pointerId);
       id = e.pointerId;
@@ -175,9 +195,12 @@ export class InputManager {
   // ---- On-screen touch buttons (data-input="left|right|down|rotCW|rotCCW|pause") ----
   attachTouchButtons(root: HTMLElement) {
     for (const btn of root.querySelectorAll<HTMLElement>('[data-input]')) {
+      if (this.wired.has(btn)) continue;
+      this.wired.add(btn);
       const what = btn.dataset.input as keyof Held | Press;
       const source = `touch-${what}`;
       btn.addEventListener('pointerdown', e => {
+        if (!this.accept('touch')) return;
         e.preventDefault();
         btn.setPointerCapture(e.pointerId);
         if (e.pointerType !== 'mouse') this.use('touch'); // a mouse click on Pause doesn't make this a touch device
@@ -196,7 +219,7 @@ export class InputManager {
     const pads = navigator.getGamepads?.() ?? [];
     const seen = new Set<string>();
     for (const pad of pads) {
-      if (!pad || !pad.connected) continue;
+      if (!pad || !pad.connected || !this.accept(`pad-${pad.index}`)) continue;
       const b = (i: number) => !!pad.buttons[i]?.pressed;
       const ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
       const left = b(14) || ax < -STICK_DEADZONE;

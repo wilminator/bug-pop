@@ -14,10 +14,12 @@ import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt, lookNoticeSeen, markLookNotice } from './storage';
 import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
+import { Versus, readSetup, refreshSetupForm } from './versus';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
-type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'help' | 'tutorialOffer' | 'tutorialDone' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
+// 'versusSetup' / 'versus': multiplayer on one device (src/versus.ts runs the match itself).
+type Mode = 'title' | 'menu' | 'setup' | 'versusSetup' | 'versus' | 'settings' | 'help' | 'tutorialOffer' | 'tutorialDone' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
 /**
  * config.json, written by each deployment (the open-source build ships one with just a skin):
  *   skin     skin.json to load
@@ -246,13 +248,13 @@ async function main() {
   // Audio may only start from a user gesture.
   // The menus have their own title music. Browsers only allow sound after the first tap or
   // key press, so it starts then if a menu is showing.
-  const titleScreens: Mode[] = ['title', 'menu', 'setup', 'settings', 'help', 'tutorialOffer', 'offer'];
+  const titleScreens: Mode[] = ['title', 'menu', 'setup', 'versusSetup', 'settings', 'help', 'tutorialOffer', 'offer'];
   const unlock = () => { audio.unlock(); if (titleScreens.includes(mode)) audio.title(true); };
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), settings: $('settingsScreen'), help: $('helpScreen'), tutorialOffer: $('tutorialOffer'), tutorialDone: $('tutorialDone'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
+  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), versusSetup: $('versusSetup'), vsCard: $('vsCard'), settings: $('settingsScreen'), help: $('helpScreen'), tutorialOffer: $('tutorialOffer'), tutorialDone: $('tutorialDone'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
   // A skin may paint its own picture behind the title page and the menu screens (CSS: html.has-art).
   if (skin.title?.background) {
     document.documentElement.style.setProperty('--title-bg', `url(${JSON.stringify(skin.title.background)})`);
@@ -264,12 +266,17 @@ async function main() {
     void setAdSlot($('adSlot'), cfg.ads, want && mode === 'title', personalized);
     void setAdSlot($('menuAdSlot'), cfg.ads, want && mode === 'menu', personalized);
   };
+  let versus: Versus | null = null; // made once the screens exist (below)
   const show = (m: Mode) => {
     mode = m;
     audio.title(titleScreens.includes(m));
     overlays.title.hidden = m !== 'title';
     overlays.menu.hidden = m !== 'menu';
     overlays.setup.hidden = m !== 'setup';
+    overlays.versusSetup.hidden = m !== 'versusSetup';
+    // Versus owns its own board area and card; any other screen ends a match that is still on.
+    if (m !== 'versus' && versus?.active) versus.stop();
+    $('stage').hidden = m === 'versus';
     overlays.settings.hidden = m !== 'settings';
     overlays.help.hidden = m !== 'help';
     overlays.tutorialOffer.hidden = m !== 'tutorialOffer';
@@ -597,6 +604,20 @@ async function main() {
     startBtn.textContent = 'Start';
   };
   $('newGame').addEventListener('click', () => { audio.play('select'); void singlePlayer(); });
+  // ---- Multiplayer on this device: you against the computer, two people, or the computer against itself ----
+  versus = new Versus({
+    skin, images, audio, touchBar, motion, settings: () => settings, finishPauseMs: FINISH_PAUSE_MS,
+    exit: to => show(to === 'menu' ? 'menu' : 'versusSetup'),
+  });
+  $('multiGame').addEventListener('click', () => { audio.play('select'); refreshSetupForm(); show('versusSetup'); });
+  $('vsWho').addEventListener('input', refreshSetupForm);
+  window.addEventListener('gamepadconnected', () => { if (mode === 'versusSetup') refreshSetupForm(); });
+  $('vsStart').addEventListener('click', () => {
+    audio.unlock();
+    audio.play('select');
+    show('versus');
+    versus!.startMatch(readSetup());
+  });
   $('start').addEventListener('click', () => void startNew());
   $('offerResume').addEventListener('click', () => {
     const s = offered && recordState(offered);
@@ -664,7 +685,7 @@ async function main() {
   // Back (top left) and the Settings gear (top right) on every menu screen after the title.
   let settingsFrom: Mode = 'menu';
   let helpFrom: Mode = 'menu';
-  const backTo = (): Mode => (mode === 'menu' ? 'title' : mode === 'setup' ? setupFrom : mode === 'settings' ? settingsFrom : mode === 'help' ? helpFrom : offerBackTo);
+  const backTo = (): Mode => (mode === 'menu' ? 'title' : mode === 'versusSetup' ? 'menu' : mode === 'setup' ? setupFrom : mode === 'settings' ? settingsFrom : mode === 'help' ? helpFrom : offerBackTo);
   document.querySelectorAll<HTMLElement>('[data-back]').forEach(b => b.addEventListener('click', () => { audio.play('select'); show(backTo()); }));
   document.querySelectorAll<HTMLElement>('[data-gear]').forEach(b => b.addEventListener('click', () => { audio.play('select'); settingsFrom = mode; show('settings'); }));
   // How to play: from the title, any menu screen, or the pause card (Back returns there).

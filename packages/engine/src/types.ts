@@ -108,6 +108,31 @@ export type GameConfig = {
   powerUps?: boolean;
   /** Power-up progress carried in from the previous level of the same run (like startScore). */
   startPower?: { meter: number; held: PowerKind | null };
+  /**
+   * Versus play (multiplayer, Mike 2026-11-22): big chains send loose halves to an opponent, and
+   * halves sent here drop in after the next piece settles. Absent: single player, untouched.
+   */
+  versus?: boolean;
+};
+
+/**
+ * Versus: an attack that reached this board. n halves (1 to 4) fall at r ticks per row, which is
+ * half the sender's normal speed. Every arrival is recorded with its tick (t) so a replay of this
+ * board, which can't see the sender, lands the same halves at the same moment.
+ */
+export type Attack = { n: number; r: number };
+export type ReceivedAttack = Attack & { t: number };
+
+/** Versus progress. Only present when config.versus is on. */
+export type VersusState = {
+  /** Lines matched since the current piece landed (two or more make an attack). */
+  lines: number;
+  /** Attacks waiting to drop, 4 halves at most in all (Mike, 2026-11-22: extras are thrown away). */
+  waiting: Attack[];
+  /** Every attack that arrived, in order (part of the record, like the move log). */
+  received: ReceivedAttack[];
+  /** While attack halves fall: ticks per row (they fall slowly; the wait is part of the penalty). */
+  fallTicks: number | null;
 };
 
 /** 'waiting' is the short beat after things land, before the next piece appears. */
@@ -148,6 +173,8 @@ export type GameState = {
   round?: number;
   /** Power-ups (only when config.powerUps is on). */
   power?: PowerState;
+  /** Versus play (only when config.versus is on). */
+  versus?: VersusState;
   /**
    * Every action ever passed to step(), encoded as tick * 8 + action index.
    * Together with config this replays the game exactly.
@@ -176,5 +203,11 @@ export type GameEvent =
   | { type: 'powerUse'; kind: PowerKind }
   /** Freeze ran out. */
   | { type: 'thaw' }
+  /** Versus: this board's chain made an attack to send to an opponent. */
+  | { type: 'attack'; attack: Attack }
+  /** Versus: an attack arrived (waiting shows how many halves wait now; dropped ones were over the cap). */
+  | { type: 'incoming'; waiting: number; dropped: number }
+  /** Versus: waiting attack halves appeared at the top of these cells and start to fall. */
+  | { type: 'garbage'; cells: number[] }
   /** A bomb or drill went off: these cells are cleared (they flash like a match first). */
   | { type: 'blast'; kind: 'bomb' | 'drill'; cells: number[]; bugs: number };

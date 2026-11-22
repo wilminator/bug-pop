@@ -61,6 +61,27 @@ export function findMatches(board: Cell[]): number[] {
   return [...hit].sort((p, q) => p - q);
 }
 
+/**
+ * Versus: how many separate lines of four or more would pop right now (a row and a column through
+ * the same cells count as two). Wildcards count as their drawn color here; power-ups are off in versus.
+ */
+export function matchLines(board: Cell[]): number {
+  let lines = 0;
+  const scan = (cells: number[]) => {
+    let start = 0;
+    for (let i = 1; i <= cells.length; i++) {
+      const prev = board[cells[i - 1]!];
+      const cur = i < cells.length ? board[cells[i]!] : null;
+      if (cur && prev && cur.c === prev.c) continue;
+      if (prev && i - start >= MATCH_LENGTH && cells.slice(start, i).some(j => board[j]!.t === 'half')) lines++;
+      start = i;
+    }
+  };
+  for (let y = 0; y < H; y++) scan(Array.from({ length: W }, (_, x) => idx(x, y)));
+  for (let x = 0; x < W; x++) scan(Array.from({ length: H }, (_, y) => idx(x, y)));
+  return lines;
+}
+
 /** Does this cell count as color c? A wildcard half counts as every color. */
 const isColor = (cell: Cell, c: Color): boolean => !!cell && (cell.c === c || (cell.t === 'half' && !!cell.w));
 
