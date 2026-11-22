@@ -41,6 +41,8 @@
       <div class="vs-boards">
         <div class="vs-side" id="vsSide0"><div class="vs-label"><b class="vs-name"></b> <span class="vs-info"></span> <span class="vs-incoming" hidden></span></div><canvas aria-label="Player 1 board"></canvas><div class="vs-power-wrap"><button class="power-btn" data-input="power" aria-label="Use power-up" hidden></button></div></div>
         <div class="vs-side" id="vsSide1"><div class="vs-label"><b class="vs-name"></b> <span class="vs-info"></span> <span class="vs-incoming" hidden></span></div><canvas aria-label="Player 2 board"></canvas><div class="vs-power-wrap"><button class="power-btn" data-input="power" aria-label="Use power-up" hidden></button></div></div>
+        <div class="vs-side" id="vsSide2"><div class="vs-label"><b class="vs-name"></b> <span class="vs-info"></span> <span class="vs-incoming" hidden></span></div><canvas aria-label="Player 3 board"></canvas><div class="vs-power-wrap"><button class="power-btn" data-input="power" aria-label="Use power-up" hidden></button></div></div>
+        <div class="vs-side" id="vsSide3"><div class="vs-label"><b class="vs-name"></b> <span class="vs-info"></span> <span class="vs-incoming" hidden></span></div><canvas aria-label="Player 4 board"></canvas><div class="vs-power-wrap"><button class="power-btn" data-input="power" aria-label="Use power-up" hidden></button></div></div>
       </div>
     </div>
 
@@ -156,6 +158,12 @@
                 <option value="last">Last one standing</option>
               </select>
             </label>
+            <label>Players
+              <select id="vsCount"><option selected>2</option><option>3</option><option>4</option></select>
+            </label>
+            <label id="vsTargetRow">Who gets attacked
+              <select id="vsTarget"><option value="leader" selected>The leader (fewest bugs left)</option><option value="random">Someone at random</option></select>
+            </label>
             <label>Colors
               <select id="vsColors"><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
             </label>
@@ -168,6 +176,20 @@
             </fieldset>
             <fieldset class="vs-player" id="vsP1">
               <legend>Player 2</legend>
+              <label>Played by <select class="vs-control"></select></label>
+              <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" class="vs-level" min="1" max="20" step="1" value="5" /></label>
+              <label>Speed <select class="vs-speed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
+              <label class="vs-skill-row">Computer <select class="vs-skill"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></label>
+            </fieldset>
+            <fieldset class="vs-player" id="vsP2">
+              <legend>Player 3</legend>
+              <label>Played by <select class="vs-control"></select></label>
+              <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" class="vs-level" min="1" max="20" step="1" value="5" /></label>
+              <label>Speed <select class="vs-speed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
+              <label class="vs-skill-row">Computer <select class="vs-skill"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></label>
+            </fieldset>
+            <fieldset class="vs-player" id="vsP3">
+              <legend>Player 4</legend>
               <label>Played by <select class="vs-control"></select></label>
               <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" class="vs-level" min="1" max="20" step="1" value="5" /></label>
               <label>Speed <select class="vs-speed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>

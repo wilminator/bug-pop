@@ -288,6 +288,9 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .vs-incoming[hidden] { display: none; }
 /* A phone: your board big, the other one small beside it (one human), or two equal halves. */
 @media (max-width: 700px) { .vs-boards.one-human .vs-side:last-child { flex: 0 0 34%; } .vs-label { font-size: 13px; } }
+/* Three or four boards on a narrow screen: two rows of two. */
+@media (max-width: 900px) { .vs-boards.many { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); } }
+.vs-side[hidden] { display: none; }
 .vs-setup fieldset { border: 1px solid var(--edge); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 8px; }
 .vs-setup legend { padding: 0 6px; font-weight: 700; }
 .vs-setup form { display: grid; gap: 10px; }

@@ -61,7 +61,7 @@ export type OnlineJoin = { level: number; speed: Speed; room?: string; power?: b
 const OFFER_CPU_MS = 30_000;
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
-const MAX_PLAYERS = 2; // 3 and 4 players: later (Mike, 2026-11-22). The board code already handles them.
+const MAX_PLAYERS = 4; // up to 4 on one device (Mike, 2026-11-22: build it all out)
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const RULE_TEXT: Record<WinRule, string> = { race: 'First to clear their bugs', best3: 'Best of 3', last: 'Last one standing' };
 const SKILL_NAME: Record<BotLevel, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
@@ -127,7 +127,7 @@ function accepts(c: Control): (src: string) => boolean {
 }
 
 const fieldset = (i: number) => $(`vsP${i}`);
-const playerCount = () => MAX_PLAYERS;
+const playerCount = () => Math.max(2, Math.min(MAX_PLAYERS, Number($<HTMLSelectElement>('vsCount').value) || 2));
 
 /**
  * The setup screen remembers the last match on this device (Mike, 2026-11-22): rule, colors, and
@@ -136,7 +136,7 @@ const playerCount = () => MAX_PLAYERS;
  */
 const LAST_KEY = 'bugpop.versus.last.v1';
 type Last = {
-  rule: WinRule; colors: number; players: { level: number; speed: Speed; control: Control; bot: BotLevel }[];
+  rule: WinRule; colors: number; count?: number; target?: Target; players: { level: number; speed: Speed; control: Control; bot: BotLevel }[];
   online?: { level: number; speed: Speed; power?: boolean };
   /** Each player's Power-ups choice on the settings card, on this device. */
   power?: boolean[];
@@ -177,7 +177,10 @@ export function initSetupForm(singleSpeed: Speed) {
   if (last) {
     $<HTMLSelectElement>('vsRule').value = last.rule;
     $<HTMLSelectElement>('vsColors').value = String(last.colors);
+    if (last.count) $<HTMLSelectElement>('vsCount').value = String(last.count);
+    if (last.target === 'leader' || last.target === 'random') $<HTMLSelectElement>('vsTarget').value = last.target;
   }
+  $('vsCount').addEventListener('input', refreshSetupForm);
   for (let i = 0; i < MAX_PLAYERS; i++) {
     const fs = fieldset(i), saved = last?.players[i];
     setLevel(fs, saved?.level ?? 5);
@@ -216,7 +219,7 @@ function fillControls(start: Control[] | null, keep = false) {
     const now = sel.value as Control;
     sel.replaceChildren(...controlChoices().map(([v, label]) => new Option(label, v)));
     const pick: Control = keep && now ? now
-      : start?.[i] ?? (i === 0 ? (isTouch() ? 'touch' : 'kb') : pads.length ? `pad-${pads[0]!}` : 'cpu');
+      : start?.[i] ?? (i === 0 ? (isTouch() ? 'touch' : 'kb') : pads[i - 1] !== undefined ? `pad-${pads[i - 1]!}` : 'cpu'); // players 2 to 4: the next gamepad, else the computer
     sel.value = pick;
     if (sel.value !== pick) sel.value = i === 0 ? (isTouch() ? 'touch' : 'kb') : 'cpu';
   }
@@ -234,8 +237,20 @@ export function readSetup(): VersusSetup {
     const control = fs.querySelector<HTMLSelectElement>('.vs-control')!.value as Control;
     players.push({ level, speed, control, bot: control === 'cpu' ? (fs.querySelector<HTMLSelectElement>('.vs-skill')!.value as BotLevel) : null });
   }
-  const setup: VersusSetup = { rule: $<HTMLSelectElement>('vsRule').value as WinRule, colors: Number($<HTMLSelectElement>('vsColors').value), target: 'leader', players };
-  writeLast({ rule: setup.rule, colors: setup.colors, players: players.map((p, i) => ({ ...p, bot: p.bot ?? (fieldset(i).querySelector<HTMLSelectElement>('.vs-skill')!.value as BotLevel) })) });
+  // Who gets attacked with 3 or 4 players: the leader or someone at random, never everyone (Mike, 2026-11-22).
+  const target = $<HTMLSelectElement>('vsTarget').value === 'random' ? 'random' : 'leader';
+  const setup: VersusSetup = { rule: $<HTMLSelectElement>('vsRule').value as WinRule, colors: Number($<HTMLSelectElement>('vsColors').value), target, players };
+  // All four players are remembered, even when fewer play, so going back to 4 brings them back.
+  const all = Array.from({ length: MAX_PLAYERS }, (_, i) => {
+    const fs = fieldset(i);
+    return {
+      level: Math.max(1, Math.min(20, Number(fs.querySelector<HTMLInputElement>('.vs-level')!.value) || 5)),
+      speed: Number(fs.querySelector<HTMLSelectElement>('.vs-speed')!.value) as Speed,
+      control: fs.querySelector<HTMLSelectElement>('.vs-control')!.value as Control,
+      bot: fs.querySelector<HTMLSelectElement>('.vs-skill')!.value as BotLevel,
+    };
+  });
+  writeLast({ rule: setup.rule, colors: setup.colors, count: n, target, players: all });
   return setup;
 }
 
@@ -264,6 +279,7 @@ export function refreshSetupForm() {
     fs.querySelector<HTMLElement>('.vs-skill-row')!.hidden = c !== 'cpu';
     if (i < n) controls.push(c);
   }
+  $('vsTargetRow').hidden = n < 3;
   let problem = '';
   for (let i = 0; i < controls.length && !problem; i++) {
     for (let j = i + 1; j < controls.length; j++) {
@@ -425,6 +441,7 @@ export class Versus {
     this.sides.forEach((s, i) => { s.el.hidden = i >= n; if (i >= n) s.state = null; });
     const boards = this.stage.querySelector('.vs-boards')!;
     boards.classList.toggle('one-human', n === 2 && oneHuman);
+    boards.classList.toggle('many', n > 2);
   }
 
   /**
