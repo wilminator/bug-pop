@@ -115,7 +115,8 @@ async function main() {
   let account: AccountStatus = { kind: cfg.api ? 'unavailable' : 'off' };
   const accountCheck = fetchAccount(cfg.api).then((a) => { account = a; }); // also runs while the skin loads
   const loaded = await loadSkin(cfg);
-  const skin = inSeason(loaded) ? loaded : testSkin;
+  // A skin's own season window is checked too, except on a testing site that lists every look (allLooks).
+  const skin = cfg.allLooks || inSeason(loaded) ? loaded : testSkin;
   const images = await loadSprites(skin);
   let leavers: Leaver[] = [];
   /** Endless: cells whose new bug is crawling in, and when it set off. */
