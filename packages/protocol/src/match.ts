@@ -42,7 +42,7 @@ export class OnlineMatch {
   onFlag?: (why: string) => void;
 
   /** My clock: ticks since the start. It keeps running after my board ends, so they can decide. */
-  private clock = 0;
+  private ticks = 0;
   private sentLog = 0; // how much of me.log has gone out
   private lastSend = 0;
   /** Their clock as far as their moves have told me. */
@@ -64,6 +64,8 @@ export class OnlineMatch {
     this.them = createGame(seatConfig(start, (1 - start.seat) as Seat));
   }
 
+  /** My clock: ticks played since the start. */
+  get clock() { return this.ticks; }
   get name() { return this.start.players[this.seat].name; }
   get theirName() { return this.start.players[1 - this.seat as Seat].name; }
 
@@ -79,13 +81,13 @@ export class OnlineMatch {
     this.incoming = [];
     const done = this.me.phase === 'won' || this.me.phase === 'lost';
     events.push(...step(this.me, done || this.result ? [] : actions));
-    for (const e of events) if (e.type === 'attack') this.sent.push({ k: this.clock, n: e.attack.n, r: e.attack.r, taken: false });
-    this.clock++;
+    for (const e of events) if (e.type === 'attack') this.sent.push({ k: this.ticks, n: e.attack.n, r: e.attack.r, taken: false });
+    this.ticks++;
     if (!this.myEnd && (this.me.phase === 'won' || this.me.phase === 'lost')) {
       this.myEnd = { tick: this.me.tick, won: this.me.phase === 'won' };
       this.flush();
     }
-    if (this.clock - this.lastSend >= SEND_EVERY) this.flush();
+    if (this.ticks - this.lastSend >= SEND_EVERY) this.flush();
     this.decide();
     return events;
   }
@@ -94,8 +96,8 @@ export class OnlineMatch {
   flush() {
     const a = this.me.log.slice(this.sentLog);
     this.sentLog = this.me.log.length;
-    this.lastSend = this.clock;
-    this.out({ t: 'in', k: this.clock, a });
+    this.lastSend = this.ticks;
+    this.out({ t: 'in', k: this.ticks, a });
   }
 
   /** A message from the relay. Returns their board's events (for sound and animation). */
@@ -168,7 +170,7 @@ export class OnlineMatch {
       else if (theirs.tick < mine.tick) winner = by(theirs, them);
       else winner = mine.won === theirs.won ? null : mine.won ? me : them;
     } else if (mine && this.theirClock > mine.tick) winner = by(mine, me);
-    else if (theirs && this.clock > theirs.tick) winner = by(theirs, them);
+    else if (theirs && this.ticks > theirs.tick) winner = by(theirs, them);
     if (winner === undefined) return;
     this.result = { winner };
     this.flush();

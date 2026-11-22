@@ -174,7 +174,16 @@
           </form>
           <p id="vsControls" class="fine"></p>
           <button id="vsStart" class="primary" data-primary>Start</button>
-          <p class="fine">Two matches or more from one piece drop loose halves on your opponent. Each player's level and speed are their own. Online play is coming soon.</p>
+          <p class="fine">Two matches or more from one piece drop loose halves on your opponent. Each player's level and speed are their own.<span id="vsSoon"> Online play is coming soon.</span></p>
+        </div>
+        <!-- Online: only when the deployment's config.json names a "play" server (src/versus.ts). -->
+        <div id="vsOnline" class="card vs-setup" hidden>
+          <h2>Play online</h2>
+          <p class="fine">You play with the level and speed set for <span id="vsOnlineWho">Player 1</span> above. Your opponent picks their own.</p>
+          <button id="vsQuick" class="primary">Quick match</button>
+          <button id="vsCreate">Create a room</button>
+          <label>Room code <input id="vsCode" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" /></label>
+          <button id="vsJoin">Join a room</button>
         </div>
       </div>
     </section>

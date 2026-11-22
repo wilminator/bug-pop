@@ -33,6 +33,8 @@ type Mode = 'title' | 'menu' | 'setup' | 'versusSetup' | 'versus' | 'settings' |
  *   looks    [{ id, name, skin, season? }] extra looks offered in Settings, e.g. seasonal ones
  *            (season { from: 'MM-DD', to: 'MM-DD' }; they are only listed while in season)
  *   allLooks true lists every look in Settings whatever the date (for testing on staging)
+ *   play     online versus server (WebSocket address, may be relative like "/api/play"); without it
+ *            the Multiplayer screen has no online play
  */
 type SiteConfig = {
   skin?: string; api?: string; privacy?: string; terms?: string; ads?: AdsConfig;
@@ -44,6 +46,8 @@ type SiteConfig = {
   looks?: SiteLook[];
   /** List every look whatever the season (a staging site, so all of them can be checked). */
   allLooks?: boolean;
+  /** Online versus: the relay's WebSocket address (see packages/relay, or the hosted server). */
+  play?: string;
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -606,11 +610,26 @@ async function main() {
   $('newGame').addEventListener('click', () => { audio.play('select'); void singlePlayer(); });
   // ---- Multiplayer on this device: you against the computer, two people, or the computer against itself ----
   versus = new Versus({
-    skin, images, audio, touchBar, motion, settings: () => settings, finishPauseMs: FINISH_PAUSE_MS,
+    skin, images, audio, touchBar, motion, settings: () => settings, finishPauseMs: FINISH_PAUSE_MS, playUrl: cfg.play,
     exit: to => show(to === 'menu' ? 'menu' : 'versusSetup'),
   });
   $('multiGame').addEventListener('click', () => { audio.play('select'); refreshSetupForm(); show('versusSetup'); });
   $('vsWho').addEventListener('input', refreshSetupForm);
+  // Online: shown only when this deployment has a play server.
+  $('vsOnline').hidden = !versus.canPlayOnline;
+  $('vsSoon').hidden = versus.canPlayOnline;
+  const goOnline = (room?: string) => {
+    const me = readSetup().players[0];
+    audio.unlock();
+    audio.play('select');
+    show('versus');
+    versus!.startOnline({ level: me.level, speed: me.speed, room });
+  };
+  $('vsQuick').addEventListener('click', () => goOnline());
+  $('vsCreate').addEventListener('click', () => goOnline('new'));
+  const code = $<HTMLInputElement>('vsCode');
+  code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });
+  $('vsJoin').addEventListener('click', () => { if (/^[A-Z]{4}$/.test(code.value)) goOnline(code.value); else code.focus(); });
   window.addEventListener('gamepadconnected', () => { if (mode === 'versusSetup') refreshSetupForm(); });
   $('vsStart').addEventListener('click', () => {
     audio.unlock();

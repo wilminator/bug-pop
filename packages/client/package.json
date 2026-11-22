@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@bug-pop/engine": "0.1.0"
+    "@bug-pop/engine": "0.1.0",
+    "@bug-pop/protocol": "0.1.0"
   }
 }

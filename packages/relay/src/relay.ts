@@ -50,6 +50,7 @@ export function startRelay(opts: RelayOptions = {}) {
       if (msg.t === 'hello') {
         if (me) return;
         if (msg.v !== PROTOCOL_VERSION) { send(ws, { t: 'error', why: 'update the game to play online' }); ws.close(); return; }
+        if (msg.room !== undefined) { send(ws, { t: 'error', why: 'this server has quick match only' }); ws.close(); return; }
         me = { ws, hello: msg, match: null, seat: 0, done: undefined };
         if (!waiting || waiting.ws.readyState !== waiting.ws.OPEN) { waiting = me; send(ws, { t: 'wait' }); return; }
         const other: Player = waiting;

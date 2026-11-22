@@ -26,8 +26,12 @@ export type OnlineRule = 'race' | 'last';
 export type PlayerInfo = { level: number; speed: Speed; name: string };
 
 // ---- Client to relay ----
-/** Join quick match with my level and speed (each player's own handicap). */
-export type Hello = { t: 'hello'; v: number; level: number; speed: Speed };
+/**
+ * Join with my level and speed (each player's own handicap). No `room`: quick match.
+ * `room: 'new'` opens a room and the relay answers with its code; a 4-letter code joins that room.
+ * (The reference relay has quick match only and refuses rooms.)
+ */
+export type Hello = { t: 'hello'; v: number; level: number; speed: Speed; room?: string };
 /** My moves: engine log codes (tick * 8 + action) for every tick before `k`, which is my clock. */
 export type Inputs = { t: 'in'; k: number; a: number[] };
 /** An attack landed on my board at my tick `k` (n halves at r ticks a row). */
@@ -41,18 +45,22 @@ export type ClientMsg = Hello | Inputs | Took | Done | Flag;
 // ---- Relay to client ----
 /** Queued: waiting for an opponent. */
 export type Wait = { t: 'wait' };
+/** My room is open: give this code (4 letters) to a friend. */
+export type Room = { t: 'room'; code: string };
 /** Matched. `seat` is which of `players` I am; both boards use `seed` and `colors`. */
 export type Start = { t: 'start'; seat: 0 | 1; seed: number; colors: number; rule: OnlineRule; players: [PlayerInfo, PlayerInfo] };
 /** The opponent's moves and the attacks they took are passed on unchanged (Inputs, Took). */
 export type End = { t: 'end'; why: 'result' | 'left' | 'flag' | 'disagree'; winner: 0 | 1 | null };
 export type Refused = { t: 'error'; why: string };
-export type ServerMsg = Wait | Start | Inputs | Took | End | Refused;
+export type ServerMsg = Wait | Room | Start | Inputs | Took | End | Refused;
 
 // ---- Checking what comes in (never trust the other end) ----
 const int = (x: unknown, min: number, max: number): x is number => Number.isInteger(x) && (x as number) >= min && (x as number) <= max;
 const speed = (x: unknown): x is Speed => int(x, 0, 3);
 const seat = (x: unknown): x is 0 | 1 | null => x === 0 || x === 1 || x === null;
 const MAX_TICK = 60 * 60 * 60 * 3; // three hours
+/** A room code: 4 capital letters, or 'new' to open a room. */
+export const ROOM_CODE = /^(?:[A-Z]{4}|new)$/;
 
 function obj(raw: string): Record<string, unknown> | null {
   if (raw.length > MAX_MESSAGE_BYTES) return null;
@@ -76,7 +84,11 @@ function took(m: Record<string, unknown>): Took | null {
 export function parseClient(raw: string): ClientMsg | null {
   const m = obj(raw);
   switch (m?.t) {
-    case 'hello': return int(m.v, 0, 1000) && int(m.level, 1, 100) && speed(m.speed) ? { t: 'hello', v: m.v, level: m.level, speed: m.speed } : null;
+    case 'hello': {
+      if (!int(m.v, 0, 1000) || !int(m.level, 1, 100) || !speed(m.speed)) return null;
+      if (m.room === undefined) return { t: 'hello', v: m.v, level: m.level, speed: m.speed };
+      return typeof m.room === 'string' && ROOM_CODE.test(m.room) ? { t: 'hello', v: m.v, level: m.level, speed: m.speed, room: m.room } : null;
+    }
     case 'in': return inputs(m);
     case 'took': return took(m);
     case 'done': return seat(m.winner) ? { t: 'done', winner: m.winner } : null;
@@ -90,6 +102,7 @@ export function parseServer(raw: string): ServerMsg | null {
   const m = obj(raw);
   switch (m?.t) {
     case 'wait': return { t: 'wait' };
+    case 'room': return typeof m.code === 'string' && ROOM_CODE.test(m.code) && m.code !== 'new' ? { t: 'room', code: m.code } : null;
     case 'start': {
       const players = m.players;
       const player = (p: unknown): p is PlayerInfo => {
