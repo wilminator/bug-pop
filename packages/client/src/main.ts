@@ -653,6 +653,11 @@ async function main() {
     show('versus');
     versus!.startOnline({ level: me.level, speed: me.speed, room });
   };
+  $('vsOnlineSignIn').addEventListener('click', () => {
+    audio.play('select');
+    // Back from the account site, the game opens on the Online card (?play=online).
+    location.assign(loginUrl(cfg.api!, `${location.pathname}?play=online`));
+  });
   $('vsQuick').addEventListener('click', () => goOnline());
   $('vsCreate').addEventListener('click', () => goOnline('new'));
   const code = $<HTMLInputElement>('vsCode');
@@ -709,6 +714,9 @@ async function main() {
       const badge = supporterBadge(account.me);
       $('whoBadge').hidden = !badge;
     }
+    // Online play is for signed-in players: signed out, the Online card offers Sign in instead.
+    $('vsOnlineSignedOut').hidden = account.kind !== 'signedOut';
+    $('vsOnlinePlay').hidden = account.kind === 'signedOut';
     refreshAds();
   };
   showAccount();
@@ -1102,7 +1110,20 @@ async function main() {
   showAccount();
   if (cloud.signedIn) void syncFromAccount(); // in the background: play never waits on it
   mode = 'menu';
-  if (await offerNewerCloud()) {
+  // A friend's join link (?room=ABCD, from the room card's QR code or Share): straight into their
+  // room. Signed out, sign in first and come back to the same link. Any single-player game stays saved.
+  const roomLink = new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '';
+  const joinRoom = /^[A-Z]{4}$/.test(roomLink) && !!versus?.canPlayOnline && account.kind !== 'off';
+  if (joinRoom && account.kind === 'signedOut') { location.assign(loginUrl(cfg.api!, location.pathname + location.search)); return; }
+  const backToOnline = new URLSearchParams(location.search).get('play') === 'online' && !!versus?.canPlayOnline;
+  if (roomLink || backToOnline) history.replaceState(null, '', location.pathname + location.hash);
+  if (joinRoom) {
+    goOnline(roomLink);
+  } else if (backToOnline) {
+    refreshSetupForm();
+    pickTab('online');
+    show('versusSetup');
+  } else if (await offerNewerCloud()) {
     // showing the offer
   } else if (unfinished(state)) {
     mode = 'playing';

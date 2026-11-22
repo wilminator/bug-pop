@@ -291,3 +291,10 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .vs-setup .vs-level-row { flex-wrap: wrap; }
 .vs-setup .vs-level-row input[type=range] { flex: 1 1 160px; }
 .vs-online-form { display: grid; gap: 10px; }
+
+/* An open room's QR code and Share button. The code sits on white so every camera reads it. */
+.vs-room-share { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin: 0 0 1rem; }
+.vs-room-share[hidden] { display: none; }
+.vs-room-share img { width: min(200px, 60vw); height: auto; aspect-ratio: 1; background: #fff; padding: 8px; border-radius: 8px; image-rendering: pixelated; }
+/* The Online card's two states lay out as if their buttons sat right in the card. */
+#vsOnlinePlay:not([hidden]), #vsOnlineSignedOut:not([hidden]) { display: contents; }

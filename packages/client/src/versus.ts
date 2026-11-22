@@ -19,6 +19,7 @@ import {
   type BotLevel, type GameEvent, type GameState, type Speed,
 } from '@bug-pop/engine';
 import { OnlineMatch, PROTOCOL_VERSION, parseServer, type ClientMsg, type ServerMsg } from '@bug-pop/protocol';
+import qrcode from 'qrcode-generator';
 import type { AudioManager } from './audio';
 import { InputManager } from './input';
 import { computeLayout, FLOAT_MS, LEAVE_MS, ARRIVE_MS, render, type Float, type Layout, type Leaver } from './render';
@@ -456,7 +457,10 @@ export class Versus {
     if (!msg || net.over) return;
     switch (msg.t) {
       case 'wait': this.showCard('Looking for an opponent...', 'The match starts as soon as someone joins.', ['vsMenu']); break;
-      case 'room': this.showCard(`Room ${msg.code}`, `Tell your friend this code. They choose Join a room on the Multiplayer screen and type ${msg.code}.`, ['vsMenu']); break;
+      case 'room':
+        this.showCard(`Room ${msg.code}`, `Your friend can scan this code, open the link you share, or type ${msg.code} under Join a room on the Multiplayer screen.`, ['vsMenu']);
+        this.showRoomShare(msg.code);
+        break;
       case 'error': net.over = true; this.endOnline(null, "Can't play online right now", msg.why); break;
       case 'start': case 'resume': {
         const send = (out: ClientMsg) => { if (net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify(out)); };
@@ -573,7 +577,34 @@ export class Versus {
   }
 
   // ---- The cards ----
+  /**
+   * A room's QR code and Share button (Mike, 2026-11-22). Both carry the join link: this page with
+   * ?room=CODE, which drops a friend straight into the room (signing in first if needed). The code
+   * is drawn here on the device; nothing is sent anywhere to make it.
+   */
+  private showRoomShare(code: string) {
+    const url = new URL(location.pathname, location.origin);
+    url.searchParams.set('room', code);
+    const link = url.toString();
+    const qr = qrcode(0, 'M');
+    qr.addData(link);
+    qr.make();
+    $<HTMLImageElement>('vsRoomQr').src = qr.createDataURL(6, 2);
+    const btn = $<HTMLButtonElement>('vsShare');
+    btn.textContent = 'Share join link';
+    btn.onclick = async () => {
+      const text = `Join my Bug Pop room ${code}`;
+      try {
+        if (navigator.share) { await navigator.share({ title: 'Bug Pop', text, url: link }); return; }
+        await navigator.clipboard.writeText(link);
+        btn.textContent = 'Link copied';
+      } catch { /* the player closed the share sheet */ }
+    };
+    $('vsRoomShare').hidden = false;
+  }
+
   private showCard(title: string, text: string, buttons: ('vsNext' | 'vsAgain' | 'vsStay' | 'vsSetupBtn' | 'vsMenu')[]) {
+    $('vsRoomShare').hidden = true;
     $('vsCardTitle').textContent = title;
     $('vsCardText').textContent = text;
     for (const id of ['vsNext', 'vsAgain', 'vsStay', 'vsSetupBtn', 'vsMenu'] as const) $(id).hidden = !buttons.includes(id);

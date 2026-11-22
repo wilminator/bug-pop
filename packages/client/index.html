@@ -179,6 +179,12 @@
         <!-- Online: only when the deployment's config.json names a "play" server (src/versus.ts). -->
         <div id="vsOnline" class="card vs-setup" hidden>
           <h2>Play online</h2>
+          <!-- Signed out: online play needs an account, so the only button is Sign in (src/main.ts). -->
+          <div id="vsOnlineSignedOut" hidden>
+            <p class="fine">Online play needs you to be signed in. Your single player game stays right where it is.</p>
+            <button id="vsOnlineSignIn" class="primary">Sign in to play online</button>
+          </div>
+          <div id="vsOnlinePlay">
           <form class="vs-online-form">
             <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" id="vsOnlineLevel" class="vs-level" min="1" max="20" step="1" value="5" /></label>
             <label>Speed <select id="vsOnlineSpeed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
@@ -188,6 +194,7 @@
           <button id="vsCreate">Create a room</button>
           <label>Room code <input id="vsCode" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" /></label>
           <button id="vsJoin">Join a room</button>
+          </div>
         </div>
       </div>
     </section>
@@ -439,6 +446,11 @@
       <div class="card">
         <h2 id="vsCardTitle"></h2>
         <p id="vsCardText" class="tag"></p>
+        <!-- An open room: a QR code and a link that bring a friend straight in (src/versus.ts). -->
+        <div id="vsRoomShare" class="vs-room-share" hidden>
+          <img id="vsRoomQr" alt="QR code that opens this room" width="200" height="200" />
+          <button id="vsShare">Share join link</button>
+        </div>
         <button id="vsNext" class="primary" data-primary>Next round</button>
         <button id="vsAgain">Play again</button>
         <button id="vsStay">Keep playing</button>
