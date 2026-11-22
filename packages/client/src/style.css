@@ -297,7 +297,8 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 /* Multiplayer: On this device / Online selector (src/main.ts), one card shown at a time. */
 .vs-tabs { display: flex; gap: 0; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; width: min(420px, 100%); }
 .vs-tabs[hidden] { display: none; }
-.vs-tabs button { flex: 1; padding: 10px 12px; font-size: 16px; border: 0; background: var(--card); color: var(--dim); }
+.vs-tabs button { flex: 1; padding: 10px 8px; font-size: 16px; border: 0; background: var(--card); color: var(--dim); }
+@media (max-width: 420px) { .vs-tabs button { font-size: 14px; padding: 10px 4px; } }
 .vs-tabs button[aria-selected="true"] { background: var(--accent); color: #111; font-weight: 700; }
 .vs-setup[hidden] { display: none; }
 .vs-setup .vs-level-row { flex-wrap: wrap; }
@@ -309,7 +310,7 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .vs-room-share[hidden] { display: none; }
 .vs-room-share img { width: min(200px, 60vw); height: auto; aspect-ratio: 1; background: #fff; padding: 8px; border-radius: 8px; image-rendering: pixelated; }
 /* The Online card's two states lay out as if their buttons sat right in the card. */
-#vsOnlinePlay:not([hidden]), #vsOnlineSignedOut:not([hidden]) { display: contents; }
+#vsOnlinePlay:not([hidden]), #vsOnlineSignedOut:not([hidden]), #vsQuickPart:not([hidden]), #vsRoomPart:not([hidden]) { display: contents; }
 
 /* Waiting for an opponent: three dots that keep moving, so the card never looks stuck. */
 .vs-waiting::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: vs-dots 1.5s steps(4, end) infinite; }

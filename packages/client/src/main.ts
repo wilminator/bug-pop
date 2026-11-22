@@ -642,20 +642,27 @@ async function main() {
     r.value = String(o.level); r.closest('label')!.querySelector('output')!.value = r.value;
     $<HTMLSelectElement>('vsOnlineSpeed').value = String(o.speed);
   }
-  // Online / On this device: one card at a time, picked with the selector (Mike, 2026-11-22).
-  // Phones start on Online (one screen is cramped for two players), computers on This device.
+  // On this device / Quick match / Online room: one card at a time (Mike, 2026-11-22).
+  // Phones start on Quick match (one screen is cramped for two players), computers on This device.
   const online = versus.canPlayOnline;
   $('vsTabs').hidden = !online;
   $('vsSoon').hidden = online;
-  const pickTab = (tab: 'local' | 'online') => {
-    $('vsTabLocal').setAttribute('aria-selected', String(tab === 'local'));
-    $('vsTabOnline').setAttribute('aria-selected', String(tab === 'online'));
-    $('vsLocal').hidden = tab !== 'local';
-    $('vsOnline').hidden = tab !== 'online';
+  let tab: 'local' | 'quick' | 'room' = 'local';
+  const pickTab = (t: typeof tab) => {
+    tab = t;
+    $('vsTabLocal').setAttribute('aria-selected', String(t === 'local'));
+    $('vsTabQuick').setAttribute('aria-selected', String(t === 'quick'));
+    $('vsTabRoom').setAttribute('aria-selected', String(t === 'room'));
+    $('vsLocal').hidden = t !== 'local';
+    $('vsOnline').hidden = t === 'local';
+    $('vsQuickPart').hidden = t !== 'quick';
+    $('vsRoomPart').hidden = t !== 'room';
+    $('vsOnlineTitle').textContent = t === 'room' ? 'Online room' : 'Quick match';
   };
-  pickTab(online && matchMedia('(pointer: coarse)').matches ? 'online' : 'local');
+  pickTab(online && matchMedia('(pointer: coarse)').matches ? 'quick' : 'local');
   $('vsTabLocal').addEventListener('click', () => { audio.play('select'); pickTab('local'); });
-  $('vsTabOnline').addEventListener('click', () => { audio.play('select'); pickTab('online'); });
+  $('vsTabQuick').addEventListener('click', () => { audio.play('select'); pickTab('quick'); });
+  $('vsTabRoom').addEventListener('click', () => { audio.play('select'); pickTab('room'); });
   // Each level slider shows its number beside it.
   document.querySelectorAll<HTMLInputElement>('#versusSetup .vs-level').forEach(r => {
     const out = r.closest('label')!.querySelector('output')!;
@@ -674,7 +681,7 @@ async function main() {
   $('vsOnlineSignIn').addEventListener('click', () => {
     audio.play('select');
     // Back from the account site, the game opens on the Online card (?play=online).
-    location.assign(loginUrl(cfg.api!, `${location.pathname}?play=online`));
+    location.assign(loginUrl(cfg.api!, `${location.pathname}?play=${tab}`));
   });
   $('vsQuick').addEventListener('click', () => goOnline());
   $<HTMLInputElement>('vsHumansOnly').checked = lastHumansOnly();
@@ -1154,13 +1161,15 @@ async function main() {
   const roomLink = new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '';
   const joinRoom = /^[A-Z]{4}$/.test(roomLink) && !!versus?.canPlayOnline && account.kind !== 'off';
   if (joinRoom && account.kind === 'signedOut') { location.assign(loginUrl(cfg.api!, location.pathname + location.search)); return; }
-  const backToOnline = new URLSearchParams(location.search).get('play') === 'online' && !!versus?.canPlayOnline;
+  // Back from signing in on the Quick match or Online room tab (?play=quick|room; 'online' from older builds).
+  const playTab = new URLSearchParams(location.search).get('play');
+  const backToOnline = (playTab === 'quick' || playTab === 'room' || playTab === 'online') && !!versus?.canPlayOnline;
   if (roomLink || backToOnline) history.replaceState(null, '', location.pathname + location.hash);
   if (joinRoom) {
     goOnline(roomLink);
   } else if (backToOnline) {
     refreshSetupForm();
-    pickTab('online');
+    pickTab(playTab === 'room' ? 'room' : 'quick');
     show('versusSetup');
   } else if (await offerNewerCloud()) {
     // showing the offer
