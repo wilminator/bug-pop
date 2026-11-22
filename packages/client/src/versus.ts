@@ -1,13 +1,18 @@
-// Multiplayer on one device: two boards side by side, each played by a person or by the computer.
+// Multiplayer on one device: 2 to 4 boards side by side, each played by a person or by the computer.
 //
-// Each board is an ordinary engine game with `versus: true`. Once per tick both boards step; when
-// one sends an attack (two or more matches from one piece) it is handed to the other board with
-// receiveAttack(), exactly as the online relay will do later. The engine never knows who is
-// playing: a person's moves come from an InputManager, the computer's from a Bot, and both are
-// the same actions.
+// Each board is an ordinary engine game with `versus: true`. Once per tick every board steps; when
+// one sends an attack (two or more matches from one piece) it goes to an opponent with
+// receiveAttack(), exactly as the online relay does. With 3 or 4 players a setting picks who gets
+// it: the leader (fewest bugs left), someone at random, or everyone (Mike, 2026-11-22). The
+// engine never knows who is playing: a person's moves come from an InputManager, the computer's
+// from a Bot, and both are the same actions.
+//
+// Each player picks what controls their board (Mike, 2026-11-22): the computer, or one input
+// device (keyboard and mouse, the left or right half of the keyboard, the mouse, touch, or a
+// gamepad). Two people can't share one device.
 //
 // No pause in competitive play: Leave (or Esc, P, Start) opens a "Leave the match?" card while
-// both games keep running behind it.
+// the games keep running behind it.
 
 import {
   BOT_SKILLS, BOARD_WIDTH, Bot, TICKS_PER_SECOND, createGame, receiveAttack, step, waitingHalves,
@@ -20,11 +25,18 @@ import { computeLayout, FLOAT_MS, LEAVE_MS, ARRIVE_MS, render, type Float, type 
 import { frameCells, type Skin, type SpriteImages } from './skin';
 import type { Motion, Settings } from './storage';
 
-export type Who = 'human-bot' | 'human-human' | 'bot-bot';
 /** race: first to clear their bugs. best3: first to win 2 rounds. last: Endless, last one standing. */
 export type WinRule = 'race' | 'best3' | 'last';
-export type PlayerSetup = { level: number; speed: Speed; bot: BotLevel | null };
-export type VersusSetup = { who: Who; rule: WinRule; colors: number; players: [PlayerSetup, PlayerSetup] };
+/** With 3 or 4 players, who an attack goes to. */
+export type Target = 'leader' | 'random' | 'everyone';
+/**
+ * What plays a board: the computer ('cpu'), or one device. 'kb' is the whole keyboard and the
+ * mouse; 'kb-l' / 'kb-r' are its halves; 'pad-N' is gamepad N (0-based). Online uses 'any' for
+ * me and 'remote' for the other player.
+ */
+export type Control = 'cpu' | 'kb' | 'kb-l' | 'kb-r' | 'mouse' | 'touch' | `pad-${number}` | 'any' | 'remote';
+export type PlayerSetup = { level: number; speed: Speed; control: Control; bot: BotLevel | null };
+export type VersusSetup = { rule: WinRule; colors: number; target: Target; players: PlayerSetup[] };
 
 export type VersusDeps = {
   skin: Skin;
@@ -46,6 +58,7 @@ export type VersusDeps = {
 export type OnlineJoin = { level: number; speed: Speed; room?: string };
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
+const MAX_PLAYERS = 4;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const RULE_TEXT: Record<WinRule, string> = { race: 'First to clear their bugs', best3: 'Best of 3', last: 'Last one standing' };
 const SKILL_NAME: Record<BotLevel, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
@@ -72,53 +85,143 @@ type Side = {
   quiet: boolean;
 };
 
+/** A phone or tablet: at most 2 players, and touch is a choice. */
+const isTouch = () => matchMedia('(pointer: coarse)').matches;
+const connectedPads = () => [...(navigator.getGamepads?.() ?? [])].filter((p): p is Gamepad => !!p && p.connected).map(p => p.index);
+
+/** The choices in each player's "Played by" list. */
+function controlChoices(): [Control, string][] {
+  const pads = new Set(connectedPads());
+  const list: [Control, string][] = [['cpu', 'Computer']];
+  if (isTouch()) list.push(['touch', 'Touch']);
+  list.push(['kb', 'Keyboard and mouse'], ['kb-l', 'Keyboard, left side (W A S D)'], ['kb-r', 'Keyboard, right side (arrows)'], ['mouse', 'Mouse']);
+  for (let i = 0; i < 4; i++) list.push([`pad-${i}`, `Gamepad ${i + 1}${pads.has(i) ? '' : ' (not connected)'}`]);
+  return list;
+}
+
+/** Two controls that can't both be used at once (the same device, or the keyboard and its half). */
+function clash(a: Control, b: Control): boolean {
+  if (a === 'cpu' || b === 'cpu') return false;
+  if (a === b) return true;
+  const kb = (c: Control) => c === 'kb' || c === 'kb-l' || c === 'kb-r';
+  if ((a === 'kb' && (kb(b) || b === 'mouse')) || (b === 'kb' && (kb(a) || a === 'mouse'))) return true;
+  return false;
+}
+
+/** Which input sources a control listens to (see InputManager.accept). */
+function accepts(c: Control): (src: string) => boolean {
+  switch (c) {
+    case 'kb': return src => src === 'kb-l' || src === 'kb-r' || src === 'mouse';
+    case 'kb-l': case 'kb-r': case 'mouse': return src => src === c;
+    case 'touch': return src => src === 'touch' || src === 'swipe';
+    case 'any': return () => true;
+    case 'cpu': case 'remote': return () => false;
+    default: return src => src === c; // a gamepad
+  }
+}
+
+const fieldset = (i: number) => $(`vsP${i}`);
+const playerCount = () => (isTouch() ? 2 : Math.max(2, Math.min(MAX_PLAYERS, Number($<HTMLSelectElement>('vsCount').value) || 2)));
+
+/** Fill the "Played by" lists and set each player's starting choice. Call once at start-up. */
+export function initSetupForm() {
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    const sel = fieldset(i).querySelector<HTMLSelectElement>('.vs-control')!;
+    sel.addEventListener('input', refreshSetupForm);
+  }
+  fillControls(true);
+  $('vsCount').addEventListener('input', refreshSetupForm);
+  window.addEventListener('gamepadconnected', () => fillControls(false));
+  window.addEventListener('gamepaddisconnected', () => fillControls(false));
+}
+
+/**
+ * Rebuild the "Played by" lists (gamepads come and go). With `defaults`, also pick each player's
+ * starting choice (Mike, 2026-11-22): Player 1 an input device (touch on a phone, else the
+ * keyboard and mouse); Player 2 the computer, unless a gamepad is connected; the rest the computer.
+ */
+function fillControls(defaults: boolean) {
+  const pads = connectedPads();
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    const sel = fieldset(i).querySelector<HTMLSelectElement>('.vs-control')!;
+    const keep = sel.value as Control;
+    sel.replaceChildren(...controlChoices().map(([v, label]) => new Option(label, v)));
+    let pick: Control = keep;
+    if (defaults || !keep) pick = i === 0 ? (isTouch() ? 'touch' : 'kb') : i === 1 && pads.length ? `pad-${pads[0]!}` : 'cpu';
+    sel.value = pick;
+    if (sel.value !== pick) sel.value = 'cpu';
+  }
+  refreshSetupForm();
+}
+
 /** Read the setup screen's form. */
 export function readSetup(): VersusSetup {
-  const who = $<HTMLSelectElement>('vsWho').value as Who;
-  const player = (i: 0 | 1): PlayerSetup => {
-    const fs = $(`vsP${i}`);
-    const level = Math.max(1, Math.min(100, Math.round(Number(fs.querySelector<HTMLInputElement>('.vs-level')!.value) || 1)));
+  const n = playerCount();
+  const players: PlayerSetup[] = [];
+  for (let i = 0; i < n; i++) {
+    const fs = fieldset(i);
+    const level = Math.max(1, Math.min(20, Math.round(Number(fs.querySelector<HTMLInputElement>('.vs-level')!.value) || 5)));
     const speed = Number(fs.querySelector<HTMLSelectElement>('.vs-speed')!.value) as Speed;
-    const isBot = who === 'bot-bot' || (who === 'human-bot' && i === 1);
-    return { level, speed, bot: isBot ? (fs.querySelector<HTMLSelectElement>('.vs-skill')!.value as BotLevel) : null };
-  };
-  return { who, rule: $<HTMLSelectElement>('vsRule').value as WinRule, colors: Number($<HTMLSelectElement>('vsColors').value), players: [player(0), player(1)] };
-}
-
-/** Names for the two players, always saying which one is the computer. */
-function names(setup: VersusSetup): [string, string] {
-  const bot = (p: PlayerSetup, n = '') => `Computer${n} (${SKILL_NAME[p.bot!]})`;
-  if (setup.who === 'human-bot') return ['You', bot(setup.players[1])];
-  if (setup.who === 'bot-bot') return [bot(setup.players[0], ' 1'), bot(setup.players[1], ' 2')];
-  return ['Player 1', 'Player 2'];
-}
-
-/** The setup screen: show the Computer skill picker only for computer players, and the controls hint. */
-export function refreshSetupForm() {
-  const who = $<HTMLSelectElement>('vsWho').value as Who;
-  const legends: Record<Who, [string, string]> = { 'human-bot': ['You', 'Computer'], 'human-human': ['Player 1', 'Player 2'], 'bot-bot': ['Computer 1', 'Computer 2'] };
-  for (const i of [0, 1] as const) {
-    const fs = $(`vsP${i}`);
-    fs.querySelector('legend')!.textContent = legends[who][i];
-    fs.querySelector<HTMLElement>('.vs-skill-row')!.hidden = !(who === 'bot-bot' || (who === 'human-bot' && i === 1));
+    const control = fs.querySelector<HTMLSelectElement>('.vs-control')!.value as Control;
+    players.push({ level, speed, control, bot: control === 'cpu' ? (fs.querySelector<HTMLSelectElement>('.vs-skill')!.value as BotLevel) : null });
   }
-  $('vsOnlineWho').textContent = legends[who][0];
-  const pads = connectedPads().length;
-  $('vsControls').textContent =
-    who === 'human-bot' ? 'Play with any keyboard keys, mouse, touch or gamepad, as in single player.'
-    : who === 'bot-bot' ? 'Sit back and watch. Every game is different: the computer has its own dice.'
-    : pads >= 2 ? 'Player 1: keyboard, mouse or the first gamepad. Player 2: the second gamepad.'
-    : pads === 1 ? 'Player 1: keyboard or mouse. Player 2: the gamepad.'
-    : 'Player 1: W A S D to move and drop, Q or W to turn, on the left of the keyboard. Player 2: the arrow keys, with Up and / to turn. A gamepad also works for Player 2.';
+  return { rule: $<HTMLSelectElement>('vsRule').value as WinRule, colors: Number($<HTMLSelectElement>('vsColors').value), target: $<HTMLSelectElement>('vsTarget').value as Target, players };
+}
+
+/** Names on the boards, always saying which ones are the computer. One person alone is "You". */
+function names(setup: VersusSetup): string[] {
+  const humans = setup.players.filter(p => !p.bot).length, bots = setup.players.length - humans;
+  let h = 0, b = 0;
+  return setup.players.map(p => {
+    if (p.bot) { b++; return `Computer${bots > 1 ? ` ${b}` : ''} (${SKILL_NAME[p.bot]})`; }
+    h++;
+    return humans === 1 ? 'You' : `Player ${h}`;
+  });
+}
+
+/**
+ * The setup screen: how many players (computers only; a phone always has 2), a double-wide card
+ * for 3 or 4, the Computer skill picker only for computer players, the attack setting only for 3
+ * or more, and a warning (Start turned off) when two players picked the same device.
+ */
+export function refreshSetupForm() {
+  const touch = isTouch();
+  $('vsCountRow').hidden = touch;
+  const n = playerCount();
+  $('vsLocal').classList.toggle('wide', n > 2);
+  $('vsTargetRow').hidden = n < 3;
+  const controls: Control[] = [];
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    const fs = fieldset(i);
+    fs.hidden = i >= n;
+    const c = fs.querySelector<HTMLSelectElement>('.vs-control')!.value as Control;
+    fs.querySelector<HTMLElement>('.vs-skill-row')!.hidden = c !== 'cpu';
+    if (i < n) controls.push(c);
+  }
+  let problem = '';
+  for (let i = 0; i < controls.length && !problem; i++) {
+    for (let j = i + 1; j < controls.length; j++) {
+      if (clash(controls[i]!, controls[j]!)) { problem = `Players ${i + 1} and ${j + 1} can't share a device. Pick another for one of them.`; break; }
+    }
+  }
+  const pads = new Set(connectedPads());
+  const missing = controls.findIndex(c => c.startsWith('pad-') && !pads.has(Number(c.slice(4))));
+  const humans = controls.filter(c => c !== 'cpu').length;
+  $<HTMLButtonElement>('vsStart').disabled = !!problem;
+  $('vsControls').textContent = problem
+    || (missing >= 0 ? `Player ${missing + 1}'s gamepad isn't connected yet: press any button on it.` : '')
+    || (humans === 0 ? 'Sit back and watch. Every game is different: the computer has its own dice.'
+      : controls.includes('kb-l') || controls.includes('kb-r') ? 'Left side: W A S D to move and drop, Q or W to turn. Right side: the arrow keys, with Up and / to turn.'
+      : '');
 }
 
 /** Change an element's text only when it differs (this runs every frame). */
 const setText = (el: Element, text: string) => { if (el.textContent !== text) el.textContent = text; };
 
-const connectedPads = () => [...(navigator.getGamepads?.() ?? [])].filter((p): p is Gamepad => !!p && p.connected).map(p => p.index);
-
 export class Versus {
-  private sides: [Side, Side];
+  private sides: Side[];
+  /** How many boards are in play (the rest are hidden). */
+  private count = 2;
   private setup: VersusSetup | null = null;
   private round = 1;
   /** 'playing', the pause after a round is decided, or the result card showing. */
@@ -133,7 +236,7 @@ export class Versus {
   private net: { ws: WebSocket; match: OnlineMatch | null; join: OnlineJoin; t0: number; over: boolean } | null = null;
 
   constructor(private deps: VersusDeps) {
-    const make = (i: 0 | 1): Side => {
+    const make = (i: number): Side => {
       const el = $(`vsSide${i}`);
       const canvas = el.querySelector('canvas')!;
       const side: Side = {
@@ -151,7 +254,7 @@ export class Versus {
       side.input.accept = () => false;
       return side;
     };
-    this.sides = [make(0), make(1)];
+    this.sides = Array.from({ length: MAX_PLAYERS }, (_, i) => make(i));
     $('vsLeave').addEventListener('click', () => { this.deps.audio.play('select'); this.openLeave(); });
     $('vsStay').addEventListener('click', () => { this.deps.audio.play('select'); this.closeLeave(); });
     $('vsNext').addEventListener('click', () => { this.deps.audio.play('select'); this.startRound(); });
@@ -174,55 +277,48 @@ export class Versus {
     side.layout = computeLayout(rect.width, rect.height, 0, frameCells(this.deps.skin));
   }
 
+  /** Show `n` boards. With one person against one other board, theirs is the big one on a phone. */
+  private showSides(n: number, oneHuman: boolean) {
+    this.count = n;
+    this.sides.forEach((s, i) => { s.el.hidden = i >= n; if (i >= n) s.state = null; });
+    const boards = this.stage.querySelector('.vs-boards')!;
+    boards.classList.toggle('one-human', n === 2 && oneHuman);
+  }
+
   /**
-   * Who listens to what. One person: everything. Two people: split the keyboard in half, or give
-   * the gamepads out (the first one to Player 1 when there are two of them).
+   * Who listens to what: each person's board takes only their chosen device. One person alone
+   * takes everything, so any key, pad or touch works for them.
    */
   private assignInputs(setup: VersusSetup) {
-    const [a, b] = this.sides;
-    const humans = setup.players.map(p => !p.bot);
-    for (const s of this.sides) { s.input.accept = () => false; s.input.reset(); }
-    for (const s of this.sides) s.input.attachTouchButtons(this.deps.touchBar);
-    if (humans[0] && humans[1]) {
-      const pads = connectedPads();
-      if (pads.length >= 2) {
-        a.input.accept = src => !src.startsWith('pad-') || src === `pad-${pads[0]}`;
-        b.input.accept = src => src === `pad-${pads[1]}` || src === 'swipe';
-      } else if (pads.length === 1) {
-        a.input.accept = src => !src.startsWith('pad-');
-        b.input.accept = src => src.startsWith('pad-') || src === 'swipe';
-      } else {
-        a.input.accept = src => src === 'kb-l' || src === 'mouse' || src === 'swipe' || src === 'touch';
-        b.input.accept = src => src === 'kb-r' || src === 'swipe' || src.startsWith('pad-');
-      }
-    } else if (humans[0]) {
-      a.input.accept = () => true;
-    } else {
-      // Bot against bot: nobody steers, but Esc, P or Start still opens the leave card.
-      a.input.accept = () => true;
-    }
+    const humans = setup.players.filter(p => !p.bot).length;
+    this.sides.forEach((s, i) => {
+      s.input.reset();
+      s.input.attachTouchButtons(this.deps.touchBar);
+      const p = setup.players[i];
+      s.input.accept = !p ? () => false : humans === 1 && !p.bot ? () => true : accepts(p.control);
+    });
+    // Computers only: nobody steers, but Esc, P or Start still opens the leave card.
+    if (humans === 0) this.sides[0]!.input.accept = () => true;
   }
 
   /** Begin a new match with these players (round 1, no wins). */
   startMatch(setup: VersusSetup) {
     this.closeNet();
     this.setup = setup;
-    const [n0, n1] = names(setup);
-    this.sides[0].name = n0;
-    this.sides[1].name = n1;
-    for (const s of this.sides) s.wins = 0;
+    const n = names(setup);
+    this.sides.forEach((s, i) => { s.name = n[i] ?? ''; s.wins = 0; });
     this.round = 1;
-    this.stage.querySelector('.vs-boards')!.classList.toggle('one-human', setup.who === 'human-bot');
+    this.showSides(setup.players.length, setup.players.filter(p => !p.bot).length === 1);
     this.assignInputs(setup);
     this.startRound();
   }
 
   private startRound() {
     const setup = this.setup!;
-    // Both boards get the same pieces in the same order (a fair race); the bugs differ by level.
+    // Every board gets the same pieces in the same order (a fair race); the bugs differ by level.
     const seed = randomSeed();
-    this.sides.forEach((s, i) => {
-      const p = setup.players[i]!;
+    setup.players.forEach((p, i) => {
+      const s = this.sides[i]!;
       s.state = createGame({ seed, level: p.level, speed: p.speed, colors: setup.colors, versus: true, endless: setup.rule === 'last' || undefined });
       s.bot = p.bot ? new Bot(BOT_SKILLS[p.bot], randomSeed()) : null;
       s.quiet = !!s.bot;
@@ -256,7 +352,10 @@ export class Versus {
   }
 
   private setCapture(on: boolean) {
-    this.sides.forEach((s, i) => { s.input.capture = on && !!this.setup && !this.setup.players[i]!.bot && !(this.net && i === 1); });
+    this.sides.forEach((s, i) => {
+      const p = this.setup?.players[i];
+      s.input.capture = on && !!p && !p.bot && p.control !== 'remote' && s.state?.phase !== 'lost';
+    });
   }
 
   // ---- Online (a relay passes moves between two devices; see packages/protocol) ----
@@ -270,10 +369,10 @@ export class Versus {
     const ws = new WebSocket(url);
     const net = { ws, match: null as OnlineMatch | null, join, t0: 0, over: false };
     this.net = net;
-    this.setup = { who: 'human-bot', rule: 'race', colors: 3, players: [{ level: join.level, speed: join.speed, bot: null }, { level: 1, speed: 1, bot: null }] };
+    this.setup = { rule: 'race', colors: 3, target: 'leader', players: [{ level: join.level, speed: join.speed, control: 'any', bot: null }, { level: 1, speed: 1, control: 'remote', bot: null }] };
     for (const s of this.sides) { s.state = null; s.wins = 0; s.quiet = false; s.input.accept = () => false; s.input.reset(); }
     this.sides[1].quiet = true;
-    this.stage.querySelector('.vs-boards')!.classList.add('one-human');
+    this.showSides(2, true);
     this.stage.hidden = false;
     this.phase = 'card';
     cancelAnimationFrame(this.raf);
@@ -418,58 +517,80 @@ export class Versus {
       }
     } else {
       // A card is up: still read the devices, so nothing piles up for the next round.
-      for (const s of this.sides) s.input.poll(null);
+      for (const s of this.sides.slice(0, this.count)) s.input.poll(null);
     }
     this.draw(now);
     this.raf = requestAnimationFrame(this.frame);
   };
 
   private tick() {
-    const [a, b] = this.sides;
-    const events: [GameEvent[], GameEvent[]] = [[], []];
-    this.sides.forEach((s, i) => {
+    const setup = this.setup!;
+    const live = this.sides.slice(0, this.count);
+    const events: GameEvent[][] = live.map(() => []);
+    const allBots = setup.players.every(p => p.bot);
+    live.forEach((s, i) => {
       const st = s.state!;
       let actions = s.bot ? s.bot.act(st) : [];
-      if (!s.bot || (i === 0 && this.setup!.who === 'bot-bot')) {
+      if (!s.bot || (i === 0 && allBots)) {
         const f = s.input.poll(this.leaveUp || s.bot ? null : st);
         if (f.pause) { if (this.leaveUp) this.closeLeave(); else this.openLeave(); }
         if (!s.bot) actions = this.leaveUp ? [] : f.actions;
       }
       events[i] = step(st, actions);
     });
-    // Attacks cross over after both boards have stepped, so neither board gets a head start.
+    // Attacks land after every board has stepped, so nobody gets a head start.
+    const playing = (j: number) => { const ph = live[j]!.state!.phase; return ph !== 'won' && ph !== 'lost'; };
     events.forEach((evs, i) => {
-      const other = this.sides[1 - i]!;
-      for (const e of evs) if (e.type === 'attack') events[1 - i]!.push(...receiveAttack(other.state!, e.attack));
+      for (const e of evs) {
+        if (e.type !== 'attack') continue;
+        for (const j of this.targets(i, playing)) events[j]!.push(...receiveAttack(live[j]!.state!, e.attack));
+      }
     });
-    events.forEach((evs, i) => this.effects(this.sides[i]!, evs));
-    // Who won the round? Clearing every bug wins; topping out loses. Both at once is a draw.
-    const lost = [a.state!.phase === 'lost', b.state!.phase === 'lost'];
-    const won = [a.state!.phase === 'won', b.state!.phase === 'won'];
-    if (won[0] || won[1] || lost[0] || lost[1]) {
-      const winner = won[0] && !won[1] ? 0 : won[1] && !won[0] ? 1 : lost[0] && !lost[1] ? 1 : lost[1] && !lost[0] ? 0 : null;
-      this.endRound(winner);
-    }
+    events.forEach((evs, i) => this.effects(live[i]!, evs));
+    // A board that tops out is out (its player stops steering it).
+    if (events.some(evs => evs.some(e => e.type === 'lost'))) this.setCapture(!this.leaveUp);
+    // Who won the round? Clearing every bug first wins; otherwise the last board still going.
+    const won = live.map((s, i) => (s.state!.phase === 'won' ? i : -1)).filter(i => i >= 0);
+    const going = live.map((_, i) => i).filter(playing);
+    if (won.length) this.endRound(won.length === 1 ? won[0]! : null);
+    else if (going.length <= 1) this.endRound(going.length === 1 ? going[0]! : null);
   }
 
-  private endRound(winner: 0 | 1 | null) {
+  /**
+   * Who an attack from board `from` lands on. Two players: the other one. Three or four: the
+   * setting (Mike, 2026-11-22): the leader (fewest bugs left, ties at random), someone at random,
+   * or everyone still playing.
+   */
+  private targets(from: number, playing: (j: number) => boolean): number[] {
+    const others = this.sides.slice(0, this.count).map((_, j) => j).filter(j => j !== from && playing(j));
+    if (others.length <= 1) return others;
+    const target = this.setup!.target;
+    if (target === 'everyone') return others;
+    const pick = (list: number[]) => [list[Math.floor(Math.random() * list.length)]!];
+    if (target === 'random') return pick(others);
+    const fewest = Math.min(...others.map(j => this.sides[j]!.state!.bugsLeft));
+    return pick(others.filter(j => this.sides[j]!.state!.bugsLeft === fewest));
+  }
+
+  private endRound(winner: number | null) {
     const setup = this.setup!;
     this.phase = 'ending';
     this.setCapture(false);
     if (this.leaveUp) { this.leaveUp = false; this.card.hidden = true; }
     for (const s of this.sides) s.input.reset();
-    if (winner !== null) this.sides[winner].wins++;
+    if (winner !== null) this.sides[winner]!.wins++;
     this.deps.audio.stopMusic();
-    // A person losing to the computer hears the losing tune; anything else is a win to celebrate.
-    this.deps.audio.play(setup.who === 'human-bot' && winner === 1 ? 'lose' : 'win');
+    // One person who didn't win hears the losing tune; anything else is a win to celebrate.
+    const humans = setup.players.map((p, i) => (p.bot ? -1 : i)).filter(i => i >= 0);
+    this.deps.audio.play(humans.length === 1 && winner !== humans[0] ? 'lose' : 'win');
     const decided = setup.rule !== 'best3' || this.sides.some(s => s.wins >= 2);
     window.setTimeout(() => {
       if (this.phase !== 'ending') return;
       this.phase = 'card';
-      const who = winner === null ? null : this.sides[winner].name;
+      const who = winner === null ? null : this.sides[winner]!.name;
       const title = who === null ? 'A draw' : who === 'You' ? 'You win' : `${who} wins`;
-      const score = `${this.sides[0].name} ${this.sides[0].wins}, ${this.sides[1].name} ${this.sides[1].wins}.`;
-      if (decided) this.showCard(setup.rule === 'best3' ? `${title} the match` : title, setup.rule === 'best3' ? score : winner === null ? 'Both boards filled at the same moment.' : 'Good game.', ['vsAgain', 'vsSetupBtn', 'vsMenu']);
+      const score = this.sides.slice(0, this.count).map(s => `${s.name} ${s.wins}`).join(', ') + '.';
+      if (decided) this.showCard(setup.rule === 'best3' ? `${title} the match` : title, setup.rule === 'best3' ? score : winner === null ? 'No one was left standing.' : 'Good game.', ['vsAgain', 'vsSetupBtn', 'vsMenu']);
       else {
         this.round++;
         this.showCard(winner === null ? `Round ${this.round - 1}: a draw` : `${title} round ${this.round - 1}`, score, ['vsNext', 'vsSetupBtn', 'vsMenu']);
@@ -522,14 +643,14 @@ export class Versus {
   private draw(now: number) {
     const { skin, images, settings, motion } = this.deps;
     const set = settings();
-    for (const s of this.sides) {
+    for (const s of this.sides.slice(0, this.count)) {
       if (s.leavers.length) s.leavers = s.leavers.filter(l => now - l.t0 < LEAVE_MS);
       if (s.floats.length) s.floats = s.floats.filter(f => now - f.t0 < FLOAT_MS);
       if (s.arrivals.size && [...s.arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) s.arrivals = new Map();
       if (!s.state) continue;
       render(s.ctx, s.state, skin, s.layout, { shapesOnPieces: set.shapesOnPieces, motion: motion(), time: now, images, leavers: s.leavers, arrivals: s.arrivals, floats: s.floats, bugExit: set.exit || undefined });
       // The label over the board: name, progress, and halves on their way.
-      const info = this.setup!.rule === 'last' ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? '1 bug left' : `${s.state.bugsLeft} bugs left`;
+      const info = s.state.phase === 'lost' && this.phase === 'playing' ? 'out' : this.setup!.rule === 'last' ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? '1 bug left' : `${s.state.bugsLeft} bugs left`;
       const wins = this.setup!.rule === 'best3' ? ` · ${'★'.repeat(s.wins)}${'☆'.repeat(2 - Math.min(2, s.wins))}` : '';
       setText(s.el.querySelector('.vs-name')!, s.name);
       setText(s.el.querySelector('.vs-info')!, info + wins);

@@ -471,9 +471,13 @@ function settleTicks(s: GameState): number {
   return s.versus?.fallTicks ?? SETTLE_TICKS;
 }
 
-/** How fast this board's attacks fall on the receiver: half this board's normal speed, in ticks per row. */
+/**
+ * How fast this board's attacks fall on the receiver, in ticks per row: 75% of this board's normal
+ * speed (Mike, 2026-11-22; it was 50%, which made the wait too harsh).
+ */
+export const ATTACK_SPEED = 0.75;
 export function attackRate(s: GameState): number {
-  return Math.max(1, Math.round(2 * gravityInterval(s)));
+  return Math.max(1, Math.round(gravityInterval(s) / ATTACK_SPEED));
 }
 
 /**

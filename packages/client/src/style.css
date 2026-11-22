@@ -282,3 +282,12 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .vs-setup label { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .vs-setup input[type=number] { width: 5em; }
 .vs-skill-row[hidden] { display: none; }
+/* Multiplayer: On this device / Online selector (src/main.ts), one card shown at a time. */
+.vs-tabs { display: flex; gap: 0; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; width: min(420px, 100%); }
+.vs-tabs[hidden] { display: none; }
+.vs-tabs button { flex: 1; padding: 10px 12px; font-size: 16px; border: 0; background: var(--card); color: var(--dim); }
+.vs-tabs button[aria-selected="true"] { background: var(--accent); color: #111; font-weight: 700; }
+.vs-setup[hidden] { display: none; }
+.vs-setup .vs-level-row { flex-wrap: wrap; }
+.vs-setup .vs-level-row input[type=range] { flex: 1 1 160px; }
+.vs-online-form { display: grid; gap: 10px; }

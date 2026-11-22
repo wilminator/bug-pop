@@ -615,11 +615,27 @@ async function main() {
   });
   $('multiGame').addEventListener('click', () => { audio.play('select'); refreshSetupForm(); show('versusSetup'); });
   $('vsWho').addEventListener('input', refreshSetupForm);
-  // Online: shown only when this deployment has a play server.
-  $('vsOnline').hidden = !versus.canPlayOnline;
-  $('vsSoon').hidden = versus.canPlayOnline;
+  // Online / On this device: one card at a time, picked with the selector (Mike, 2026-11-22).
+  // Phones start on Online (one screen is cramped for two players), computers on This device.
+  const online = versus.canPlayOnline;
+  $('vsTabs').hidden = !online;
+  $('vsSoon').hidden = online;
+  const pickTab = (tab: 'local' | 'online') => {
+    $('vsTabLocal').setAttribute('aria-selected', String(tab === 'local'));
+    $('vsTabOnline').setAttribute('aria-selected', String(tab === 'online'));
+    $('vsLocal').hidden = tab !== 'local';
+    $('vsOnline').hidden = tab !== 'online';
+  };
+  pickTab(online && matchMedia('(pointer: coarse)').matches ? 'online' : 'local');
+  $('vsTabLocal').addEventListener('click', () => { audio.play('select'); pickTab('local'); });
+  $('vsTabOnline').addEventListener('click', () => { audio.play('select'); pickTab('online'); });
+  // Each level slider shows its number beside it.
+  document.querySelectorAll<HTMLInputElement>('#versusSetup .vs-level').forEach(r => {
+    const out = r.closest('label')!.querySelector('output')!;
+    r.addEventListener('input', () => { out.value = r.value; });
+  });
   const goOnline = (room?: string) => {
-    const me = readSetup().players[0];
+    const me = { level: Number($<HTMLInputElement>('vsOnlineLevel').value), speed: Number($<HTMLSelectElement>('vsOnlineSpeed').value) as 0 | 1 | 2 };
     audio.unlock();
     audio.play('select');
     show('versus');

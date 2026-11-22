@@ -23,6 +23,8 @@ export type BotSkill = {
   slip: number;
   /** Holds down once the piece is lined up. Off for a stand-in bot (Mike, 2026-11-22). */
   drop: boolean;
+  /** Plans two pieces ahead: where this one goes, judged by the best spot for the next one. */
+  lookahead?: boolean;
 };
 
 export const BOT_SKILLS = {
@@ -62,11 +64,23 @@ function dropped(board: Cell[], p: Piece): Piece {
   return q;
 }
 
-/** Score a landing: pops are best, then neat stacking; burying bugs and building high are bad. */
-function scoreLanding(board: Cell[], p: Piece): number {
+/** A board after a piece lands and everything it sets off has popped and fallen, and its score. */
+type Landed = { board: Cell[]; score: number };
+
+/** Weights for how the bot judges a spot (exported so tests can compare settings). */
+export const BOT_WEIGHTS = {
+  /** Each cell of another color stacked over a bug's own color run (it must pop before the bug can). */
+  buried: 3,
+};
+
+/**
+ * Put the piece on a copy of the board, play out what it sets off, and score it: pops are best,
+ * then neat stacking; building high is bad. Null if the piece would stick out of the top.
+ */
+function land(board: Cell[], p: Piece): Landed | null {
   const b = board.map(c => (c ? { ...c } : null)); // removeCells re-links halves: never touch the real board
   const cells = pieceCells(p);
-  if (cells.some(h => h.y < 0)) return -1e6; // would top out
+  if (cells.some(h => h.y < 0)) return null;
   for (const h of cells) b[idx(h.x, h.y)] = { t: 'half', c: h.c, l: h.l };
   let score = 0;
   // Play the clears out: every bug popped (also by chains) counts a lot.
@@ -96,21 +110,80 @@ function scoreLanding(board: Cell[], p: Piece): number {
     const height = BOARD_HEIGHT - top;
     if (height > 10) score -= (height - 10) * (x === 3 || x === 4 ? 30 : 10);
   }
-  return score;
+  // Easy to recover from? (Mike, 2026-11-22.) Count only what this piece made worse or better.
+  score += trouble(board) - trouble(b);
+  return { board: b, score };
 }
 
-/** Every spot the current piece can reach, best first. */
-export function plans(s: GameState): Plan[] {
+/**
+ * How hard a board is to dig out of (Mike, 2026-11-22: the bot must think about whether it can
+ * still clear what it builds).
+ * Buried bugs: a bug pops with a line of 4 through it. Same-color cells stacked right on it are
+ * progress, but every cell of another color above that has to be popped first.
+ * (Tried and dropped: a cost for gaps under pieces. It made the bot stack worse, not better.)
+ */
+export function trouble(b: Cell[]): number {
+  let t = 0;
+  for (let x = 0; x < BOARD_WIDTH; x++) {
+    let cover = 0; // cells above, in this column
+    let runColor = -1, run = 0; // the same-color run directly above the current cell
+    for (let y = 0; y < BOARD_HEIGHT; y++) {
+      const c = b[idx(x, y)];
+      if (!c) continue;
+      if (c.c === runColor) run++; else { runColor = c.c; run = 1; }
+      if (c.t === 'bug') t += (cover - (run - 1)) * BOT_WEIGHTS.buried; // what sits on its own run
+      cover++;
+    }
+  }
+  return t;
+}
+
+/** Every resting spot a piece can reach from where it is, with where it ends up. */
+function landings(board: Cell[], p: Piece): { rot: Piece['rot']; x: number; at: Piece }[] {
+  const out: { rot: Piece['rot']; x: number; at: Piece }[] = [];
+  const rots: Piece['rot'][] = p.k ? [p.rot] : [0, 1, 2, 3];
+  const seen = new Set<string>();
+  for (const rot of rots) {
+    for (let x = 0; x < BOARD_WIDTH; x++) {
+      const at = reachable(board, p, rot, x);
+      if (!at) continue;
+      const d = dropped(board, at);
+      // Turning a two-color piece twice is a different landing; a one-color piece the same one.
+      const cells = pieceCells(d).map(h => `${h.x},${h.y},${h.c}`).sort().join(';');
+      if (seen.has(cells)) continue;
+      seen.add(cells);
+      out.push({ rot, x, at: d });
+    }
+  }
+  return out;
+}
+
+/**
+ * Every spot the current piece can reach, best first. With `lookahead`, each spot is also judged
+ * by the best place for the NEXT piece after it (the piece shown in the Next window), the way a
+ * person plans two pieces ahead.
+ */
+export function plans(s: GameState, lookahead = false): Plan[] {
   const p = s.piece;
   if (!p) return [];
   const out: Plan[] = [];
-  const rots: Piece['rot'][] = p.k ? [p.rot] : [0, 1, 2, 3];
-  for (const rot of rots) {
-    for (let x = 0; x < BOARD_WIDTH; x++) {
-      const at = reachable(s.board, p, rot, x);
-      if (!at) continue;
-      out.push({ rot, x, score: scoreLanding(s.board, dropped(s.board, at)) });
+  for (const { rot, x, at } of landings(s.board, p)) {
+    const first = land(s.board, at);
+    if (!first) { out.push({ rot, x, score: -1e6 }); continue; }
+    let score = first.score;
+    if (lookahead) {
+      const next: Piece = { x: 3, y: 0, rot: 0, a: s.next.a, b: s.next.b };
+      let best = -Infinity;
+      if (fits(first.board, next)) {
+        for (const n of landings(first.board, next)) {
+          const second = land(first.board, n.at);
+          if (second) best = Math.max(best, second.score);
+        }
+      }
+      // No room for the next piece at all: this spot loses the game.
+      score = best === -Infinity ? -1e5 : first.score + 0.8 * best;
     }
+    out.push({ rot, x, score });
   }
   return out.sort((a, b) => b.score - a.score);
 }
@@ -149,7 +222,7 @@ export class Bot {
     }
     if (this.wait > 0) { this.wait--; return actions; }
     if (!this.plan) {
-      const all = plans(s);
+      const all = plans(s, !!this.skill.lookahead);
       if (!all.length) return actions;
       // Usually the best spot; now and then (more often when easy) one of the next few instead.
       let pick = 0;

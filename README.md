@@ -28,7 +28,7 @@ Things worth knowing:
 - **Replays:** every action is logged as `tick * 8 + action`. `replay(config, log)` rebuilds the game bit for bit, which lets a server verify a leaderboard score.
 - **Input:** keyboard, mouse (the piece follows the pointer), gamepads and joysticks (standard mapping), and on-screen touch buttons all feed one input manager that emits engine actions.
 - **Pause:** hides the board so it cannot be used to plan. Versus has no pause: Leave opens a card while both games keep running.
-- **Versus:** a versus game sends loose halves to the opponent when one piece makes two or more matches (up to 4 wait at once). They fall at half the sender's speed and fill the two middle entry columns last. Multiplayer on one device (`packages/client/src/versus.ts`) plays you against the computer, two people, or the computer against itself.
+- **Versus:** a versus game sends loose halves to the opponent when one piece makes two or more matches (up to 4 wait at once). They fall at 75% of the sender's speed and fill the two middle entry columns last. Multiplayer on one device (`packages/client/src/versus.ts`) plays you against the computer, two people, or the computer against itself.
 - **Computer player:** `Bot` in `packages/engine/src/bot.ts` steers with the same actions a person sends. It has its own random numbers (seeded from the browser), so no two games against it are the same.
 - **Online (in progress):** each device plays its own board and rebuilds the other from its moves, so nobody's picture of the game has to be trusted. Attacks are never sent: each device sees them happen on its copy of the other board.
 - **Accessibility:** the default palette is Okabe-Ito (colorblind-safe) and every color also has its own shape. Reduced-motion is respected.

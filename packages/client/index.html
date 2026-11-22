@@ -140,7 +140,12 @@
       <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><span class="nav-right"><button class="help-btn" data-help>? How to play</button><button class="gear" data-gear>&#9881; Settings</button></span></nav>
       <div class="screen-body">
         <h1 class="screen-title">Multiplayer</h1>
-        <div class="card vs-setup">
+        <!-- Pick one: play on this device or online. Only shown when online play exists (config.json "play"). -->
+        <div id="vsTabs" class="vs-tabs" role="tablist" hidden>
+          <button id="vsTabLocal" role="tab" aria-selected="true">On this device</button>
+          <button id="vsTabOnline" role="tab" aria-selected="false">Online</button>
+        </div>
+        <div id="vsLocal" class="card vs-setup">
           <form id="vsForm">
             <label>Who plays
               <select id="vsWho">
@@ -161,13 +166,13 @@
             </label>
             <fieldset class="vs-player" id="vsP0">
               <legend>Player 1</legend>
-              <label>Level <input type="number" class="vs-level" min="1" max="100" value="1" inputmode="numeric" /></label>
+              <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" class="vs-level" min="1" max="20" step="1" value="5" /></label>
               <label>Speed <select class="vs-speed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
               <label class="vs-skill-row">Computer <select class="vs-skill"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></label>
             </fieldset>
             <fieldset class="vs-player" id="vsP1">
               <legend>Player 2</legend>
-              <label>Level <input type="number" class="vs-level" min="1" max="100" value="1" inputmode="numeric" /></label>
+              <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" class="vs-level" min="1" max="20" step="1" value="5" /></label>
               <label>Speed <select class="vs-speed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
               <label class="vs-skill-row">Computer <select class="vs-skill"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></label>
             </fieldset>
@@ -179,7 +184,11 @@
         <!-- Online: only when the deployment's config.json names a "play" server (src/versus.ts). -->
         <div id="vsOnline" class="card vs-setup" hidden>
           <h2>Play online</h2>
-          <p class="fine">You play with the level and speed set for <span id="vsOnlineWho">Player 1</span> above. Your opponent picks their own.</p>
+          <form class="vs-online-form">
+            <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" id="vsOnlineLevel" class="vs-level" min="1" max="20" step="1" value="5" /></label>
+            <label>Speed <select id="vsOnlineSpeed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
+          </form>
+          <p class="fine">Your opponent picks their own level and speed. Online play needs you to be signed in.</p>
           <button id="vsQuick" class="primary">Quick match</button>
           <button id="vsCreate">Create a room</button>
           <label>Room code <input id="vsCode" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" /></label>

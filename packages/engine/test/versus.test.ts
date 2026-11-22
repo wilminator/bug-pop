@@ -60,7 +60,7 @@ describe('attacks arriving', () => {
     }
     expect(s.piecesSpawned).toBe(before); // no new piece yet
     expect(s.phase).toBe('settling');
-    // They fall one row every 50 ticks: about 15 rows takes about 750 ticks before the next piece.
+    // They fall one row every 50 ticks (the rate given): about 15 rows takes about 750 ticks before the next piece.
     const t0 = s.tick;
     const rest = untilSpawn(s);
     expect(rest.filter(e => e.type === 'fall').length).toBeGreaterThan(10);
@@ -93,7 +93,7 @@ describe('attacks arriving', () => {
 });
 
 describe('attacks going out', () => {
-  it('a piece that makes two lines at once sends 2 halves at half its speed', () => {
+  it('a piece that makes two lines at once sends 2 halves at 75% of its speed', () => {
     const s = createGame(cfg);
     bare(s);
     for (const x of [0, 1, 2]) s.board[idx(x, 15)] = { t: 'bug', c: 0 };
@@ -104,7 +104,7 @@ describe('attacks going out', () => {
     const attack = events.find(e => e.type === 'attack') as Extract<GameEvent, { type: 'attack' }>;
     expect(attack.attack.n).toBe(2);
     expect(attack.attack.r).toBe(attackRate(s));
-    expect(attackRate(s)).toBe(Math.round(2 * gravityInterval(s)));
+    expect(attackRate(s)).toBe(Math.round(gravityInterval(s) / 0.75));
   });
 
   it('one line sends nothing', () => {
