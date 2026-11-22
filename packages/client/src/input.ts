@@ -10,6 +10,11 @@
 import { BOARD_WIDTH, type Action, type GameState } from '@bug-pop/engine';
 
 export const REPEAT_DELAY = 10; // ticks before a held direction repeats
+/**
+ * On-screen buttons wait longer before repeating (1/3 s, Mike 2026-11-22). A finger tap on glass
+ * often lasts 0.15 to 0.25 s, longer than the keyboard's 1/6 s, so a slow tap moved the piece twice.
+ */
+export const TOUCH_REPEAT_DELAY = 20;
 export const REPEAT_EVERY = 3; // ticks between repeats
 const MOUSE_STEP_TICKS = 2; // mouse steering moves at most one column per 2 ticks
 const STICK_DEADZONE = 0.5;
@@ -260,6 +265,8 @@ export class InputManager {
     this.pollGamepads();
     const any = (k: keyof Held) => this.tapped.has(k) || [...this.held.values()].some(h => h[k]);
     const left = any('left'), right = any('right'), down = any('down');
+    // Held only by on-screen buttons? Then use the longer touch delay before repeating.
+    const byTouchOnly = (k: keyof Held) => [...this.held].every(([src, h]) => !h[k] || src.startsWith('touch-'));
     const presses = this.presses;
     this.presses = [];
     if (!state) this.steps = [];
@@ -275,9 +282,12 @@ export class InputManager {
     this.steps = [];
 
     // Auto-repeat for held directions. Holding both cancels out.
-    const repeat = (ticks: number) => ticks === 0 || (ticks >= REPEAT_DELAY && (ticks - REPEAT_DELAY) % REPEAT_EVERY === 0);
-    if (left && !right) { if (repeat(this.leftTicks)) a.push('left'); this.leftTicks++; } else this.leftTicks = 0;
-    if (right && !left) { if (repeat(this.rightTicks)) a.push('right'); this.rightTicks++; } else this.rightTicks = 0;
+    const repeat = (ticks: number, k: keyof Held) => {
+      const delay = byTouchOnly(k) ? TOUCH_REPEAT_DELAY : REPEAT_DELAY;
+      return ticks === 0 || (ticks >= delay && (ticks - delay) % REPEAT_EVERY === 0);
+    };
+    if (left && !right) { if (repeat(this.leftTicks, 'left')) a.push('left'); this.leftTicks++; } else this.leftTicks = 0;
+    if (right && !left) { if (repeat(this.rightTicks, 'right')) a.push('right'); this.rightTicks++; } else this.rightTicks = 0;
 
     if (down !== this.softOn) { this.softOn = down; a.push(down ? 'softOn' : 'softOff'); }
 
