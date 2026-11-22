@@ -23,11 +23,13 @@ export const MAX_RESUME_BYTES = 2 * 1024 * 1024;
 export const MAX_ACTIONS_PER_TICK = 16;
 
 /**
- * The win rules an online match can use. best3: rounds of 'race' with the same opponent until
- * someone wins 2 (Mike, 2026-11-22); a drawn round doesn't count.
+ * The win rules an online match can use. best3 and best5: rounds of 'race' with the same opponent
+ * until someone wins 2 or 3 (Mike, 2026-11-22); a drawn round doesn't count.
  */
-export type OnlineRule = 'race' | 'best3' | 'last';
-const RULES: readonly unknown[] = ['race', 'best3', 'last'];
+export type OnlineRule = 'race' | 'best3' | 'best5' | 'last';
+const RULES: readonly unknown[] = ['race', 'best3', 'best5', 'last'];
+/** Round wins that take the match: 2 for best of 3, 3 for best of 5, otherwise one game decides. */
+export const winsNeeded = (rule: string): number => (rule === 'best5' ? 3 : rule === 'best3' ? 2 : 1);
 
 export type PlayerInfo = { level: number; speed: Speed; name: string };
 /**
@@ -347,17 +349,18 @@ export function parseTableStart(raw: string): TableStart | null {
 // Every device can watch any game: it rebuilds every board from the moves, like the players do.
 
 /** Rooms speak protocol 5 (the 1 against 1 relay stays on PROTOCOL_VERSION until it moves to tables). */
-export const ROOM_VERSION = 5;
+export const ROOM_VERSION = 6;
 /** At most this many people in a room, and on one device. */
 export const MAX_ROOM = 16;
 export const MAX_PER_DEVICE = 4;
 /** Who plays the next round of a game: the winner keeps their seat, or a draw that favours who sat out. */
 export type Rotation = 'winner' | 'random';
-/** Tournament kinds: a bracket of best-of-3 matches, a bracket of single games, or out at 2 losses. */
-export type TourKind = 'best3' | 'single' | 'double';
+/** Tournament kinds: a bracket of best-of-3 or best-of-5 matches, a bracket of single games, or out at 2 losses. */
+export type TourKind = 'best3' | 'best5' | 'single' | 'double';
+const TOUR_KINDS: readonly unknown[] = ['best3', 'best5', 'single', 'double'];
 export type RoomRules = {
   mode: 'pool' | 'tour';
-  /** How a game is won (a tournament's best3 plays rounds of 'race'). */
+  /** How a game is won (a tournament's best3 or best5 plays rounds of 'race'). */
   rule: OnlineRule;
   rotation: Rotation;
   target: Target;
@@ -427,9 +430,9 @@ const name40 = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim().sli
 export function parseRules(x: unknown): RoomRules | null {
   const m = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
   if (!m || (m.mode !== 'pool' && m.mode !== 'tour') || !RULES.includes(m.rule) || (m.rotation !== 'winner' && m.rotation !== 'random')) return null;
-  if (!TARGETS.includes(m.target as Target) || !int(m.colors, 2, 5) || (m.tour !== 'best3' && m.tour !== 'single' && m.tour !== 'double')) return null;
+  if (!TARGETS.includes(m.target as Target) || !int(m.colors, 2, 5) || !TOUR_KINDS.includes(m.tour)) return null;
   if ((m.tourLevels !== 'same' && m.tourLevels !== 'choose') || !int(m.level, 1, 100) || !speed(m.speed)) return null;
-  return { mode: m.mode, rule: m.rule as OnlineRule, rotation: m.rotation, target: m.target as Target, colors: m.colors, tour: m.tour, tourLevels: m.tourLevels, level: m.level, speed: m.speed };
+  return { mode: m.mode, rule: m.rule as OnlineRule, rotation: m.rotation, target: m.target as Target, colors: m.colors, tour: m.tour as TourKind, tourLevels: m.tourLevels, level: m.level, speed: m.speed };
 }
 
 /** Read a room message from a client, or null. */
@@ -497,7 +500,7 @@ function roomState(m: Record<string, unknown>): RoomState | null {
   if (m.tour !== null) {
     const t = m.tour && typeof m.tour === 'object' ? (m.tour as Record<string, unknown>) : null;
     const players = list(t?.players), matches = list(t?.matches);
-    if (!t || (t.kind !== 'best3' && t.kind !== 'single' && t.kind !== 'double') || !players || !matches || !(t.champion === null || pid(t.champion))) return null;
+    if (!t || !TOUR_KINDS.includes(t.kind) || !players || !matches || !(t.champion === null || pid(t.champion))) return null;
     const tp: TourPlayer[] = [];
     for (const p of players) {
       const n = name40(p.name);
@@ -509,7 +512,7 @@ function roomState(m: Record<string, unknown>): RoomState | null {
       if (!pid(x.a) || !pid(x.b) || !(x.winner === null || pid(x.winner)) || !(x.g === null || gameNo(x.g)) || !int(x.round, 1, 100)) return null;
       tm.push({ a: x.a, b: x.b, winner: x.winner as string | null, g: x.g as number | null, round: x.round });
     }
-    tour = { kind: t.kind, players: tp, matches: tm, champion: t.champion as string | null };
+    tour = { kind: t.kind as TourKind, players: tp, matches: tm, champion: t.champion as string | null };
   }
   return { t: 'rstate', code: m.code, owner: m.owner, rules, people: ps, games: gs, tour };
 }

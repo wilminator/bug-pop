@@ -155,6 +155,7 @@
               <select id="vsRule">
                 <option value="race">First to clear their bugs</option>
                 <option value="best3" selected>Best of 3</option>
+                <option value="best5">Best of 5</option>
                 <option value="last">Last one standing</option>
               </select>
             </label>
@@ -272,11 +273,11 @@
           <p id="roomRulesNote" class="fine"></p>
           <form id="roomRules" class="room-rules">
             <label>Play <select id="rrMode"><option value="pool">Open pool</option><option value="tour">Tournament</option></select></label>
-            <label>How to win <select id="rrRule"><option value="race">Clear bugs first</option><option value="best3">Best of 3</option><option value="last">Last one standing</option></select></label>
+            <label>How to win <select id="rrRule"><option value="race">Clear bugs first</option><option value="best3">Best of 3</option><option value="best5">Best of 5</option><option value="last">Last one standing</option></select></label>
             <label class="rr-pool">Next game <select id="rrRotation"><option value="winner">Winner stays</option><option value="random">Random draw</option></select></label>
             <label class="rr-pool">Who gets attacked <select id="rrTarget"><option value="leader">The leader</option><option value="random">Someone at random</option><option value="everyone">Everyone</option></select></label>
             <label>Colors <select id="rrColors"><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
-            <label class="rr-tour">Tournament <select id="rrTour"><option value="best3">Best of 3 bracket</option><option value="single">Single elimination</option><option value="double">Double elimination</option></select></label>
+            <label class="rr-tour">Tournament <select id="rrTour"><option value="best3">Best of 3 bracket</option><option value="best5">Best of 5 bracket</option><option value="single">Single elimination</option><option value="double">Double elimination</option></select></label>
             <label class="rr-tour">Level and speed <select id="rrLevels"><option value="choose">Players choose</option><option value="same">Same for everyone</option></select></label>
             <label class="vs-level-row rr-same"><span>Level <output id="rrLevelOut">5</output></span><input type="range" id="rrLevel" min="1" max="20" step="1" value="5" /></label>
             <label class="rr-same">Speed <select id="rrSpeed"><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select></label>

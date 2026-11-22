@@ -40,3 +40,13 @@ describe('room messages', () => {
     expect(watcher.tables.get(1)!.boards[0]!.state.tick).toBe(room.tables.get(1)!.boards[0]!.state.tick);
   });
 });
+
+describe('best of 5', () => {
+  it('needs 3 round wins and is a valid room rule and tournament kind', async () => {
+    const { winsNeeded, parseRules, DEFAULT_RULES } = await import('../src/messages');
+    expect([winsNeeded('race'), winsNeeded('best3'), winsNeeded('best5'), winsNeeded('last')]).toEqual([1, 2, 3, 1]);
+    expect(parseRules({ ...DEFAULT_RULES, rule: 'best5' })?.rule).toBe('best5');
+    expect(parseRules({ ...DEFAULT_RULES, mode: 'tour', tour: 'best5' })?.tour).toBe('best5');
+    expect(parseRules({ ...DEFAULT_RULES, rule: 'best7' })).toBeNull();
+  });
+});

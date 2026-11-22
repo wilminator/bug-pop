@@ -16,13 +16,14 @@ import type { Versus } from './versus';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const RULE_TEXT = { race: 'First to clear their bugs', best3: 'Best of 3', last: 'Last one standing' } as const;
+const RULE_TEXT = { race: 'First to clear their bugs', best3: 'Best of 3', best5: 'Best of 5', last: 'Last one standing' } as const;
 const TOUR_HELP = {
   best3: 'Best of 3 bracket: each pairing plays until someone wins 2; the winner moves on.',
+  best5: 'Best of 5 bracket: each pairing plays until someone wins 3; the winner moves on.',
   single: 'Single elimination: one game a pairing; lose once and you are out.',
   double: 'Double elimination: out after 2 losses; players with the same losses meet first.',
 } as const;
-const TOUR_TEXT = { best3: 'Bracket, best of 3 matches', single: 'Single elimination', double: 'Double elimination' } as const;
+const TOUR_TEXT = { best3: 'Bracket, best of 3 matches', best5: 'Bracket, best of 5 matches', single: 'Single elimination', double: 'Double elimination' } as const;
 
 export type RoomJoin = { room: string; level: number; speed: Speed; power: boolean };
 export type RoomDeps = {
@@ -309,9 +310,9 @@ export class RoomScreen {
     $('roomRulesHelp').textContent = tour
       ? `${TOUR_HELP[r.tour]} Always 1 against 1, two games at a time; everyone else watches.`
       : `Open pool: anyone not playing starts a game of 2 to 4, computers fill empty seats. ${r.rotation === 'winner' ? 'Winner stays: the winner keeps their seat and the others come from whoever is waiting.' : 'Random draw: the next players are drawn at random, and people who sat out the last game go first.'} ${r.target === 'leader' ? 'Attacks go to the leader (fewest bugs left).' : r.target === 'random' ? 'Attacks go to someone at random.' : 'Attacks go to everyone.'}`;
-    // A tournament's best of 3 is its own setting; How to win picks the rule for each game.
+    // A tournament's best of 3 or 5 is its own setting; How to win picks the rule for each game.
     const rule = $<HTMLSelectElement>('rrRule');
-    rule.querySelector<HTMLOptionElement>('option[value=best3]')!.hidden = tour;
+    for (const o of rule.querySelectorAll<HTMLOptionElement>('option[value^=best]')) o.hidden = tour;
   }
 
   private sendRules() {
@@ -320,7 +321,7 @@ export class RoomScreen {
     const v = (id: string) => $<HTMLSelectElement | HTMLInputElement>(id).value;
     const mode = v('rrMode') as RoomRules['mode'];
     let rule = v('rrRule') as RoomRules['rule'];
-    if (mode === 'tour' && rule === 'best3') rule = 'race';
+    if (mode === 'tour' && (rule === 'best3' || rule === 'best5')) rule = 'race';
     s.rules({
       mode, rule, rotation: v('rrRotation') as RoomRules['rotation'], target: v('rrTarget') as RoomRules['target'], colors: Number(v('rrColors')),
       tour: v('rrTour') as RoomRules['tour'], tourLevels: v('rrLevels') as RoomRules['tourLevels'], level: Number(v('rrLevel')), speed: Number(v('rrSpeed')) as Speed,

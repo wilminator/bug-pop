@@ -18,7 +18,7 @@ import {
   BOT_SKILLS, BOARD_WIDTH, Bot, TICKS_PER_SECOND, createGame, receiveAttack, step, waitingHalves,
   type BotLevel, type GameEvent, type GameState, type Speed,
 } from '@bug-pop/engine';
-import { COUNTDOWN_MS, OnlineMatch, PROTOCOL_VERSION, parseServer, type ClientMsg, type GameLobby, type Lobby, type RoomSession, type ServerMsg, type TableMatch } from '@bug-pop/protocol';
+import { COUNTDOWN_MS, OnlineMatch, winsNeeded, PROTOCOL_VERSION, parseServer, type ClientMsg, type GameLobby, type Lobby, type RoomSession, type ServerMsg, type TableMatch } from '@bug-pop/protocol';
 import type { Action } from '@bug-pop/engine';
 import qrcode from 'qrcode-generator';
 import type { AudioManager } from './audio';
@@ -27,8 +27,11 @@ import { computeLayout, FLOAT_MS, LEAVE_MS, ARRIVE_MS, powerIconRect, render, ty
 import { frameCells, type Skin, type SpriteImages } from './skin';
 import type { Motion, Settings } from './storage';
 
-/** race: first to clear their bugs. best3: first to win 2 rounds. last: Endless, last one standing. */
-export type WinRule = 'race' | 'best3' | 'last';
+/** race: first to clear their bugs. best3/best5: first to win 2/3 rounds. last: Endless, last one standing. */
+export type WinRule = 'race' | 'best3' | 'best5' | 'last';
+const rounds = (r: string) => winsNeeded(r) > 1;
+/** Round stars: filled for rounds won, empty for the rest still needed. */
+const stars = (r: string, wins: number) => { const n = winsNeeded(r); return '★'.repeat(Math.min(n, wins)) + '☆'.repeat(Math.max(0, n - wins)); };
 /** With 3 or 4 players, who an attack goes to. */
 export type Target = 'leader' | 'random' | 'everyone';
 /**
@@ -64,7 +67,7 @@ const OFFER_CPU_MS = 30_000;
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const MAX_PLAYERS = 4; // up to 4 on one device (Mike, 2026-11-22: build it all out)
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const RULE_TEXT: Record<WinRule, string> = { race: 'First to clear their bugs', best3: 'Best of 3', last: 'Last one standing' };
+const RULE_TEXT: Record<WinRule, string> = { race: 'First to clear their bugs', best3: 'Best of 3', best5: 'Best of 5', last: 'Last one standing' };
 const SKILL_NAME: Record<BotLevel, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 const SPEED_NAME = ['Low', 'Medium', 'High', 'Slo-mo'];
 
@@ -472,6 +475,16 @@ export class Versus {
    * One person against two or more (Mike, 2026-11-22): on a phone their board fills the screen top
    * to bottom and the others are small minimaps beside it. `main` is that person's board.
    */
+  /**
+   * The rule a room game shows: a best of 3 or 5 (from the room rules, or the tournament kind)
+   * plays its rounds as 'race', but the card, the title and the stars count the match.
+   */
+  private roomRule(room: RoomSession, g: number, fallback: WinRule): WinRule {
+    const r = room.state?.rules, game = room.state?.games.find(x => x.g === g);
+    const shown = !r ? fallback : game?.tour ? r.tour : r.rule;
+    return shown === 'best3' || shown === 'best5' ? shown : fallback;
+  }
+
   private showSides(n: number, oneHuman: boolean, main = 0) {
     this.count = n;
     this.sides.forEach((s, i) => { s.el.hidden = i >= n; if (i >= n) s.state = null; s.el.classList.toggle('main', oneHuman && i === main); });
@@ -520,7 +533,7 @@ export class Versus {
     this.setCapture(false);
     for (const s of this.sides) s.input.reset();
     const score = this.round > 1 ? this.sides.slice(0, this.count).map(s => `${s.name} ${s.wins}`).join(', ') + '. ' : '';
-    this.showCard(setup.rule === 'best3' ? `Round ${this.round}` : 'Get ready', '', ['vsSetupBtn', 'vsMenu']);
+    this.showCard(rounds(setup.rule) ? `Round ${this.round}` : 'Get ready', '', ['vsSetupBtn', 'vsMenu']);
     const humans = setup.players.filter(p => !p.bot).length;
     this.cardBase = score + (humans === 0 ? 'The computers are ready.' : humans === 1 ? 'Tap Ready when you are set. The match starts 3 seconds later.' : 'Everyone taps Ready. The match starts 3 seconds after the last one.');
     // Level and speed are always on the card (Mike, 2026-11-22). Playing the computer alone, the
@@ -619,7 +632,7 @@ export class Versus {
     this.stage.hidden = false;
     this.phase = 'playing';
     this.setCapture(true);
-    $('vsRuleText').textContent = setup.rule === 'best3' ? `${RULE_TEXT.best3}: round ${this.round}` : RULE_TEXT[setup.rule];
+    $('vsRuleText').textContent = rounds(setup.rule) ? `${RULE_TEXT[setup.rule]}: round ${this.round}` : RULE_TEXT[setup.rule];
     this.sides.forEach(s => this.resize(s));
     this.deps.audio.startMusic(true);
     this.last = performance.now();
@@ -758,7 +771,7 @@ export class Versus {
         this.phase = 'playing';
         this.setCapture(true);
         this.setup!.rule = m.start.rule;
-        this.netRule = m.start.rule === 'best3' ? `Online: best of 3, round ${m.start.round}` : m.start.rule === 'last' ? 'Online: last one standing' : 'Online: first to clear their bugs';
+        this.netRule = rounds(m.start.rule) ? `Online: best of ${winsNeeded(m.start.rule) * 2 - 1}, round ${m.start.round}` : m.start.rule === 'last' ? 'Online: last one standing' : 'Online: first to clear their bugs';
         $('vsRuleText').textContent = this.netRule;
         this.sides.forEach(s => this.resize(s));
         this.deps.audio.startMusic(true);
@@ -800,21 +813,22 @@ export class Versus {
     if (m.result) {
       const w = m.result.winner;
       const winner = w === null ? null : w === m.seat ? 0 : 1;
-      if (m.start.rule === 'best3') return this.roundOver(winner);
+      if (rounds(m.start.rule)) return this.roundOver(winner);
       this.endOnline(winner, winner === 0 ? 'You win' : winner === 1 ? `${this.sides[1]!.name} wins` : 'A draw', 'Good game.');
     }
   }
 
   /**
-   * Online best of 3: a round is decided. The match is over at 2 wins; otherwise the card says
+   * Online best of 3 (or 5): a round is decided. The match is over at 2 (or 3) wins; otherwise the card says
    * who took the round and the relay starts the next one with the same opponent.
    */
   private roundOver(winner: 0 | 1 | null) {
     const me = this.sides[0]!, them = this.sides[1]!;
     if (winner === 0) me.wins++; else if (winner === 1) them.wins++;
     const score = `${me.wins} to ${them.wins}`;
-    if (me.wins >= 2) return this.endOnline(0, 'You win the match', `You won ${score}. Good game.`);
-    if (them.wins >= 2) return this.endOnline(1, `${them.name} wins the match`, `${them.name} won ${score}. Good game.`);
+    const need = winsNeeded(this.setup!.rule);
+    if (me.wins >= need) return this.endOnline(0, 'You win the match', `You won ${score}. Good game.`);
+    if (them.wins >= need) return this.endOnline(1, `${them.name} wins the match`, `${them.name} won ${score}. Good game.`);
     this.phase = 'ending';
     this.setCapture(false);
     if (this.leaveUp) { this.leaveUp = false; this.card.hidden = true; }
@@ -919,7 +933,7 @@ export class Versus {
     this.tbl = null;
     this.tlobby = { g: msg.g, until: msg.startsIn ? performance.now() + msg.startsIn : 0, room, back };
     const mine = new Set(room.mine.map(p => p.pid));
-    const rule = room.state?.rules.rule ?? 'race';
+    const rule = this.roomRule(room, msg.g, room.state?.rules.rule ?? 'race');
     this.setup = { rule, colors: room.state?.rules.colors ?? 3, target: room.state?.rules.target ?? 'leader', players: msg.seats.map(s => ({ level: s.level, speed: s.speed, control: 'remote' as Control, bot: s.cpu ?? null })) };
     this.stage.hidden = false;
     this.showSides(msg.seats.length, msg.seats.filter(s => s.pid && mine.has(s.pid)).length === 1);
@@ -988,7 +1002,7 @@ export class Versus {
     const others = t.boards.map(b => b.s).filter(s => !locals.includes(s));
     const sideSeat = [...locals, ...others];
     this.tbl = { room, g, t, sideSeat, locals, done: !!t.result, back };
-    const rule = t.start.rule;
+    const rule = this.roomRule(room, g, t.start.rule);
     this.setup = { rule, colors: t.start.colors, target: t.start.target, players: sideSeat.map(s => ({ level: t.start.seats[s]!.level, speed: t.start.seats[s]!.speed, control: 'remote' as Control, bot: t.start.seats[s]!.cpu ?? null })) };
     this.showSides(sideSeat.length, locals.length === 1, 0);
     this.sides.forEach((side, i) => {
@@ -1220,14 +1234,14 @@ export class Versus {
     // One person who didn't win hears the losing tune; anything else is a win to celebrate.
     const humans = setup.players.map((p, i) => (p.bot ? -1 : i)).filter(i => i >= 0);
     this.deps.audio.play(humans.length === 1 && winner !== humans[0] ? 'lose' : 'win');
-    const decided = setup.rule !== 'best3' || this.sides.some(s => s.wins >= 2);
+    const decided = !rounds(setup.rule) || this.sides.some(s => s.wins >= winsNeeded(setup.rule));
     window.setTimeout(() => {
       if (this.phase !== 'ending') return;
       this.phase = 'card';
       const who = winner === null ? null : this.sides[winner]!.name;
       const title = who === null ? 'A draw' : who === 'You' ? 'You win' : `${who} wins`;
       const score = this.sides.slice(0, this.count).map(s => `${s.name} ${s.wins}`).join(', ') + '.';
-      if (decided) this.showCard(setup.rule === 'best3' ? `${title} the match` : title, setup.rule === 'best3' ? score : winner === null ? 'No one was left standing.' : 'Good game.', ['vsAgain', 'vsSetupBtn', 'vsMenu']);
+      if (decided) this.showCard(rounds(setup.rule) ? `${title} the match` : title, rounds(setup.rule) ? score : winner === null ? 'No one was left standing.' : 'Good game.', ['vsAgain', 'vsSetupBtn', 'vsMenu']);
       else {
         this.round++;
         this.showCard(winner === null ? `Round ${this.round - 1}: a draw` : `${title} round ${this.round - 1}`, score, ['vsNext', 'vsSetupBtn', 'vsMenu']);
@@ -1286,10 +1300,10 @@ export class Versus {
       if (s.arrivals.size && [...s.arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) s.arrivals = new Map();
       if (!s.state) continue;
       render(s.ctx, s.state, skin, s.layout, { shapesOnPieces: set.shapesOnPieces, motion: motion(), time: now, images, leavers: s.leavers, arrivals: s.arrivals, floats: s.floats, bugExit: set.exit || undefined, bare: s.bare,
-        matchStat: this.setup!.rule === 'best3' ? ['WINS', `${'★'.repeat(s.wins)}${'☆'.repeat(2 - Math.min(2, s.wins))}`] : null });
+        matchStat: rounds(this.setup!.rule) ? ['WINS', stars(this.setup!.rule, s.wins)] : null });
       // The label over the board: name, progress, and halves on their way.
       const info = s.state.phase === 'lost' && this.phase === 'playing' ? 'out' : this.setup!.rule === 'last' && !s.bare ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? '1 bug left' : `${s.state.bugsLeft} bugs left`;
-      const wins = this.setup!.rule === 'best3' ? ` · ${'★'.repeat(s.wins)}${'☆'.repeat(2 - Math.min(2, s.wins))}` : '';
+      const wins = rounds(this.setup!.rule) ? ` · ${stars(this.setup!.rule, s.wins)}` : '';
       // The one person's own board already shows bugs and score in its stats (Mike, 2026-11-22):
       // over it, only the halves on their way (below). Its round stars sit in the stats.
       const own = s.el.classList.contains('main');
