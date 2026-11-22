@@ -389,7 +389,8 @@ async function main() {
   // The site's own skin is named by the skin it loaded, unless a picked look is showing instead.
   const siteName = settings.look === 'site' ? (skin === testSkin ? 'Default (test pattern)' : skin.name) : 'Default';
   siteOption.textContent = siteName;
-  for (const l of looks) siteOption.after(Object.assign(document.createElement('option'), { value: l.id, textContent: l.name }));
+  let prev: Element = siteOption;
+  for (const l of looks) { const o = Object.assign(document.createElement('option'), { value: l.id, textContent: l.name }); prev.after(o); prev = o; }
   // Keep the order: Default, then the looks as config.json lists them, then Test pattern last.
   const testOption = look.querySelector('option[value="test"]')!;
   look.append(testOption);
