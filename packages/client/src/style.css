@@ -298,3 +298,8 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .vs-room-share img { width: min(200px, 60vw); height: auto; aspect-ratio: 1; background: #fff; padding: 8px; border-radius: 8px; image-rendering: pixelated; }
 /* The Online card's two states lay out as if their buttons sat right in the card. */
 #vsOnlinePlay:not([hidden]), #vsOnlineSignedOut:not([hidden]) { display: contents; }
+
+/* Waiting for an opponent: three dots that keep moving, so the card never looks stuck. */
+.vs-waiting::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: vs-dots 1.5s steps(4, end) infinite; }
+@keyframes vs-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+@media (prefers-reduced-motion: reduce) { .vs-waiting::after { animation: none; content: '...'; } }

@@ -456,9 +456,11 @@ export class Versus {
     const net = this.net!;
     if (!msg || net.over) return;
     switch (msg.t) {
-      case 'wait': this.showCard('Looking for an opponent...', 'The match starts as soon as someone joins.', ['vsMenu']); break;
+      case 'wait': this.showCard('Looking for an opponent', 'The match starts as soon as someone joins.', ['vsMenu']); $('vsCardTitle').classList.add('vs-waiting'); break;
       case 'room':
-        this.showCard(`Room ${msg.code}`, `Your friend can scan this code, open the link you share, or type ${msg.code} under Join a room on the Multiplayer screen.`, ['vsMenu']);
+        // Make it plain that nothing happens until the friend connects (Mike, 2026-11-22).
+        this.showCard(`Room ${msg.code}: waiting for your opponent`, `The match starts as soon as your friend connects. They can scan this code, open the link you share, or type ${msg.code} under Join a room on the Multiplayer screen.`, ['vsMenu']);
+        $('vsCardTitle').classList.add('vs-waiting');
         this.showRoomShare(msg.code);
         break;
       case 'error': net.over = true; this.endOnline(null, "Can't play online right now", msg.why); break;
@@ -605,6 +607,7 @@ export class Versus {
 
   private showCard(title: string, text: string, buttons: ('vsNext' | 'vsAgain' | 'vsStay' | 'vsSetupBtn' | 'vsMenu')[]) {
     $('vsRoomShare').hidden = true;
+    $('vsCardTitle').classList.remove('vs-waiting');
     $('vsCardTitle').textContent = title;
     $('vsCardText').textContent = text;
     for (const id of ['vsNext', 'vsAgain', 'vsStay', 'vsSetupBtn', 'vsMenu'] as const) $(id).hidden = !buttons.includes(id);
