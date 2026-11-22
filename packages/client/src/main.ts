@@ -16,11 +16,12 @@ import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, sa
 import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
 import { scanRoom } from './scan';
 import { Versus, initSetupForm, lastHumansOnly, lastOnline, readSetup, refreshSetupForm, rememberHumansOnly, rememberOnline } from './versus';
+import { RoomScreen } from './rooms';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
 // 'versusSetup' / 'versus': multiplayer on one device (src/versus.ts runs the match itself).
-type Mode = 'title' | 'menu' | 'setup' | 'versusSetup' | 'versus' | 'settings' | 'help' | 'tutorialOffer' | 'tutorialDone' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
+type Mode = 'title' | 'menu' | 'setup' | 'versusSetup' | 'versus' | 'room' | 'settings' | 'help' | 'tutorialOffer' | 'tutorialDone' | 'offer' | 'choose' | 'update' | 'playing' | 'paused' | 'ending' | 'result';
 /**
  * config.json, written by each deployment (the open-source build ships one with just a skin):
  *   skin     skin.json to load
@@ -259,7 +260,7 @@ async function main() {
   window.addEventListener('keydown', unlock);
 
   // ---- Screens ----
-  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), versusSetup: $('versusSetup'), vsCard: $('vsCard'), settings: $('settingsScreen'), help: $('helpScreen'), tutorialOffer: $('tutorialOffer'), tutorialDone: $('tutorialDone'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
+  const overlays = { title: $('title'), menu: $('menu'), setup: $('setup'), versusSetup: $('versusSetup'), room: $('roomScreen'), vsCard: $('vsCard'), settings: $('settingsScreen'), help: $('helpScreen'), tutorialOffer: $('tutorialOffer'), tutorialDone: $('tutorialDone'), offer: $('offer'), choose: $('choose'), update: $('update'), paused: $('paused'), result: $('result') };
   // A skin may paint its own picture behind the title page and the menu screens (CSS: html.has-art).
   if (skin.title?.background) {
     document.documentElement.style.setProperty('--title-bg', `url(${JSON.stringify(skin.title.background)})`);
@@ -272,6 +273,7 @@ async function main() {
     void setAdSlot($('menuAdSlot'), cfg.ads, want && mode === 'menu', personalized);
   };
   let versus: Versus | null = null; // made once the screens exist (below)
+  let rooms: RoomScreen | null = null;
   const show = (m: Mode) => {
     mode = m;
     audio.title(titleScreens.includes(m));
@@ -279,6 +281,9 @@ async function main() {
     overlays.menu.hidden = m !== 'menu';
     overlays.setup.hidden = m !== 'setup';
     overlays.versusSetup.hidden = m !== 'versusSetup';
+    overlays.room.hidden = m !== 'room';
+    // Leaving the room screen for anything but its own games leaves the room.
+    if (m !== 'room' && m !== 'versus' && rooms?.open) rooms.close();
     // Versus owns its own board area and card; any other screen ends a match that is still on.
     if (m !== 'versus' && versus?.active) versus.stop();
     $('stage').hidden = m === 'versus';
@@ -503,7 +508,7 @@ async function main() {
   // paused, right where it was. Not during the tutorial, a round, or an online match.
   let checking = false; // focus and visibilitychange often come together: one check at a time
   const checkUpdateOnReturn = async () => {
-    const outsideRound = () => mode !== 'playing' && mode !== 'ending' && mode !== 'update' && !coach && !(mode === 'versus' && versus?.busy);
+    const outsideRound = () => mode !== 'playing' && mode !== 'ending' && mode !== 'update' && !coach && !(mode === 'versus' && versus?.busy) && !rooms?.busy && mode !== 'room';
     if (checking || !outsideRound()) return;
     checking = true;
     try {
@@ -636,6 +641,11 @@ async function main() {
     // An unfinished online match comes first: going back into Multiplayer rejoins it (Mike, 2026-11-22).
     if (cfg.api && versus!.canPlayOnline) void activeMatch(cfg.api).then(on => { if (on && mode === 'versusSetup') goOnline(); });
   });
+  // Online rooms (protocol 5): the same server, its /api/room socket.
+  if (cfg.play) rooms = new RoomScreen({
+    url: cfg.play.replace(/play\/?$/, 'room'), audio, versus,
+    show: m => show(m), here: () => mode === 'room',
+  });
   initSetupForm(settings.speed);
   {
     const o = lastOnline(settings.speed), r = $<HTMLInputElement>('vsOnlineLevel');
@@ -673,6 +683,8 @@ async function main() {
     rememberOnline(me.level, me.speed);
     audio.unlock();
     audio.play('select');
+    // Rooms: friends gather, games of 2 to 4 or a tournament (Mike, 2026-11-22).
+    if (room && rooms) { rooms.start({ room, level: me.level, speed: me.speed, power: lastOnline(settings.speed).power }); return; }
     show('versus');
     // Power-ups: last time's choice; each player can change it on the match settings card.
     const humansOnly = $<HTMLInputElement>('vsHumansOnly').checked; // quick match only: rooms are always people

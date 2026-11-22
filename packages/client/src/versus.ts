@@ -18,7 +18,8 @@ import {
   BOT_SKILLS, BOARD_WIDTH, Bot, TICKS_PER_SECOND, createGame, receiveAttack, step, waitingHalves,
   type BotLevel, type GameEvent, type GameState, type Speed,
 } from '@bug-pop/engine';
-import { COUNTDOWN_MS, OnlineMatch, PROTOCOL_VERSION, parseServer, type ClientMsg, type Lobby, type ServerMsg } from '@bug-pop/protocol';
+import { COUNTDOWN_MS, OnlineMatch, PROTOCOL_VERSION, parseServer, type ClientMsg, type GameLobby, type Lobby, type RoomSession, type ServerMsg, type TableMatch } from '@bug-pop/protocol';
+import type { Action } from '@bug-pop/engine';
 import qrcode from 'qrcode-generator';
 import type { AudioManager } from './audio';
 import { InputManager } from './input';
@@ -380,6 +381,13 @@ export class Versus {
   private cardBase = '';
   /** Quick match: the timer that offers a computer opponent after OFFER_CPU_MS alone. */
   private offer = 0;
+  /**
+   * A room game shown here (rooms.ts drives its clock): side i shows seat sideSeat[i]; `locals`
+   * are the seats people on this device play, in side order. Nobody's here: watching.
+   */
+  private tbl: { room: RoomSession; g: number; t: TableMatch; sideSeat: number[]; locals: number[]; done: boolean; back: () => void } | null = null;
+  /** A room game's settings card: its countdown. */
+  private tlobby: { g: number; until: number; room: RoomSession; back: () => void } | null = null;
 
   constructor(private deps: VersusDeps) {
     const make = (i: number): Side => {
@@ -411,6 +419,22 @@ export class Versus {
     });
     $('vsSetupBtn').addEventListener('click', () => { this.deps.audio.play('select'); this.stop(); this.deps.exit('setup'); });
     $('vsMenu').addEventListener('click', () => { this.deps.audio.play('select'); this.stop(); this.deps.exit('menu'); });
+    $('vsRoomBack').addEventListener('click', () => {
+      this.deps.audio.play('select');
+      const back = this.tbl?.back ?? this.tlobby?.back;
+      this.stop();
+      back?.();
+    });
+    $('vsGiveUp').addEventListener('click', () => {
+      this.deps.audio.play('select');
+      const tb = this.tbl;
+      if (!tb) return;
+      // Giving up a seat (Mike, 2026-11-22): someone else (or a computer) plays it from the next round.
+      for (const pid of this.pidsAt(tb)) tb.room.giveUp(pid);
+      const back = tb.back;
+      this.stop();
+      back();
+    });
     // Nobody to play online: the computer instead, here on this device (the server never plays).
     $('vsCpu').addEventListener('click', () => {
       const join = this.net?.join;
@@ -435,13 +459,18 @@ export class Versus {
     side.layout = computeLayout(rect.width, rect.height, 0, frameCells(this.deps.skin));
   }
 
-  /** Show `n` boards. With one person against one other board, theirs is the big one on a phone. */
-  private showSides(n: number, oneHuman: boolean) {
+  /**
+   * Show `n` boards. With one person against one other board, theirs is the big one on a phone.
+   * One person against two or more (Mike, 2026-11-22): on a phone their board fills the screen top
+   * to bottom and the others are small minimaps beside it. `main` is that person's board.
+   */
+  private showSides(n: number, oneHuman: boolean, main = 0) {
     this.count = n;
-    this.sides.forEach((s, i) => { s.el.hidden = i >= n; if (i >= n) s.state = null; });
+    this.sides.forEach((s, i) => { s.el.hidden = i >= n; if (i >= n) s.state = null; s.el.classList.toggle('main', oneHuman && i === main); });
     const boards = this.stage.querySelector('.vs-boards')!;
     boards.classList.toggle('one-human', n === 2 && oneHuman);
-    boards.classList.toggle('many', n > 2);
+    boards.classList.toggle('minimap', n > 2 && oneHuman);
+    boards.classList.toggle('many', n > 2 && !oneHuman);
   }
 
   /**
@@ -469,7 +498,7 @@ export class Versus {
     this.round = 1;
     const last = readLast()?.power ?? [];
     this.votes = setup.players.map((p, i) => !p.bot && !!last[i]);
-    this.showSides(setup.players.length, setup.players.filter(p => !p.bot).length === 1);
+    this.showSides(setup.players.length, setup.players.filter(p => !p.bot).length === 1, Math.max(0, setup.players.findIndex(p => !p.bot)));
     this.assignInputs(setup);
     this.showReady();
   }
@@ -550,7 +579,7 @@ export class Versus {
 
   /** The card's countdown line; on one device the round starts when it runs out. */
   private tickCard(now: number) {
-    const until = this.local?.until || this.lobby?.until || 0;
+    const until = this.local?.until || this.lobby?.until || this.tlobby?.until || 0;
     const text = $('vsCardText');
     if (!until) { setText(text, this.cardBase); return; }
     const left = until - now;
@@ -594,6 +623,9 @@ export class Versus {
   /** Leave versus for good (the app shell shows another screen). */
   stop() {
     this.closeNet();
+    if (this.tbl) this.tbl.t.onEvents = undefined;
+    this.tbl = null;
+    this.tlobby = null;
     this.phase = 'off';
     this.local = null;
     this.lobby = null;
@@ -607,6 +639,11 @@ export class Versus {
   }
 
   private setCapture(on: boolean) {
+    if (this.tbl) {
+      const tb = this.tbl;
+      this.sides.forEach((s, i) => { s.input.capture = on && i < tb.locals.length && s.state?.phase !== 'lost'; });
+      return;
+    }
     this.sides.forEach((s, i) => {
       const p = this.setup?.players[i];
       s.input.capture = on && !!p && !p.bot && p.control !== 'remote' && s.state?.phase !== 'lost';
@@ -853,6 +890,178 @@ export class Versus {
     this.tickCard(performance.now());
   }
 
+  // ---- Room games (protocol 5 tables; see rooms.ts) ----
+  /** The people of this device sitting at a game. */
+  private pidsAt(tb: { room: RoomSession; g: number }) {
+    const game = tb.room.state?.games.find(x => x.g === tb.g);
+    const mine = new Set(tb.room.mine.map(p => p.pid));
+    return (game?.seats ?? []).map(s => s.pid).filter((p): p is string => !!p && mine.has(p));
+  }
+
+  /** Is this game the one on screen (playing or its settings card)? */
+  showing(g: number) { return this.tbl?.g === g || this.tlobby?.g === g; }
+
+  /**
+   * A room game's settings card before each round (Mike, 2026-11-22): every seat; for the people
+   * on this device their level, speed, Power-ups and Ready; everyone else's as they choose.
+   */
+  showTableLobby(room: RoomSession, msg: GameLobby, back: () => void) {
+    const first = !this.tlobby || this.tlobby.g !== msg.g || this.phase !== 'card' || !!this.tbl;
+    if (this.tbl) this.tbl.t.onEvents = undefined;
+    this.tbl = null;
+    this.tlobby = { g: msg.g, until: msg.startsIn ? performance.now() + msg.startsIn : 0, room, back };
+    const mine = new Set(room.mine.map(p => p.pid));
+    const rule = room.state?.rules.rule ?? 'race';
+    this.setup = { rule, colors: room.state?.rules.colors ?? 3, target: room.state?.rules.target ?? 'leader', players: msg.seats.map(s => ({ level: s.level, speed: s.speed, control: 'remote' as Control, bot: s.cpu ?? null })) };
+    this.stage.hidden = false;
+    this.showSides(msg.seats.length, msg.seats.filter(s => s.pid && mine.has(s.pid)).length === 1);
+    if (first) {
+      this.phase = 'card';
+      this.setCapture(false);
+      const game = room.state?.games.find(x => x.g === msg.g);
+      const fixed = !!game?.tour && room.state?.rules.tourLevels === 'same';
+      this.showCard(msg.round === 1 ? 'Get ready' : `Round ${msg.round} next`, '', ['vsRoomBack']);
+      cancelAnimationFrame(this.raf);
+      this.last = performance.now();
+      this.raf = requestAnimationFrame(this.frame);
+      $('vsReadyBox').hidden = false;
+      $('vsReadyRows').replaceChildren(...msg.seats.map((seat, i) => {
+        const row = el('div', 'vs-ready-row');
+        row.dataset.seat = String(i);
+        row.append(el('b', '', seat.name));
+        if (!seat.pid || !mine.has(seat.pid)) { row.append(el('span', 'vs-other')); return row; }
+        const pid = seat.pid;
+        const cur = () => this.tlobby?.room.lobbies.get(msg.g)?.seats.find(x => x.pid === pid) ?? seat;
+        const send = (patch: Partial<{ level: number; speed: Speed; power: boolean; ready: boolean }>) => {
+          const c = cur();
+          const out = { level: c.level, speed: c.speed, power: c.power, ready: c.ready, ...patch };
+          rememberOnline(out.level, out.speed, out.power);
+          room.set(msg.g, pid, out);
+        };
+        if (!fixed) row.append(...levelSpeed(seat.level, seat.speed, (level, speed) => send({ level, speed })));
+        else row.append(el('span', '', `Level ${seat.level}, ${SPEED_NAME[seat.speed]} (the room's setting)`));
+        row.append(checkbox('Power-ups', seat.power, on => send({ power: on })));
+        const ready = readyButton(() => { this.deps.audio.play('select'); send({ ready: !cur().ready }); });
+        ready.dataset.pid = pid;
+        row.append(ready);
+        return row;
+      }));
+      $('vsReadyRows').querySelector<HTMLButtonElement>('.vs-ready-btn')?.focus({ preventScroll: true });
+    }
+    // What can change: everyone's choices and Ready, the power-ups line and the countdown.
+    for (const [i, seat] of msg.seats.entries()) {
+      const row = $('vsReadyRows').querySelector<HTMLElement>(`[data-seat="${i}"]`);
+      if (!row) continue;
+      const other = row.querySelector('.vs-other');
+      if (other) other.replaceChildren(
+        el('span', '', `Level ${seat.level}, ${SPEED_NAME[seat.speed]}${seat.cpu ? " (the players' average)" : ''}`),
+        el('span', '', seat.cpu ? '' : seat.power ? 'Power-ups: yes' : 'Power-ups: no'),
+        el('span', `vs-ready-state${seat.ready ? ' on' : ''}`, seat.ready ? 'Ready' : 'Not ready yet'),
+      );
+      const btn = row.querySelector<HTMLButtonElement>('.vs-ready-btn');
+      if (btn) setReady(btn, seat.ready);
+      for (const c of row.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')) c.disabled = seat.ready;
+    }
+    const people = msg.seats.filter(s => !s.cpu);
+    $('vsPowerNote').textContent = people.every(s => s.power) ? 'Power-ups: on (everyone wants them).' : 'Classic: power-ups are on only if every player turns them on.';
+    const score = msg.round > 1 ? msg.seats.map((s, i) => `${s.name} ${msg.wins[i]}`).join(', ') + '. ' : '';
+    this.cardBase = score + 'The game starts 3 seconds after everyone is Ready.';
+    this.tickCard(performance.now());
+  }
+
+  /** Play (or watch) a room game: rooms.ts keeps its clock; this screen draws it and reads input. */
+  playTable(room: RoomSession, g: number, back: () => void) {
+    const t = room.tables.get(g);
+    if (!t) return;
+    this.closeNet();
+    this.tlobby = null;
+    $('vsReadyBox').hidden = true;
+    const locals = t.boards.filter(b => t.start.mine.includes(b.s)).map(b => b.s);
+    const others = t.boards.map(b => b.s).filter(s => !locals.includes(s));
+    const sideSeat = [...locals, ...others];
+    this.tbl = { room, g, t, sideSeat, locals, done: !!t.result, back };
+    const rule = t.start.rule;
+    this.setup = { rule, colors: t.start.colors, target: t.start.target, players: sideSeat.map(s => ({ level: t.start.seats[s]!.level, speed: t.start.seats[s]!.speed, control: 'remote' as Control, bot: t.start.seats[s]!.cpu ?? null })) };
+    this.showSides(sideSeat.length, locals.length === 1, 0);
+    this.sides.forEach((side, i) => {
+      const s = sideSeat[i];
+      side.input.reset();
+      side.input.accept = () => false;
+      if (s === undefined) return;
+      side.state = t.boards[s]!.state;
+      side.name = locals.length === 1 && s === locals[0] ? 'You' : t.start.seats[s]!.name;
+      side.wins = t.start.wins[s] ?? 0;
+      side.quiet = !locals.includes(s);
+      side.leavers = []; side.floats = []; side.matched = []; side.arrivals = new Map();
+    });
+    // One person here takes every device; two or more: the keyboard, then the gamepads in turn.
+    const pads = connectedPads();
+    locals.forEach((_, i) => {
+      const side = this.sides[i]!;
+      side.input.attachTouchButtons(this.deps.touchBar);
+      side.input.accept = locals.length === 1 ? () => true : accepts(i === 0 ? 'kb' : (`pad-${pads[i - 1] ?? i - 1}` as Control));
+    });
+    if (!locals.length) this.sides[0]!.input.accept = () => true; // watching: Esc still opens the card
+    t.onEvents = (s, ev) => { const i = sideSeat.indexOf(s); if (i >= 0) this.effects(this.sides[i]!, ev); };
+    this.card.hidden = true;
+    this.leaveUp = false;
+    this.stage.hidden = false;
+    this.phase = t.result ? 'card' : 'playing';
+    this.setCapture(true);
+    const game = room.state?.games.find(x => x.g === g);
+    $('vsRuleText').textContent = `${locals.length ? '' : 'Watching: '}${rule === 'last' ? RULE_TEXT.last : RULE_TEXT.race}${game?.tour ? ' (tournament)' : ''}${t.start.round > 1 ? `, round ${t.start.round}` : ''}`;
+    this.sides.forEach(s => this.resize(s));
+    if (locals.length) this.deps.audio.startMusic(true);
+    this.last = performance.now();
+    cancelAnimationFrame(this.raf);
+    this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /** The actions this tick for the boards people play here, by seat (rooms.ts asks every tick). */
+  tableActions(g: number): Map<number, Action[]> {
+    const tb = this.tbl, out = new Map<number, Action[]>();
+    if (!tb || tb.g !== g) return out;
+    tb.locals.forEach((s, i) => {
+      const side = this.sides[i]!;
+      const f = side.input.poll(this.leaveUp ? null : side.state);
+      if (f.pause && i === 0) { if (this.leaveUp) this.closeLeave(); else this.openLeave(); }
+      out.set(s, this.leaveUp ? [] : f.actions);
+    });
+    if (!tb.locals.length && this.sides[0]!.input.poll(null).pause) { if (this.leaveUp) this.closeLeave(); else this.openLeave(); }
+    return out;
+  }
+
+  private tableCheck() {
+    const tb = this.tbl;
+    if (!tb || tb.done) return;
+    if (tb.t.flagged) return this.tableEnded(tb.g, 'flag', null);
+    if (tb.t.result) this.tableEnded(tb.g, 'result', tb.t.result.winner);
+  }
+
+  /** A room game's round is over (or stopped): the usual pause, then the card; the room shows next. */
+  tableEnded(g: number, why: 'result' | 'flag' | 'disagree' | 'empty', winner: number | null) {
+    const tb = this.tbl;
+    if (!tb || tb.g !== g || tb.done) return;
+    tb.done = true;
+    const playing = this.phase === 'playing';
+    this.phase = 'ending';
+    this.setCapture(false);
+    if (this.leaveUp) { this.leaveUp = false; this.card.hidden = true; }
+    for (const s of this.sides) s.input.reset();
+    const me = winner !== null && tb.locals.includes(winner);
+    if (playing && tb.locals.length) { this.deps.audio.stopMusic(); this.deps.audio.play(me || winner === null ? 'win' : 'lose'); }
+    const name = winner === null ? null : tb.locals.length === 1 && winner === tb.locals[0] ? 'You' : tb.t.start.seats[winner]!.name;
+    const title = why === 'result' ? (name === null ? 'A draw' : name === 'You' ? 'You win' : `${name} wins`) : 'Game stopped';
+    const text = why === 'result' ? (tb.locals.length ? 'The next round comes up in a moment.' : 'Good game.')
+      : why === 'flag' ? "Something in one player's moves didn't add up, so the game was stopped."
+      : why === 'disagree' ? "The players' games didn't agree on the result, so the game was stopped." : 'Everyone left the game.';
+    window.setTimeout(() => {
+      if (this.phase !== 'ending' || this.tbl !== tb) return;
+      this.phase = 'card';
+      this.showCard(title, text, ['vsRoomBack']);
+    }, playing ? this.deps.finishPauseMs : 0);
+  }
+
   // ---- The cards ----
   /**
    * A room's QR code and Share button (Mike, 2026-11-22). Both carry the join link: this page with
@@ -880,14 +1089,14 @@ export class Versus {
     $('vsRoomShare').hidden = false;
   }
 
-  private showCard(title: string, text: string, buttons: ('vsCpu' | 'vsNext' | 'vsAgain' | 'vsStay' | 'vsSetupBtn' | 'vsMenu')[]) {
+  private showCard(title: string, text: string, buttons: ('vsCpu' | 'vsNext' | 'vsAgain' | 'vsStay' | 'vsSetupBtn' | 'vsMenu' | 'vsRoomBack' | 'vsGiveUp')[]) {
     $('vsRoomShare').hidden = true;
     $('vsReadyBox').hidden = true;
     this.cardBase = text;
     $('vsCardTitle').classList.remove('vs-waiting');
     $('vsCardTitle').textContent = title;
     $('vsCardText').textContent = text;
-    for (const id of ['vsCpu', 'vsNext', 'vsAgain', 'vsStay', 'vsSetupBtn', 'vsMenu'] as const) $(id).hidden = !buttons.includes(id);
+    for (const id of ['vsCpu', 'vsNext', 'vsAgain', 'vsStay', 'vsSetupBtn', 'vsMenu', 'vsRoomBack', 'vsGiveUp'] as const) $(id).hidden = !buttons.includes(id);
     this.card.hidden = false;
     const first = buttons[0];
     if (first) $(first).focus({ preventScroll: true });
@@ -898,6 +1107,11 @@ export class Versus {
     this.leaveUp = true;
     this.setCapture(false); // the menu keys work on the card; the games keep running
     for (const s of this.sides) s.input.reset();
+    if (this.tbl) {
+      const watching = !this.tbl.locals.length;
+      this.showCard(watching ? 'Stop watching?' : 'Leave the game?', watching ? 'The game goes on without you watching.' : 'The game keeps going while this is up. Back to the room keeps your seat; Give up my seat lets someone else play from the next round.', watching ? ['vsStay', 'vsRoomBack'] : ['vsStay', 'vsRoomBack', 'vsGiveUp']);
+      return;
+    }
     this.showCard('Leave the match?', 'The match keeps going while this is up.', ['vsStay', 'vsSetupBtn', 'vsMenu']);
   }
 
@@ -913,7 +1127,12 @@ export class Versus {
     if (this.phase === 'off') return;
     const dt = Math.min(now - this.last, 250);
     this.last = now;
-    if (this.phase === 'playing' && this.net?.match) {
+    if (this.phase === 'playing' && this.tbl) {
+      // A room game: its clock is kept by the room (rooms.ts), even when this screen isn't up.
+      // Here: watch for the round being decided.
+      this.tableCheck();
+      if (!this.leaveUp) for (const s of this.sides.slice(this.tbl?.locals.length ?? 0, this.count)) s.input.poll(null);
+    } else if (this.phase === 'playing' && this.net?.match) {
       // Online: keep in step with the real clock, even after the page was stalled, so both
       // players' tick counts stay close (the checks allow a few seconds, not minutes).
       const m = this.net.match, due = Math.floor((now - this.net.t0) / TICK_MS);

@@ -290,6 +290,34 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 @media (max-width: 700px) { .vs-boards.one-human .vs-side:last-child { flex: 0 0 34%; } .vs-label { font-size: 13px; } }
 /* Three or four boards on a narrow screen: two rows of two. */
 @media (max-width: 900px) { .vs-boards.many { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); } }
+/* One person against two or more on a phone (Mike, 2026-11-22): their board top to bottom, the
+   others as small minimaps in a column beside it. */
+.vs-boards.minimap .vs-side.main { order: -1; }
+@media (max-width: 700px) {
+  .vs-boards.minimap { display: grid; grid-template-columns: minmax(0, 1fr) 27%; grid-auto-rows: minmax(0, 1fr); gap: 6px; }
+  .vs-boards.minimap .vs-side.main { grid-column: 1; grid-row: 1 / span 3; }
+  .vs-boards.minimap .vs-side:not(.main) { grid-column: 2; }
+  .vs-boards.minimap .vs-side:not(.main) .vs-label { font-size: 10px; line-height: 1.2; }
+  .vs-boards.minimap .vs-side:not(.main) .vs-incoming { display: none; }
+}
+/* The room screen (src/rooms.ts). */
+.room-share { display: flex; gap: 14px; align-items: center; }
+.room-share img { width: 112px; height: 112px; flex: none; image-rendering: pixelated; background: #fff; border-radius: 8px; }
+.room-share > div { flex: 1; min-width: 0; }
+.room-share p { margin: 0 0 8px; font-size: 15px; }
+.room-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; }
+.room-games { display: grid; gap: 10px; margin-bottom: 12px; }
+.room-game { border: 1px solid var(--line, rgba(127,127,127,.4)); border-radius: 10px; padding: 10px; display: grid; gap: 6px; }
+.room-game .room-seats { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.room-seat { padding: 2px 8px; border-radius: 999px; background: rgba(127,127,127,.18); font-size: 14px; }
+.room-seat.me { font-weight: bold; outline: 2px solid currentColor; }
+.room-people { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 6px; }
+.room-people li { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.room-people .away { opacity: .6; }
+.room-rules { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.room-tour { border-collapse: collapse; width: 100%; margin: 6px 0 10px; font-size: 14px; }
+.room-tour td, .room-tour th { padding: 3px 6px; text-align: left; border-bottom: 1px solid rgba(127,127,127,.3); }
+.room-tour .out { opacity: .55; text-decoration: line-through; }
 .vs-side[hidden] { display: none; }
 .vs-setup fieldset { border: 1px solid var(--edge); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 8px; }
 .vs-setup legend { padding: 0 6px; font-weight: 700; }
@@ -322,3 +350,5 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 
 /* Scanning a room QR code: the camera picture in a square. */
 .scan-card video { width: min(320px, 75vw); aspect-ratio: 1; object-fit: cover; border-radius: 12px; background: #000; display: block; margin: 0 auto 1rem; }
+.vs-ready-row .vs-other { display: contents; }
+#roomScreen [hidden] { display: none !important; }
