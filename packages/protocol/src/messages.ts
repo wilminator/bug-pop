@@ -242,3 +242,87 @@ export function parseServer(raw: string): ServerMsg | null {
     default: return null;
   }
 }
+
+// ---- Tables: online games of 2 to 4 seats (protocol 5, Mike 2026-11-22) ----------------------
+//
+// A table is one game in a room (or a quick match). Every seat is a person on some device or a
+// computer, and one device may play several seats (two people sharing a tablet, or the computers
+// the room gives it to run). Every device rebuilds every board from the moves, so anyone in the
+// room can watch any table (a watcher plays no seats).
+//
+// Attacks still never travel as messages. Every device works out each attack's target the same way
+// (see table.ts); the target's device drops the attack on its board and says when ('ttook'), so
+// every copy of every board stays the same. Every device checks every board it rebuilds.
+
+/** At most this many seats at a table. */
+export const MAX_SEATS = 4;
+/**
+ * Who gets attacked with 3 or 4 players: the leader (fewest bugs left), someone at random, or
+ * everyone still playing (Mike 2026-11-22: fine without teams; teams would need more thought).
+ */
+export type Target = 'leader' | 'random' | 'everyone';
+export const TARGETS: readonly Target[] = ['leader', 'random', 'everyone'];
+export type BotName = 'easy' | 'medium' | 'hard';
+/** One seat: a person (with their name) or a computer at a skill. */
+export type SeatInfo = { name: string; level: number; speed: Speed; cpu?: BotName };
+/**
+ * A round at a table starts. Every device at the table (players and watchers) gets the same
+ * start, except `mine` (the seats this device plays with people) and `runs` (the computers it plays).
+ */
+export type TableStart = {
+  t: 'tstart'; table: number; seed: number; botSeed: number; colors: number; rule: OnlineRule; target: Target; power: boolean;
+  seats: SeatInfo[]; mine: number[]; runs: number[]; round: number; wins: number[];
+};
+/** Seat `s`'s moves up to its clock `k` (like 'in'). */
+export type TableInputs = { t: 'tin'; s: number; k: number; a: number[] };
+/** Seat `s` took attack number `i` from seat `from` at its tick `k` (n halves, r ticks a row). */
+export type TableTook = { t: 'ttook'; s: number; k: number; n: number; r: number; from: number; i: number };
+/** The round is over on my device: the winning seat, or null for a draw. */
+export type TableDone = { t: 'tdone'; winner: number | null };
+export type TableMsg = TableInputs | TableTook;
+
+const seatNo = (x: unknown): x is number => int(x, 0, MAX_SEATS - 1);
+
+/** Read a table message (from a client, or passed on by the relay), or null. */
+export function parseTable(m: Record<string, unknown> | null): TableMsg | TableDone | null {
+  switch (m?.t) {
+    case 'tin': {
+      if (!seatNo(m.s)) return null;
+      const i = inputs(m);
+      return i && { t: 'tin', s: m.s, k: i.k, a: i.a };
+    }
+    case 'ttook': {
+      if (!seatNo(m.s) || !seatNo(m.from) || m.from === m.s || !int(m.i, 0, 100_000)) return null;
+      const tk = took(m);
+      return tk && { t: 'ttook', s: m.s, k: tk.k, n: tk.n, r: tk.r, from: m.from, i: m.i };
+    }
+    case 'tdone': return m.winner === null || seatNo(m.winner) ? { t: 'tdone', winner: m.winner as number | null } : null;
+    default: return null;
+  }
+}
+/** The same, from raw text. */
+export function parseTableRaw(raw: string): TableMsg | TableDone | null { return parseTable(obj(raw)); }
+
+/** Read a table start from the relay, or null. */
+export function parseTableStart(raw: string): TableStart | null {
+  const m = obj(raw);
+  if (m?.t !== 'tstart') return null;
+  const seats = Array.isArray(m.seats) ? m.seats : [];
+  const seat = (x: unknown): SeatInfo | null => {
+    const q = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
+    if (!q || !int(q.level, 1, 100) || !speed(q.speed) || typeof q.name !== 'string') return null;
+    if (q.cpu !== undefined && q.cpu !== 'easy' && q.cpu !== 'medium' && q.cpu !== 'hard') return null;
+    return { name: q.name.slice(0, 40), level: q.level, speed: q.speed, ...(q.cpu ? { cpu: q.cpu as BotName } : {}) };
+  };
+  const list = seats.map(seat);
+  const seatList = (x: unknown) => Array.isArray(x) && x.every(v => int(v, 0, list.length - 1)) ? (x as number[]) : null;
+  const mine = seatList(m.mine), runs = seatList(m.runs);
+  if (list.length < 2 || list.length > MAX_SEATS || !list.every(Boolean) || !mine || !runs) return null;
+  if (!int(m.table, 0, 1_000_000) || !int(m.seed, -0x80000000, 0xffffffff) || !int(m.botSeed, -0x80000000, 0xffffffff) || !int(m.colors, 2, 5)) return null;
+  if (!RULES.includes(m.rule) || !TARGETS.includes(m.target as Target) || typeof m.power !== 'boolean') return null;
+  if (!int(m.round, 1, 100) || !Array.isArray(m.wins) || m.wins.length !== list.length || !m.wins.every(w => int(w, 0, 100))) return null;
+  return {
+    t: 'tstart', table: m.table, seed: m.seed, botSeed: m.botSeed, colors: m.colors, rule: m.rule as OnlineRule, target: m.target as Target, power: m.power,
+    seats: list as SeatInfo[], mine, runs, round: m.round, wins: m.wins as number[],
+  };
+}
