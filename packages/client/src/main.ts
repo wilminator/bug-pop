@@ -15,7 +15,7 @@ import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt, lookNoticeSeen, markLookNotice } from './storage';
 import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
 import { scanRoom } from './scan';
-import { Versus, initSetupForm, lastOnline, readSetup, refreshSetupForm, rememberOnline } from './versus';
+import { Versus, initSetupForm, lastHumansOnly, lastOnline, readSetup, refreshSetupForm, rememberHumansOnly, rememberOnline } from './versus';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
@@ -668,7 +668,8 @@ async function main() {
     audio.play('select');
     show('versus');
     // Power-ups: last time's choice; each player can change it on the match settings card.
-    versus!.startOnline({ level: me.level, speed: me.speed, room, power: lastOnline(settings.speed).power });
+    const humansOnly = $<HTMLInputElement>('vsHumansOnly').checked; // quick match only: rooms are always people
+    versus!.startOnline({ level: me.level, speed: me.speed, room, power: lastOnline(settings.speed).power, ...(room ? {} : { humansOnly }) });
   };
   $('vsOnlineSignIn').addEventListener('click', () => {
     audio.play('select');
@@ -676,6 +677,8 @@ async function main() {
     location.assign(loginUrl(cfg.api!, `${location.pathname}?play=online`));
   });
   $('vsQuick').addEventListener('click', () => goOnline());
+  $<HTMLInputElement>('vsHumansOnly').checked = lastHumansOnly();
+  $('vsHumansOnly').addEventListener('change', e => rememberHumansOnly((e.target as HTMLInputElement).checked));
   $('vsCreate').addEventListener('click', () => goOnline('new'));
   const code = $<HTMLInputElement>('vsCode');
   code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });

@@ -56,7 +56,9 @@ export type VersusDeps = {
 };
 
 /** How to join an online match: quick match, open a room ('new'), or a friend's 4-letter code. */
-export type OnlineJoin = { level: number; speed: Speed; room?: string; power?: boolean };
+export type OnlineJoin = { level: number; speed: Speed; room?: string; power?: boolean; humansOnly?: boolean };
+/** Quick match: after this long alone, the wait card offers a computer opponent (Mike, 2026-11-22). */
+const OFFER_CPU_MS = 30_000;
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const MAX_PLAYERS = 2; // 3 and 4 players: later (Mike, 2026-11-22). The board code already handles them.
@@ -138,6 +140,8 @@ type Last = {
   online?: { level: number; speed: Speed; power?: boolean };
   /** Each player's Power-ups choice on the settings card, on this device. */
   power?: boolean[];
+  /** Quick match: never offer a computer opponent. */
+  humansOnly?: boolean;
 };
 function readLast(): Last | null {
   try { const v = JSON.parse(localStorage.getItem(LAST_KEY) ?? 'null') as Last | null; return v && Array.isArray(v.players) ? v : null; } catch { return null; }
@@ -152,6 +156,9 @@ export function lastOnline(fallbackSpeed: Speed): { level: number; speed: Speed;
   const o = readLast()?.online;
   return { level: o?.level ?? 5, speed: o?.speed ?? versusSpeed(fallbackSpeed), power: !!o?.power };
 }
+/** Quick match's "People only" box, remembered on this device. */
+export function rememberHumansOnly(on: boolean) { writeLast({ humansOnly: on }); }
+export function lastHumansOnly(): boolean { return !!readLast()?.humansOnly; }
 /** The versus lists offer Low, Medium and High; single player's Slo-mo (3) starts them on Low. */
 const versusSpeed = (s: Speed): Speed => (s === 3 ? 0 : s);
 
@@ -284,6 +291,24 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''):
   if (text) e.textContent = text;
   return e;
 }
+/** A level slider (1 to 20) and a speed list, calling `change` when either is set. */
+function levelSpeed(level: number, speed: Speed, change: (level: number, speed: Speed) => void): [HTMLLabelElement, HTMLLabelElement] {
+  const range = Object.assign(document.createElement('input'), { type: 'range', min: '1', max: '20', step: '1', value: String(Math.min(20, level)) });
+  const out = el('output', '', range.value);
+  const list = document.createElement('select');
+  list.append(...SPEED_NAME.slice(0, 3).map((n, i) => new Option(n, String(i))));
+  list.value = String(Math.min(2, speed));
+  const fire = () => change(Number(range.value), Number(list.value) as Speed);
+  range.addEventListener('input', () => { out.textContent = range.value; });
+  range.addEventListener('change', fire);
+  list.addEventListener('change', fire);
+  const lvl = el('label', '', 'Level ');
+  lvl.append(out, range);
+  const spd = el('label', '', 'Speed ');
+  spd.append(list);
+  return [lvl, spd];
+}
+
 /** A labelled checkbox. */
 function checkbox(label: string, on: boolean, change: (on: boolean) => void): HTMLLabelElement {
   const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: on });
@@ -337,6 +362,8 @@ export class Versus {
   private lobby: { msg: Lobby; until: number } | null = null;
   /** The card's line under the title, before the countdown is added. */
   private cardBase = '';
+  /** Quick match: the timer that offers a computer opponent after OFFER_CPU_MS alone. */
+  private offer = 0;
 
   constructor(private deps: VersusDeps) {
     const make = (i: number): Side => {
@@ -368,6 +395,17 @@ export class Versus {
     });
     $('vsSetupBtn').addEventListener('click', () => { this.deps.audio.play('select'); this.stop(); this.deps.exit('setup'); });
     $('vsMenu').addEventListener('click', () => { this.deps.audio.play('select'); this.stop(); this.deps.exit('menu'); });
+    // Nobody to play online: the computer instead, here on this device (the server never plays).
+    $('vsCpu').addEventListener('click', () => {
+      const join = this.net?.join;
+      if (!join) return;
+      this.deps.audio.play('select');
+      this.closeNet();
+      this.startMatch({ rule: 'best3', colors: 3, target: 'leader', players: [
+        { level: join.level, speed: join.speed, control: 'any', bot: null },
+        { level: join.level, speed: join.speed, control: 'cpu', bot: 'medium' },
+      ] });
+    });
   }
 
   get active() { return this.phase !== 'off'; }
@@ -431,9 +469,23 @@ export class Versus {
     this.showCard(setup.rule === 'best3' ? `Round ${this.round}` : 'Get ready', '', ['vsSetupBtn', 'vsMenu']);
     const humans = setup.players.filter(p => !p.bot).length;
     this.cardBase = score + (humans === 0 ? 'The computers are ready.' : humans === 1 ? 'Tap Ready when you are set. The match starts 3 seconds later.' : 'Everyone taps Ready. The match starts 3 seconds after the last one.');
+    // Level and speed are always on the card (Mike, 2026-11-22). Playing the computer alone, the
+    // player sets the computer's too; with two or more people it takes their average.
+    this.averageBots();
+    const remember = () => writeLast({ players: setup.players.map((p, i) => ({ ...(readLast()?.players[i] ?? { control: p.control, bot: p.bot ?? 'medium' }), level: p.level, speed: p.speed })) });
     const rows = setup.players.map((p, i) => {
       const row = el('div', 'vs-ready-row');
+      row.dataset.player = String(i);
       row.append(el('b', '', this.sides[i]!.name));
+      if (p.bot && humans >= 2) {
+        row.append(el('span', '', `Level ${p.level}, ${SPEED_NAME[p.speed]} (the players' average)`), el('span', 'vs-ready-state on', 'Ready'));
+        return row;
+      }
+      row.append(...levelSpeed(p.level, p.speed, (level, speed) => {
+        p.level = level; p.speed = speed;
+        remember();
+        if (!p.bot) this.averageBots();
+      }));
       if (p.bot) { row.append(el('span', 'vs-ready-state on', 'Ready')); return row; }
       const box = checkbox('Power-ups', this.votes[i]!, on => { this.votes[i] = on; writeLast({ power: this.votes }); this.updateLocal(); });
       const btn = readyButton(() => { const l = this.local; if (!l) return; this.deps.audio.play('select'); l.ready[i] = !l.ready[i]; this.updateLocal(); });
@@ -450,12 +502,28 @@ export class Versus {
     this.raf = requestAnimationFrame(this.frame);
   }
 
+  /**
+   * With two or more people, each computer plays at the people's average level and speed, so it
+   * sits in the middle of the table (Mike, 2026-11-22).
+   */
+  private averageBots() {
+    const players = this.setup!.players, people = players.filter(p => !p.bot);
+    if (people.length < 2) return;
+    const avg = (f: (p: PlayerSetup) => number) => Math.round(people.reduce((n, p) => n + f(p), 0) / people.length);
+    for (const p of players) if (p.bot) { p.level = avg(p => p.level); p.speed = avg(p => p.speed) as Speed; }
+  }
+
   private updateLocal() {
     const l = this.local, setup = this.setup!;
     if (!l) return;
     const all = l.ready.every(Boolean);
     if (all && !l.until) l.until = performance.now() + COUNTDOWN_MS;
     else if (!all) l.until = 0;
+    // A person's choices lock while they're Ready; the computer's lock during the countdown.
+    for (const row of $('vsReadyRows').querySelectorAll<HTMLElement>('.vs-ready-row')) {
+      const i = Number(row.dataset.player), locked = setup.players[i]!.bot ? !!l.until : l.ready[i]!;
+      for (const c of row.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input[type=range], select')) c.disabled = locked;
+    }
     for (const b of $('vsReadyRows').querySelectorAll<HTMLButtonElement>('.vs-ready-btn')) setReady(b, l.ready[Number(b.dataset.player)]!);
     const humans = setup.players.map((p, i) => (p.bot ? -1 : i)).filter(i => i >= 0);
     const on = humans.length > 0 && humans.every(i => this.votes[i]);
@@ -564,6 +632,7 @@ export class Versus {
   }
 
   private closeNet() {
+    window.clearTimeout(this.offer);
     const net = this.net;
     if (!net) return;
     // Leaving a match on purpose forfeits it at once (and counts as a disconnect).
@@ -579,7 +648,18 @@ export class Versus {
     const net = this.net!;
     if (!msg || net.over) return;
     switch (msg.t) {
-      case 'wait': this.showCard('Looking for an opponent', 'The match starts as soon as someone joins.', ['vsMenu']); $('vsCardTitle').classList.add('vs-waiting'); break;
+      case 'wait': {
+        this.showCard('Looking for an opponent', 'The match starts as soon as someone joins.', ['vsMenu']);
+        $('vsCardTitle').classList.add('vs-waiting');
+        window.clearTimeout(this.offer);
+        this.offer = window.setTimeout(() => {
+          if (this.net !== net || net.over || this.lobby || net.match) return;
+          if (net.join.humansOnly) { setText($('vsCardText'), 'Nobody else is free yet. You asked for people only, so the search goes on.'); return; }
+          this.showCard('Looking for an opponent', 'Nobody else is free right now. Keep waiting, or play the computer.', ['vsCpu', 'vsMenu']);
+          $('vsCardTitle').classList.add('vs-waiting');
+        }, OFFER_CPU_MS);
+        break;
+      }
       case 'room':
         // Make it plain that nothing happens until the friend connects (Mike, 2026-11-22).
         this.showCard(`Room ${msg.code}: waiting for your opponent`, `The match starts as soon as your friend connects. They can scan this code, open the link you share, or type ${msg.code} under Join a room on the Multiplayer screen.`, ['vsMenu']);
@@ -587,7 +667,7 @@ export class Versus {
         this.showRoomShare(msg.code);
         break;
       case 'error': net.over = true; this.endOnline(null, "Can't play online right now", msg.why); break;
-      case 'lobby': this.onLobby(msg); break;
+      case 'lobby': window.clearTimeout(this.offer); this.onLobby(msg); break;
       case 'start': case 'resume': {
         const send = (out: ClientMsg) => { if (net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify(out)); };
         // A rejoin rebuilds both boards and checks every move the stand-in computer made for me,
@@ -728,20 +808,8 @@ export class Versus {
       this.showCard(msg.round === 1 ? `You're playing ${them.name}` : `Round ${msg.round} next`, '', ['vsMenu']);
       // My row: level, speed, Power-ups and Ready. Changing a choice means not Ready yet.
       const row = el('div', 'vs-ready-row');
-      const level = Object.assign(document.createElement('input'), { type: 'range', min: '1', max: '20', step: '1', value: String(me.level) });
-      level.id = 'vsLobbyLevel';
-      const out = el('output', '', String(me.level));
-      level.addEventListener('input', () => { out.textContent = level.value; });
-      level.addEventListener('change', () => send({ level: Number(level.value) }));
-      const lvl = el('label', '', 'Level ');
-      lvl.append(out, level);
-      const speed = document.createElement('select');
-      speed.id = 'vsLobbySpeed';
-      speed.append(...SPEED_NAME.slice(0, 3).map((n, i) => new Option(n, String(i))));
-      speed.value = String(me.speed);
-      speed.addEventListener('change', () => send({ speed: Number(speed.value) as Speed }));
-      const spd = el('label', '', 'Speed ');
-      spd.append(speed);
+      const [lvl, spd] = levelSpeed(me.level, me.speed, (level, speed) => send({ level, speed }));
+      lvl.querySelector('input')!.id = 'vsLobbyLevel';
       const power = checkbox('Power-ups', me.power, on => send({ power: on }));
       const ready = readyButton(() => { this.deps.audio.play('select'); send({ ready: !(this.lobby?.msg.players[msg.seat].ready ?? false) }); });
       row.append(el('b', '', 'You'), lvl, spd, power, ready);
@@ -795,14 +863,14 @@ export class Versus {
     $('vsRoomShare').hidden = false;
   }
 
-  private showCard(title: string, text: string, buttons: ('vsNext' | 'vsAgain' | 'vsStay' | 'vsSetupBtn' | 'vsMenu')[]) {
+  private showCard(title: string, text: string, buttons: ('vsCpu' | 'vsNext' | 'vsAgain' | 'vsStay' | 'vsSetupBtn' | 'vsMenu')[]) {
     $('vsRoomShare').hidden = true;
     $('vsReadyBox').hidden = true;
     this.cardBase = text;
     $('vsCardTitle').classList.remove('vs-waiting');
     $('vsCardTitle').textContent = title;
     $('vsCardText').textContent = text;
-    for (const id of ['vsNext', 'vsAgain', 'vsStay', 'vsSetupBtn', 'vsMenu'] as const) $(id).hidden = !buttons.includes(id);
+    for (const id of ['vsCpu', 'vsNext', 'vsAgain', 'vsStay', 'vsSetupBtn', 'vsMenu'] as const) $(id).hidden = !buttons.includes(id);
     this.card.hidden = false;
     const first = buttons[0];
     if (first) $(first).focus({ preventScroll: true });

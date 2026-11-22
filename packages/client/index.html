@@ -191,6 +191,7 @@
           </form>
           <p class="fine">Your opponent picks their own level and speed. Online play needs you to be signed in.</p>
           <button id="vsQuick" class="primary">Quick match</button>
+          <label class="vs-check"><input type="checkbox" id="vsHumansOnly" /> People only: never offer me a computer opponent</label>
           <button id="vsCreate">Create a room</button>
           <label>Room code <input id="vsCode" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" /></label>
           <button id="vsJoin">Join a room</button>
@@ -467,6 +468,7 @@
           <div id="vsReadyRows"></div>
           <p id="vsPowerNote" class="fine"></p>
         </div>
+        <button id="vsCpu" class="primary">Play the computer instead</button>
         <button id="vsNext" class="primary" data-primary>Next round</button>
         <button id="vsAgain">Play again</button>
         <button id="vsStay">Keep playing</button>
