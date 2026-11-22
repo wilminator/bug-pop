@@ -4,10 +4,11 @@
 // player made during that tick. It never reads the clock, the screen or
 // Math.random, so the same config + the same actions always give the same game.
 
+import { BOARD_HEIGHT, BOARD_WIDTH } from './types';
 import { addBugs, bugCount, bugZoneRows, emptyBoard, findMatches, fits, idx, pieceCells, placeBugs, removeCells, settleStep } from './board';
 import { randInt } from './rng';
 import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
-import { ACTIONS, SAVE_VERSION, type Action, type GameConfig, type GameEvent, type GameState, type Piece } from './types';
+import { ACTIONS, POWER_KINDS, SOLO_POWER_KINDS, SAVE_VERSION, type Action, type PowerKind, type PowerState, type GameConfig, type GameEvent, type GameState, type Piece } from './types';
 
 export const TICKS_PER_SECOND = 60;
 export const CLEAR_TICKS = 20; // how long matched cells flash before vanishing
@@ -66,6 +67,11 @@ export function normalizeConfig(c: GameConfig): GameConfig {
     ...(c.classicScoring ? { classicScoring: true } : {}),
     ...(c.classicBugZone ? { classicBugZone: true } : {}),
     ...(c.endless ? { endless: true } : {}),
+    ...(c.powerUps ? { powerUps: true } : {}),
+    ...(c.powerUps && c.startPower ? { startPower: {
+      meter: clamp(c.startPower.meter, 0, METER_FULL),
+      held: POWER_KINDS.includes(c.startPower.held as PowerKind) ? c.startPower.held : null,
+    } } : {}),
   };
 }
 
@@ -92,6 +98,7 @@ export function createGame(config: GameConfig): GameState {
     chain: 0,
     log: [],
   };
+  if (cfg.powerUps) s.power = { meter: cfg.startPower?.meter ?? 0, held: cfg.startPower?.held ?? null, freeze: 0, recent: [], queued: null, blast: false };
   s.bugsLeft = placeBugs(s.board, s, cfg.level, cfg.colors, cfg.classicBugZone);
   s.next = randomPair(s);
   spawn(s, []);
@@ -137,8 +144,14 @@ function setSoft(s: GameState, on: boolean) {
 }
 
 function spawn(s: GameState, events: GameEvent[]) {
+  const queued = s.power?.queued;
   const piece: Piece = { x: SPAWN_X, y: 0, rot: 0, a: s.next.a, b: s.next.b };
-  s.next = randomPair(s);
+  if (queued) {
+    // A used power-up drops now; the piece that was next stays next (it was pushed back one turn).
+    s.power!.queued = null;
+    if (queued === 'wild') piece.w = true; // a wildcard piece; its colors only matter for drawing
+    else piece.k = queued;
+  } else s.next = randomPair(s);
   s.piecesSpawned++;
   s.dropTimer = 0;
   s.dropBugs = 0;
@@ -165,6 +178,7 @@ function tryMove(s: GameState, dx: number): boolean {
 
 function tryRotate(s: GameState, dir: 1 | -1): boolean {
   const p = s.piece!;
+  if (p.k) return false; // a bomb or drill has nothing to turn
   const rot = ((p.rot + (dir === 1 ? 1 : 3)) % 4) as Piece['rot'];
   const turned = { ...p, rot };
   if (fits(s.board, turned)) { s.piece = turned; return true; }
@@ -177,6 +191,7 @@ function tryRotate(s: GameState, dir: 1 | -1): boolean {
 }
 
 function lock(s: GameState, events: GameEvent[]) {
+  if (s.piece!.k) { detonate(s, events); return; }
   const cells = pieceCells(s.piece!);
   // Landing while still poking above the top line means the stack has reached the top.
   if (cells.some(h => h.y < 0)) {
@@ -184,7 +199,7 @@ function lock(s: GameState, events: GameEvent[]) {
     events.push({ type: 'lost' });
     return;
   }
-  for (const h of cells) s.board[idx(h.x, h.y)] = { t: 'half', c: h.c, l: h.l };
+  for (const h of cells) s.board[idx(h.x, h.y)] = s.piece!.w ? { t: 'half', c: h.c, l: h.l, w: true } : { t: 'half', c: h.c, l: h.l };
   s.piece = null;
   events.push({ type: 'lock' });
   resolve(s, events);
@@ -266,6 +281,7 @@ export function scoreMultiplier(s: GameState): number {
  * Classic scoring keeps only the chain bonus.
  */
 function scoreBugs(s: GameState, bugs: number) {
+  if (s.power?.blast) { scoreBlastBugs(s, bugs); return; }
   for (let i = 0; i < bugs; i++) {
     if (s.config.classicScoring) {
       s.score += 100 * 2 ** Math.min(s.dropBugs, 5) * SPEED_MULTIPLIER[s.config.speed];
@@ -281,6 +297,7 @@ function scoreBugs(s: GameState, bugs: number) {
 
 function applyAction(s: GameState, a: Action, events: GameEvent[]) {
   if (a === 'softOn' || a === 'softOff') { setSoft(s, a === 'softOn'); return; }
+  if (a === 'power') { usePower(s, events); return; }
   if (s.phase !== 'falling' || !s.piece) return;
   const ok =
     a === 'left' ? tryMove(s, -1) :
@@ -296,12 +313,14 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
   if (s.phase === 'won' || s.phase === 'lost') return events;
 
   for (const a of actions) {
+    if (a === 'power' && !s.power) continue; // power-ups off: not even recorded, so vanilla logs stay as they were
     s.log.push(s.tick * 8 + ACTIONS.indexOf(a));
     applyAction(s, a, events);
   }
 
   switch (s.phase) {
     case 'falling': {
+      if (s.power && s.power.freeze > 0 && !s.soft) break; // Freeze: the piece hangs still unless held down
       s.dropTimer += TIMER_UNITS;
       const limit = dropLimit(s);
       if (s.dropTimer >= limit) {
@@ -318,8 +337,13 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       const bugs = removeCells(s.board, s.clearing);
       s.clearing = [];
       s.bugsLeft -= bugs;
+      const blast = !!s.power?.blast;
       scoreBugs(s, bugs);
-      events.push({ type: 'cleared', bugs, chainBonus: bugs ? 2 ** Math.min(s.dropBugs - 1, 5) : 1 });
+      if (s.power) {
+        if (!blast) fillMeter(s, bugs, events);
+        s.power.blast = false;
+      }
+      events.push({ type: 'cleared', bugs, chainBonus: bugs && !blast ? 2 ** Math.min(s.dropBugs - 1, 5) : 1 });
       // Even after the last bug, loose halves fall and any chain plays out before the level ends
       // (Mike, 2026-11-19): a better chance at a clean sweep. See resolve().
       s.phase = 'settling';
@@ -337,8 +361,93 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
       break;
     }
   }
+  if (s.power && s.power.freeze > 0 && --s.power.freeze === 0) events.push({ type: 'thaw' });
   s.tick++;
   return events;
+}
+
+// ---- Power-ups (Freeze, Bomb, Drill), only when config.powerUps is on --------------------
+
+/** Bug credit that fills the meter and gives a power-up. */
+export const METER_FULL = 8;
+/** A bug popped in a chain (the second match round from one piece, or later) gives this much credit. */
+export const CHAIN_CREDIT = 2;
+/** How long Freeze holds the piece still. */
+export const FREEZE_TICKS = 8 * TICKS_PER_SECOND;
+/** How deep a drill bores below where it lands. */
+export const DRILL_DEPTH = 3;
+/** Points for a bug a bomb or drill destroys, before multipliers: half of a popped bug's 100. */
+export const BLAST_BUG_POINTS = 50;
+/** Running-multiplier gain per blasted bug, in tenths: +0.1, half of a popped bug's +0.2. */
+const BLAST_MULT_GAIN = 1;
+
+/** Credit popped bugs to the meter; a full meter gives a power-up if none is held. */
+function fillMeter(s: GameState, bugs: number, events: GameEvent[]) {
+  const p = s.power!;
+  if (bugs === 0) return;
+  p.meter = Math.min(METER_FULL, p.meter + bugs * (s.chain >= 2 ? CHAIN_CREDIT : 1));
+  if (p.meter >= METER_FULL && p.held === null) {
+    // Random from the seeded generator (so replays agree), but never the same kind three times running.
+    const last2 = p.recent.length === 2 && p.recent[0] === p.recent[1] ? p.recent[0] : null;
+    const pool = SOLO_POWER_KINDS.filter(k => k !== last2);
+    const kind = pool[randInt(s, pool.length)]!;
+    p.held = kind;
+    p.recent = [...p.recent, kind].slice(-2);
+    events.push({ type: 'powerGot', kind });
+  }
+}
+
+/**
+ * Use the held power-up. It becomes the next piece to drop, and the piece that was next waits one
+ * turn behind it (Mike, 2026-11-21), so the player sees it coming. Usable any time during play.
+ */
+function usePower(s: GameState, events: GameEvent[]) {
+  const p = s.power;
+  if (!p || !p.held || p.queued || s.phase === 'won' || s.phase === 'lost') return;
+  const kind = p.held;
+  p.held = null;
+  p.meter = 0; // the meter starts filling again from empty
+  if (kind === 'freeze') p.freeze = FREEZE_TICKS; // kept for versus play later; not given out in single player
+  else p.queued = kind;
+  events.push({ type: 'powerUse', kind });
+}
+
+/** A bomb or drill has landed: mark what it destroys, then flash and clear it like a match. */
+function detonate(s: GameState, events: GameEvent[]) {
+  const { x, y, k } = s.piece!;
+  const cells: number[] = [];
+  if (k === 'bomb') {
+    // The square is centered on the cell the bomb landed on (or on the bomb, on the floor),
+    // so it digs two rows into what it hit, plus the row it sits in.
+    const cy = y + 1 < BOARD_HEIGHT ? y + 1 : y;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const nx = x + dx, ny = cy + dy;
+      if (nx >= 0 && nx < BOARD_WIDTH && ny >= 0 && ny < BOARD_HEIGHT && s.board[idx(nx, ny)]) cells.push(idx(nx, ny));
+    }
+  } else {
+    for (let d = 1; d <= DRILL_DEPTH && y + d < BOARD_HEIGHT; d++) if (s.board[idx(x, y + d)]) cells.push(idx(x, y + d));
+  }
+  s.piece = null;
+  const bugs = cells.filter(i => s.board[i]?.t === 'bug').length;
+  events.push({ type: 'blast', kind: k!, cells, bugs });
+  if (cells.length === 0) { resolve(s, events); return; }
+  s.power!.blast = true;
+  s.clearing = cells.sort((p, q) => p - q);
+  s.phase = 'clearing';
+  s.phaseTimer = CLEAR_TICKS;
+}
+
+/** Bugs a bomb or drill destroys: 50 x running multiplier x speed, no chain bonus, +0.1 multiplier each. */
+function scoreBlastBugs(s: GameState, bugs: number) {
+  for (let i = 0; i < bugs; i++) {
+    if (s.config.classicScoring) {
+      s.score += BLAST_BUG_POINTS * SPEED_MULTIPLIER[s.config.speed];
+    } else {
+      const m = s.mult ?? MULT_MIN;
+      s.score += Math.floor((BLAST_BUG_POINTS / 10) * m * SPEED_MULTIPLIER[s.config.speed]); // whole points (slo-mo can land on a half)
+      s.mult = m + BLAST_MULT_GAIN;
+    }
+  }
 }
 
 /** Decode the input log into per-tick action lists. */

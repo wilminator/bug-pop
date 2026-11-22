@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, endlessGame, endlessRound, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
-  removeCells, pieceCells, fits, type Piece, cleanSweepBonus, scoreMultiplier, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
+  removeCells, pieceCells, SAVE_VERSION, fits, type Piece, cleanSweepBonus, scoreMultiplier, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
 const cfg = { seed: 12345, level: 5, speed: 1 as const, colors: 3 };
@@ -583,7 +583,7 @@ describe('save and replay', () => {
     expect(plain.length / packed.length).toBeGreaterThan(2.5);
     expect(serialize(deserialize(packed))).toBe(packed); // same game, same text (no timestamps inside)
     expect(deserialize(plain)).toEqual(deserialize(packed));
-    expect(deserialize(plain).v).toBe(2);
+    expect(deserialize(plain).v).toBe(SAVE_VERSION);
   });
 
   it('a forged log does not reproduce the score', () => {

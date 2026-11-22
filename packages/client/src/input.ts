@@ -15,7 +15,7 @@ const MOUSE_STEP_TICKS = 2; // mouse steering moves at most one column per 2 tic
 const STICK_DEADZONE = 0.5;
 
 type Held = { left: boolean; right: boolean; down: boolean };
-type Press = 'rotCW' | 'rotCCW' | 'pause' | 'confirm';
+type Press = 'rotCW' | 'rotCCW' | 'pause' | 'confirm' | 'power';
 
 export type Nav = 'up' | 'down' | 'left' | 'right';
 export type InputFrame = { actions: Action[]; pause: boolean; confirm: boolean; nav: Nav[] };
@@ -77,6 +77,7 @@ export class InputManager {
     KeyZ: 'rotCCW', KeyQ: 'rotCCW', KeyJ: 'rotCCW',
     Escape: 'pause', KeyP: 'pause',
     Enter: 'confirm', Space: 'confirm',
+    KeyE: 'power', // Space also uses a power-up while playing (see onKey)
   };
 
   private onKey(e: KeyboardEvent, down: boolean) {
@@ -91,7 +92,10 @@ export class InputManager {
     e.preventDefault();
     this.use('keyboard');
     if (what === 'left' || what === 'right' || what === 'down') this.setHeld('kb', what, down);
-    else if (down && !e.repeat) this.press(what);
+    else if (down && !e.repeat) {
+      this.press(what);
+      if (e.code === 'Space') this.press('power'); // Space: confirm on cards, power-up in play
+    }
   }
 
   // ---- Mouse: the piece follows the pointer; left click turns, right button drops ----
@@ -213,6 +217,7 @@ export class InputManager {
       if (edge(1) || edge(2)) presses.push('rotCCW'); // B / X
       if (edge(9) || edge(8)) presses.push('pause'); // Start / Select
       if (edge(0) || edge(9)) presses.push('confirm');
+      if (edge(4) || edge(5)) presses.push('power'); // LB / RB
       this.padPrev.set(pad.index, now);
       const h = this.held.get(source);
       const changed = !h || h.left !== left || h.right !== right || h.down !== down;
@@ -242,7 +247,7 @@ export class InputManager {
     if (!state) return frame;
 
     const a = frame.actions;
-    for (const p of presses) if (p === 'rotCW' || p === 'rotCCW') a.push(p);
+    for (const p of presses) if (p === 'rotCW' || p === 'rotCCW' || (p === 'power' && state.power)) a.push(p);
     a.push(...this.steps);
     this.steps = [];
 
@@ -256,7 +261,7 @@ export class InputManager {
     // Mouse steering: walk the piece one column at a time toward the pointer.
     if (this.mouseColumn !== null && state.piece && !left && !right) {
       const p = state.piece;
-      const wide = p.rot % 2 === 0;
+      const wide = p.rot % 2 === 0 && !p.k; // a bomb or drill is one cell wide
       const target = Math.min(this.mouseColumn, BOARD_WIDTH - (wide ? 2 : 1));
       if (this.mouseCooldown > 0) this.mouseCooldown--;
       else if (target !== p.x) {

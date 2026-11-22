@@ -32,6 +32,7 @@ export function pieceCells(p: Piece): [PlacedHalf, PlacedHalf] {
  * the board and empty.
  */
 export function fits(board: Cell[], p: Piece): boolean {
+  if (p.k) return inBounds(p.x, p.y) && board[idx(p.x, p.y)] === null; // a bomb or drill is one cell
   return pieceCells(p).every(h => h.y < 0 ? h.y >= -1 && h.x >= 0 && h.x < W : inBounds(h.x, h.y) && board[idx(h.x, h.y)] === null);
 }
 
@@ -41,6 +42,7 @@ export function fits(board: Cell[], p: Piece): boolean {
  * Endless bring bugs in beside other bugs. A half joining such a line pops the whole run.
  */
 export function findMatches(board: Cell[]): number[] {
+  if (board.some(cell => cell?.t === 'half' && cell.w)) return findMatchesWild(board);
   const hit = new Set<number>();
   const scan = (cells: number[]) => {
     let start = 0;
@@ -56,6 +58,36 @@ export function findMatches(board: Cell[]): number[] {
   };
   for (let y = 0; y < H; y++) scan(Array.from({ length: W }, (_, x) => idx(x, y)));
   for (let x = 0; x < W; x++) scan(Array.from({ length: H }, (_, y) => idx(x, y)));
+  return [...hit].sort((p, q) => p - q);
+}
+
+/** Does this cell count as color c? A wildcard half counts as every color. */
+const isColor = (cell: Cell, c: Color): boolean => !!cell && (cell.c === c || (cell.t === 'half' && !!cell.w));
+
+/**
+ * findMatches for a board holding wildcard halves (power-ups only; a board without one never comes
+ * here, so vanilla play is untouched). A wildcard can belong to a different color's line in each
+ * direction, so each color is checked on its own: a run is every cell that is that color or wild.
+ */
+function findMatchesWild(board: Cell[]): number[] {
+  const hit = new Set<number>();
+  const colors = new Set<Color>();
+  for (const cell of board) if (cell && !(cell.t === 'half' && cell.w)) colors.add(cell.c);
+  if (colors.size === 0) colors.add(0); // only wildcards on the board: a line of them still pops
+  const scan = (cells: number[], c: Color) => {
+    let start = 0;
+    for (let i = 0; i <= cells.length; i++) {
+      if (i < cells.length && isColor(board[cells[i]!]!, c)) continue;
+      if (i - start >= MATCH_LENGTH && cells.slice(start, i).some(j => board[j]!.t === 'half')) {
+        for (let k = start; k < i; k++) hit.add(cells[k]!);
+      }
+      start = i + 1;
+    }
+  };
+  for (const c of colors) {
+    for (let y = 0; y < H; y++) scan(Array.from({ length: W }, (_, x) => idx(x, y)), c);
+    for (let x = 0; x < W; x++) scan(Array.from({ length: H }, (_, y) => idx(x, y)), c);
+  }
   return [...hit].sort((p, q) => p - q);
 }
 
@@ -186,7 +218,7 @@ function runFrom(board: Cell[], x: number, y: number, c: Color, dx: number, dy: 
   for (let s = 1; s <= max; s++) {
     const nx = x + dx * s, ny = y + dy * s;
     const cell = inBounds(nx, ny) ? board[idx(nx, ny)] : null;
-    if (!cell || cell.c !== c) break;
+    if (!isColor(cell ?? null, c)) break;
     n++;
   }
   return n;
@@ -207,9 +239,9 @@ function wouldPop(board: Cell[], x: number, y: number, c: Color): boolean {
       for (let k = 1; ; k++) {
         const nx = x + dx * k * sgn, ny = y + dy * k * sgn;
         const cell = inBounds(nx, ny) ? board[idx(nx, ny)] : null;
-        if (!cell || cell.c !== c) break;
+        if (!isColor(cell ?? null, c)) break;
         len++;
-        if (cell.t === 'half') half = true;
+        if (cell!.t === 'half') half = true;
       }
     }
     if (len >= MATCH_LENGTH && half) return true;
@@ -255,7 +287,7 @@ export function addBugs(board: Cell[], holder: { rng: number }, count: number, c
       for (let k = 0; k < area.length; k++) {
         const i = area[(start + k) % area.length]!;
         const cell = board[i];
-        if (!cell || cell.t !== 'half' || (pass === 0 && cell.c !== want)) continue;
+        if (!cell || cell.t !== 'half' || cell.w || (pass === 0 && cell.c !== want)) continue; // never a wildcard: a bug there could pop
         const x = i % W, y = Math.floor(i / W);
         const off = { L: [-1, 0], R: [1, 0], U: [0, -1], D: [0, 1] } as const;
         if (cell.l) {

@@ -10,7 +10,9 @@ export const BOARD_HEIGHT = 16;
  * 2: the move record packed into bytes (see packLog) and the whole save deflate-compressed.
  * deserialize() still reads version 1, so older saves keep working.
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+// 3: power-ups (GameConfig.powerUps, GameState.power, Piece.k). Every new field is optional and
+// absent means "off", so a version 2 save loads as a game with power-ups off: nothing to convert.
 
 /** A color index, 0 .. colors-1. Skins decide what each index looks like. */
 export type Color = number;
@@ -19,7 +21,8 @@ export type Color = number;
 export type Link = 'L' | 'R' | 'U' | 'D' | null;
 
 export type BugCell = { t: 'bug'; c: Color };
-export type HalfCell = { t: 'half'; c: Color; l: Link };
+/** w: a wildcard half (power-ups only) that counts as every color. Its c is kept only for drawing. */
+export type HalfCell = { t: 'half'; c: Color; l: Link; w?: true };
 export type Cell = BugCell | HalfCell | null;
 
 /**
@@ -28,7 +31,37 @@ export type Cell = BugCell | HalfCell | null;
  * rot 2: b left,  a right   rot 3: b bottom, a top
  * Adding 1 to rot turns the piece a quarter counterclockwise.
  */
-export type Piece = { x: number; y: number; rot: 0 | 1 | 2 | 3; a: Color; b: Color };
+export type Piece = {
+  x: number; y: number; rot: 0 | 1 | 2 | 3; a: Color; b: Color;
+  /**
+   * Power-ups: a bomb or drill is a one-cell piece at (x, y); a and b are unused.
+   * Absent means an ordinary two-part piece.
+   */
+  k?: 'bomb' | 'drill';
+  /** Power-ups: both halves are wildcards that match any color. */
+  w?: true;
+};
+
+/** The three power-ups (single player). Skins give each its own name and art. */
+export type PowerKind = 'freeze' | 'bomb' | 'drill' | 'wild';
+/** Every kind the engine knows. Freeze is kept for later (versus play) but no longer given out. */
+export const POWER_KINDS: readonly PowerKind[] = ['freeze', 'bomb', 'drill', 'wild'];
+/** The kinds the meter hands out in single player (Mike, 2026-11-21: Wildcard replaces Freeze). */
+export const SOLO_POWER_KINDS: readonly PowerKind[] = ['bomb', 'drill', 'wild'];
+
+/** Power-up progress. Only present when config.powerUps is on. */
+export type PowerState = {
+  meter: number; // bug credit toward the next power-up, 0 .. METER_FULL
+  held: PowerKind | null; // at most one held at a time
+  freeze: number; // ticks of Freeze left (0 = not frozen)
+  recent: PowerKind[]; // the last two power-ups given, so the same kind never comes three times running
+  /**
+   * A power-up the player used, waiting to drop: it is the next piece, and the piece shown as next
+   * waits one turn behind it (Mike, 2026-11-21). The Next window shows it.
+   */
+  queued: 'bomb' | 'drill' | 'wild' | null;
+  blast: boolean; // true while cells cleared by a bomb or drill are flashing (they score at half value)
+};
 
 /** 0 low, 1 medium, 2 high, 3 slo-mo (slowest; only with 4 or 5 colors). */
 export type Speed = 0 | 1 | 2 | 3;
@@ -68,13 +101,21 @@ export type GameConfig = {
    * the normal height by the mid-40s (see bugZoneRows).
    */
   classicBugZone?: boolean;
+  /**
+   * true: power-ups are on (Freeze, Bomb, Drill; opt-in, Mike 2026-11-19). Absent or false: the
+   * engine never touches any power-up code, so vanilla games, saves and replays are unchanged.
+   */
+  powerUps?: boolean;
+  /** Power-up progress carried in from the previous level of the same run (like startScore). */
+  startPower?: { meter: number; held: PowerKind | null };
 };
 
 /** 'waiting' is the short beat after things land, before the next piece appears. */
 export type Phase = 'falling' | 'clearing' | 'settling' | 'waiting' | 'won' | 'lost';
 
-export type Action = 'left' | 'right' | 'rotCW' | 'rotCCW' | 'softOn' | 'softOff';
-export const ACTIONS: readonly Action[] = ['left', 'right', 'rotCW', 'rotCCW', 'softOn', 'softOff'];
+export type Action = 'left' | 'right' | 'rotCW' | 'rotCCW' | 'softOn' | 'softOff' | 'power';
+/** Order matters: the move log stores each action's index (0 .. 7), so new actions only go on the end. */
+export const ACTIONS: readonly Action[] = ['left', 'right', 'rotCW', 'rotCCW', 'softOn', 'softOff', 'power'];
 
 export type GameState = {
   v: number;
@@ -105,6 +146,8 @@ export type GameState = {
    * played is config.level + round. Absent in older saves, which means 0.
    */
   round?: number;
+  /** Power-ups (only when config.powerUps is on). */
+  power?: PowerState;
   /**
    * Every action ever passed to step(), encoded as tick * 8 + action index.
    * Together with config this replays the game exactly.
@@ -126,4 +169,12 @@ export type GameEvent =
   | { type: 'cleanSweep'; bonus: number }
   /** Endless: a round was cleared and the next round's bugs came in (cells), some taking over halves (replaced). */
   | { type: 'arrive'; cells: number[]; replaced: number[]; round: number }
-  | { type: 'lost' };
+  | { type: 'lost' }
+  /** Power-ups: the meter filled and gave one. */
+  | { type: 'powerGot'; kind: PowerKind }
+  /** Power-ups: the player used the one they held. */
+  | { type: 'powerUse'; kind: PowerKind }
+  /** Freeze ran out. */
+  | { type: 'thaw' }
+  /** A bomb or drill went off: these cells are cleared (they flash like a match first). */
+  | { type: 'blast'; kind: 'bomb' | 'drill'; cells: number[]; bugs: number };
