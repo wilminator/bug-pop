@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { Bot, BOT_SKILLS, replay, type Action } from '@bug-pop/engine';
 import { OnlineMatch, parseClient, parseServer, seatConfig, type ClientMsg, type SeatLog, type StandIn, type Start } from '../src';
 
-const start = (seat: 0 | 1, seed = 4242, rule: 'race' | 'last' = 'race'): Start => ({
+const start = (seat: 0 | 1, seed = 4242, rule: 'race' | 'last' = 'race', power = false, levels: [number, number] = [3, 5]): Start => ({
   t: 'start', seat, seed, colors: 3, rule,
-  players: [{ level: 3, speed: 1, name: 'Ann' }, { level: 5, speed: 2, name: 'Bo' }], round: 1, wins: [0, 0], botSeed: 777,
+  players: [{ level: levels[0], speed: 1, name: 'Ann' }, { level: levels[1], speed: 2, name: 'Bo' }], round: 1, wins: [0, 0], botSeed: 777, power,
 });
 
 /** Messages travel through JSON and arrive `delay` ticks later, like a real connection. */
-function pair(opts: { delay?: number; seed?: number; rule?: 'race' | 'last'; tamper?: (from: 0 | 1, m: ClientMsg) => ClientMsg | null } = {}) {
+function pair(opts: { delay?: number; seed?: number; rule?: 'race' | 'last'; power?: boolean; levels?: [number, number]; tamper?: (from: 0 | 1, m: ClientMsg) => ClientMsg | null } = {}) {
   const delay = opts.delay ?? 6;
   const queue: { at: number; to: 0 | 1; raw: string }[] = [];
   let now = 0;
@@ -34,7 +34,7 @@ function pair(opts: { delay?: number; seed?: number; rule?: 'race' | 'last'; tam
     if (checked?.t === 'handed') standIns.at(-1)!.to = checked.k;
     if (checked && (checked.t === 'in' || checked.t === 'took')) queue.push({ at: now + delay, to: (1 - seat) as 0 | 1, raw: JSON.stringify(checked) });
   };
-  for (const seat of [0, 1] as const) sides[seat] = new OnlineMatch(start(seat, opts.seed, opts.rule), relay(seat));
+  for (const seat of [0, 1] as const) sides[seat] = new OnlineMatch(start(seat, opts.seed, opts.rule, opts.power, opts.levels), relay(seat));
   const run = (ticks: number, act: (seat: 0 | 1, m: OnlineMatch) => Action[]) => {
     for (let i = 0; i < ticks && !(sides[0]!.result && sides[1]!.result); i++, now++) {
       for (const seat of [0, 1] as const) if (seat === 0 || !gone) sides[seat]!.tick(act(seat, sides[seat]!));
@@ -82,6 +82,20 @@ describe('online match', () => {
     // And a server can replay either board from its moves and the attacks it took.
     const again = replay(seatConfig(a.start, 0), a.me.log, a.me.tick, undefined, a.me.versus!.received);
     expect(again.board).toEqual(a.me.board);
+  });
+
+  it('with power-ups on (both players wanted them), the boards still match exactly', () => {
+    const { a, b, run } = pair({ delay: 9, power: true, levels: [12, 12] }); // enough bugs to fill the meters
+    expect(a.me.power).toBeDefined();
+    const bots = [new Bot(BOT_SKILLS.hard, 11), new Bot(BOT_SKILLS.hard, 22)];
+    let used = 0;
+    run(60 * 60 * 8, (seat, m) => { const acts = bots[seat]!.act(m.me); used += acts.filter(x => x === 'power').length; return acts; });
+    expect(used).toBeGreaterThan(0); // the computer uses its power-ups
+    expect(a.flagged).toBeNull();
+    expect(b.flagged).toBeNull();
+    expect(a.result).toEqual(b.result);
+    expect(a.them.board).toEqual(b.me.board);
+    expect(b.them.board).toEqual(a.me.board);
   });
 
   it('attacks really cross over in a long match', () => {

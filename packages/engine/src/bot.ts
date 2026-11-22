@@ -225,6 +225,8 @@ export class Bot {
       this.wait = this.skill.think + (nextU32(this.rng) % Math.max(1, this.skill.think));
       if (this.holding) { this.holding = false; actions.push('softOff'); }
     }
+    // A power-up in hand: use it straight away, so it comes as the next piece (versus with power-ups).
+    if (s.power?.held && !s.power.queued) actions.push('power');
     if (this.wait > 0) { this.wait--; return actions; }
     if (!this.plan) {
       const old = !!this.skill.oldWay && this.chance(this.skill.oldWay);

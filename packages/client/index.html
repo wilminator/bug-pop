@@ -39,8 +39,8 @@
     <div id="vsStage" class="vs-stage" hidden>
       <div class="vs-bar"><span id="vsRuleText" class="vs-rule"></span><button id="vsLeave">Leave match</button></div>
       <div class="vs-boards">
-        <div class="vs-side" id="vsSide0"><div class="vs-label"><b class="vs-name"></b> <span class="vs-info"></span> <span class="vs-incoming" hidden></span></div><canvas aria-label="Player 1 board"></canvas></div>
-        <div class="vs-side" id="vsSide1"><div class="vs-label"><b class="vs-name"></b> <span class="vs-info"></span> <span class="vs-incoming" hidden></span></div><canvas aria-label="Player 2 board"></canvas></div>
+        <div class="vs-side" id="vsSide0"><div class="vs-label"><b class="vs-name"></b> <span class="vs-info"></span> <span class="vs-incoming" hidden></span></div><canvas aria-label="Player 1 board"></canvas><div class="vs-power-wrap"><button class="power-btn" data-input="power" aria-label="Use power-up" hidden></button></div></div>
+        <div class="vs-side" id="vsSide1"><div class="vs-label"><b class="vs-name"></b> <span class="vs-info"></span> <span class="vs-incoming" hidden></span></div><canvas aria-label="Player 2 board"></canvas><div class="vs-power-wrap"><button class="power-btn" data-input="power" aria-label="Use power-up" hidden></button></div></div>
       </div>
     </div>
 
@@ -461,6 +461,11 @@
         <div id="vsRoomShare" class="vs-room-share" hidden>
           <img id="vsRoomQr" alt="QR code that opens this room" width="200" height="200" />
           <button id="vsShare">Share join link</button>
+        </div>
+        <!-- The match settings card: every player, their Power-ups vote and Ready (src/versus.ts). -->
+        <div id="vsReadyBox" class="vs-ready" hidden>
+          <div id="vsReadyRows"></div>
+          <p id="vsPowerNote" class="fine"></p>
         </div>
         <button id="vsNext" class="primary" data-primary>Next round</button>
         <button id="vsAgain">Play again</button>

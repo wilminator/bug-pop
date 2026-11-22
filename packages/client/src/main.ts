@@ -667,7 +667,8 @@ async function main() {
     audio.unlock();
     audio.play('select');
     show('versus');
-    versus!.startOnline({ level: me.level, speed: me.speed, room });
+    // Power-ups: last time's choice; each player can change it on the match settings card.
+    versus!.startOnline({ level: me.level, speed: me.speed, room, power: lastOnline(settings.speed).power });
   };
   $('vsOnlineSignIn').addEventListener('click', () => {
     audio.play('select');

@@ -18,11 +18,11 @@ import {
   BOT_SKILLS, BOARD_WIDTH, Bot, TICKS_PER_SECOND, createGame, receiveAttack, step, waitingHalves,
   type BotLevel, type GameEvent, type GameState, type Speed,
 } from '@bug-pop/engine';
-import { OnlineMatch, PROTOCOL_VERSION, parseServer, type ClientMsg, type ServerMsg } from '@bug-pop/protocol';
+import { COUNTDOWN_MS, OnlineMatch, PROTOCOL_VERSION, parseServer, type ClientMsg, type Lobby, type ServerMsg } from '@bug-pop/protocol';
 import qrcode from 'qrcode-generator';
 import type { AudioManager } from './audio';
 import { InputManager } from './input';
-import { computeLayout, FLOAT_MS, LEAVE_MS, ARRIVE_MS, render, type Float, type Layout, type Leaver } from './render';
+import { computeLayout, FLOAT_MS, LEAVE_MS, ARRIVE_MS, powerIconRect, render, type Float, type Layout, type Leaver } from './render';
 import { frameCells, type Skin, type SpriteImages } from './skin';
 import type { Motion, Settings } from './storage';
 
@@ -56,13 +56,14 @@ export type VersusDeps = {
 };
 
 /** How to join an online match: quick match, open a room ('new'), or a friend's 4-letter code. */
-export type OnlineJoin = { level: number; speed: Speed; room?: string };
+export type OnlineJoin = { level: number; speed: Speed; room?: string; power?: boolean };
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 const MAX_PLAYERS = 2; // 3 and 4 players: later (Mike, 2026-11-22). The board code already handles them.
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const RULE_TEXT: Record<WinRule, string> = { race: 'First to clear their bugs', best3: 'Best of 3', last: 'Last one standing' };
 const SKILL_NAME: Record<BotLevel, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
+const SPEED_NAME = ['Low', 'Medium', 'High', 'Slo-mo'];
 
 /** A truly random 32-bit number (the bots and the shared piece order are new every game). */
 const randomSeed = () => crypto.getRandomValues(new Uint32Array(1))[0]! | 0;
@@ -72,6 +73,8 @@ type Side = {
   el: HTMLElement;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
+  /** An invisible button over the power-up icon, for touch (keys: E or Space). */
+  powerBtn: HTMLButtonElement;
   layout: Layout;
   input: InputManager;
   bot: Bot | null;
@@ -130,18 +133,24 @@ const playerCount = () => MAX_PLAYERS;
  * only a convenience, so it lives in this browser's storage and is never synced.
  */
 const LAST_KEY = 'bugpop.versus.last.v1';
-type Last = { rule: WinRule; colors: number; players: { level: number; speed: Speed; control: Control; bot: BotLevel }[]; online?: { level: number; speed: Speed } };
+type Last = {
+  rule: WinRule; colors: number; players: { level: number; speed: Speed; control: Control; bot: BotLevel }[];
+  online?: { level: number; speed: Speed; power?: boolean };
+  /** Each player's Power-ups choice on the settings card, on this device. */
+  power?: boolean[];
+};
 function readLast(): Last | null {
   try { const v = JSON.parse(localStorage.getItem(LAST_KEY) ?? 'null') as Last | null; return v && Array.isArray(v.players) ? v : null; } catch { return null; }
 }
 function writeLast(patch: Partial<Last>) {
   try { localStorage.setItem(LAST_KEY, JSON.stringify({ ...readLast(), ...patch })); } catch { /* private mode: nothing to remember */ }
 }
-/** Remember the online card's level and speed (main.ts calls this when a match starts). */
-export function rememberOnline(level: number, speed: Speed) { writeLast({ online: { level, speed } }); }
-/** The online card's starting level and speed. */
-export function lastOnline(fallbackSpeed: Speed): { level: number; speed: Speed } {
-  return readLast()?.online ?? { level: 5, speed: versusSpeed(fallbackSpeed) };
+/** Remember my online level, speed and Power-ups choice (when a match starts, and on the settings card). */
+export function rememberOnline(level: number, speed: Speed, power = readLast()?.online?.power ?? false) { writeLast({ online: { level, speed, power } }); }
+/** My starting online level, speed and Power-ups choice (off at first: classic, Mike 2026-11-22). */
+export function lastOnline(fallbackSpeed: Speed): { level: number; speed: Speed; power: boolean } {
+  const o = readLast()?.online;
+  return { level: o?.level ?? 5, speed: o?.speed ?? versusSpeed(fallbackSpeed), power: !!o?.power };
 }
 /** The versus lists offer Low, Medium and High; single player's Slo-mo (3) starts them on Low. */
 const versusSpeed = (s: Speed): Speed => (s === 3 ? 0 : s);
@@ -268,6 +277,34 @@ export function refreshSetupForm() {
 /** Change an element's text only when it differs (this runs every frame). */
 const setText = (el: Element, text: string) => { if (el.textContent !== text) el.textContent = text; };
 
+/** A new element with a class and text (names go in as text, never as HTML). */
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text) e.textContent = text;
+  return e;
+}
+/** A labelled checkbox. */
+function checkbox(label: string, on: boolean, change: (on: boolean) => void): HTMLLabelElement {
+  const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: on });
+  box.addEventListener('change', () => change(box.checked));
+  const l = el('label');
+  l.append(box, label);
+  return l;
+}
+/** The Ready toggle on the settings card. */
+function readyButton(click: () => void): HTMLButtonElement {
+  const b = el('button', 'vs-ready-btn primary');
+  b.type = 'button';
+  b.addEventListener('click', click);
+  setReady(b, false);
+  return b;
+}
+function setReady(b: HTMLButtonElement, on: boolean) {
+  b.setAttribute('aria-pressed', String(on));
+  setText(b, on ? 'Ready ✓' : 'Ready');
+}
+
 export class Versus {
   private sides: Side[];
   /** How many boards are in play (the rest are hidden). */
@@ -286,13 +323,27 @@ export class Versus {
   private net: { ws: WebSocket; match: OnlineMatch | null; join: OnlineJoin; t0: number; over: boolean; tries: number } | null = null;
   /** The rule line above the boards online (also shows when the other player dropped out). */
   private netRule = '';
+  /**
+   * The match settings card (Mike, 2026-11-22). Every round starts COUNTDOWN_MS after every
+   * person is Ready, and power-ups are on only if every person wants them (otherwise classic).
+   * On one device: who is Ready and when the countdown ends (0: not counting).
+   */
+  private local: { ready: boolean[]; until: number } | null = null;
+  /** Each player's Power-ups choice on this device (computers go along with the people). */
+  private votes: boolean[] = [];
+  /** This round has power-ups. */
+  private power = false;
+  /** Online: the relay's latest settings card, and when its countdown ends. */
+  private lobby: { msg: Lobby; until: number } | null = null;
+  /** The card's line under the title, before the countdown is added. */
+  private cardBase = '';
 
   constructor(private deps: VersusDeps) {
     const make = (i: number): Side => {
       const el = $(`vsSide${i}`);
       const canvas = el.querySelector('canvas')!;
       const side: Side = {
-        el, canvas, ctx: canvas.getContext('2d')!, layout: computeLayout(1, 1, 0), input: new InputManager(), bot: null,
+        el, canvas, ctx: canvas.getContext('2d')!, powerBtn: el.querySelector<HTMLButtonElement>('.power-btn')!, layout: computeLayout(1, 1, 0), input: new InputManager(), bot: null,
         name: '', state: null, wins: 0, leavers: [], floats: [], matched: [], arrivals: new Map(), quiet: false,
       };
       new ResizeObserver(() => this.resize(side)).observe(canvas);
@@ -303,13 +354,14 @@ export class Versus {
         const col = Math.floor((clientX - rect.left - side.layout.boardX) / side.layout.cell);
         return col >= -2 && col <= BOARD_WIDTH + 1 ? Math.max(0, Math.min(BOARD_WIDTH - 1, col)) : null;
       });
+      side.input.attachTouchButtons(el.querySelector<HTMLElement>('.vs-power-wrap')!);
       side.input.accept = () => false;
       return side;
     };
     this.sides = Array.from({ length: MAX_PLAYERS }, (_, i) => make(i));
     $('vsLeave').addEventListener('click', () => { this.deps.audio.play('select'); this.openLeave(); });
     $('vsStay').addEventListener('click', () => { this.deps.audio.play('select'); this.closeLeave(); });
-    $('vsNext').addEventListener('click', () => { this.deps.audio.play('select'); this.startRound(); });
+    $('vsNext').addEventListener('click', () => { this.deps.audio.play('select'); this.showReady(); });
     $('vsAgain').addEventListener('click', () => {
       this.deps.audio.play('select');
       if (this.net) this.startOnline(this.net.join); else this.startMatch(this.setup!);
@@ -360,18 +412,81 @@ export class Versus {
     const n = names(setup);
     this.sides.forEach((s, i) => { s.name = n[i] ?? ''; s.wins = 0; });
     this.round = 1;
+    const last = readLast()?.power ?? [];
+    this.votes = setup.players.map((p, i) => !p.bot && !!last[i]);
     this.showSides(setup.players.length, setup.players.filter(p => !p.bot).length === 1);
     this.assignInputs(setup);
-    this.startRound();
+    this.showReady();
+  }
+
+  // ---- The match settings card on one device: Power-ups and Ready for each person ----
+  private showReady() {
+    const setup = this.setup!;
+    this.local = { ready: setup.players.map(p => !!p.bot), until: 0 };
+    this.stage.hidden = false;
+    this.phase = 'card';
+    this.setCapture(false);
+    for (const s of this.sides) s.input.reset();
+    const score = this.round > 1 ? this.sides.slice(0, this.count).map(s => `${s.name} ${s.wins}`).join(', ') + '. ' : '';
+    this.showCard(setup.rule === 'best3' ? `Round ${this.round}` : 'Get ready', '', ['vsSetupBtn', 'vsMenu']);
+    const humans = setup.players.filter(p => !p.bot).length;
+    this.cardBase = score + (humans === 0 ? 'The computers are ready.' : humans === 1 ? 'Tap Ready when you are set. The match starts 3 seconds later.' : 'Everyone taps Ready. The match starts 3 seconds after the last one.');
+    const rows = setup.players.map((p, i) => {
+      const row = el('div', 'vs-ready-row');
+      row.append(el('b', '', this.sides[i]!.name));
+      if (p.bot) { row.append(el('span', 'vs-ready-state on', 'Ready')); return row; }
+      const box = checkbox('Power-ups', this.votes[i]!, on => { this.votes[i] = on; writeLast({ power: this.votes }); this.updateLocal(); });
+      const btn = readyButton(() => { const l = this.local; if (!l) return; this.deps.audio.play('select'); l.ready[i] = !l.ready[i]; this.updateLocal(); });
+      btn.dataset.player = String(i);
+      row.append(box, btn);
+      return row;
+    });
+    $('vsReadyRows').replaceChildren(...rows);
+    $('vsReadyBox').hidden = false;
+    this.updateLocal();
+    rows.find(r => r.querySelector('button'))?.querySelector('button')?.focus({ preventScroll: true });
+    cancelAnimationFrame(this.raf);
+    this.last = performance.now();
+    this.raf = requestAnimationFrame(this.frame);
+  }
+
+  private updateLocal() {
+    const l = this.local, setup = this.setup!;
+    if (!l) return;
+    const all = l.ready.every(Boolean);
+    if (all && !l.until) l.until = performance.now() + COUNTDOWN_MS;
+    else if (!all) l.until = 0;
+    for (const b of $('vsReadyRows').querySelectorAll<HTMLButtonElement>('.vs-ready-btn')) setReady(b, l.ready[Number(b.dataset.player)]!);
+    const humans = setup.players.map((p, i) => (p.bot ? -1 : i)).filter(i => i >= 0);
+    const on = humans.length > 0 && humans.every(i => this.votes[i]);
+    $('vsPowerNote').textContent = on ? 'Power-ups: on.' : humans.length > 1 ? 'Classic: power-ups are on only if every player turns them on.' : 'Classic: turn on Power-ups to play with them.';
+    this.tickCard(performance.now());
+  }
+
+  /** The card's countdown line; on one device the round starts when it runs out. */
+  private tickCard(now: number) {
+    const until = this.local?.until || this.lobby?.until || 0;
+    const text = $('vsCardText');
+    if (!until) { setText(text, this.cardBase); return; }
+    const left = until - now;
+    if (this.local && left <= 0) {
+      this.local = null;
+      $('vsReadyBox').hidden = true;
+      this.startRound();
+      return;
+    }
+    setText(text, left > 0 ? `Starting in ${Math.ceil(left / 1000)}...` : 'Starting...');
   }
 
   private startRound() {
     const setup = this.setup!;
     // Every board gets the same pieces in the same order (a fair race); the bugs differ by level.
     const seed = randomSeed();
+    // Power-ups only if every person wanted them (computers go along), otherwise classic.
+    this.power = setup.players.some(p => !p.bot) && setup.players.every((p, i) => p.bot || this.votes[i]);
     setup.players.forEach((p, i) => {
       const s = this.sides[i]!;
-      s.state = createGame({ seed, level: p.level, speed: p.speed, colors: setup.colors, versus: true, endless: setup.rule === 'last' || undefined });
+      s.state = createGame({ seed, level: p.level, speed: p.speed, colors: setup.colors, versus: true, endless: setup.rule === 'last' || undefined, ...(this.power ? { powerUps: true } : {}) });
       s.bot = p.bot ? new Bot(BOT_SKILLS[p.bot], randomSeed()) : null;
       s.quiet = !!s.bot;
       s.leavers = []; s.floats = []; s.matched = []; s.arrivals = new Map();
@@ -395,6 +510,9 @@ export class Versus {
   stop() {
     this.closeNet();
     this.phase = 'off';
+    this.local = null;
+    this.lobby = null;
+    $('vsReadyBox').hidden = true;
     cancelAnimationFrame(this.raf);
     this.setCapture(false);
     for (const s of this.sides) { s.input.accept = () => false; s.input.reset(); s.state = null; }
@@ -433,7 +551,8 @@ export class Versus {
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.frame);
     this.showCard(tries ? 'Reconnecting...' : 'Connecting...', tries ? 'The computer plays your board until you are back.' : 'Reaching the game server.', ['vsMenu']);
-    ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, level: join.level, speed: join.speed, ...(join.room ? { room: join.room } : {}) })));
+    this.lobby = null;
+    ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, level: join.level, speed: join.speed, ...(join.room ? { room: join.room } : {}), ...(join.power ? { power: true } : {}) })));
     ws.addEventListener('message', e => { if (this.net === net) this.onNet(parseServer(String(e.data))); });
     ws.addEventListener('close', () => {
       if (this.net !== net || net.over) return;
@@ -448,7 +567,9 @@ export class Versus {
     const net = this.net;
     if (!net) return;
     // Leaving a match on purpose forfeits it at once (and counts as a disconnect).
-    if (!net.over && net.match && !net.match.result && net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify({ t: 'quit' }));
+    // (Leaving the settings card before round 1 isn't counted: nothing was played yet.)
+    if (!net.over && ((net.match && !net.match.result) || this.lobby) && net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify({ t: 'quit' }));
+    this.lobby = null;
     net.over = true;
     this.net = null;
     try { net.ws.close(); } catch { /* already closed */ }
@@ -466,6 +587,7 @@ export class Versus {
         this.showRoomShare(msg.code);
         break;
       case 'error': net.over = true; this.endOnline(null, "Can't play online right now", msg.why); break;
+      case 'lobby': this.onLobby(msg); break;
       case 'start': case 'resume': {
         const send = (out: ClientMsg) => { if (net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify(out)); };
         // A rejoin rebuilds both boards and checks every move the stand-in computer made for me,
@@ -476,6 +598,8 @@ export class Versus {
           if (bad && !m.flagged) send({ t: 'flag', why: bad });
         }
         m.onTheirEvents = ev => this.effects(this.sides[1]!, ev);
+        this.lobby = null;
+        $('vsReadyBox').hidden = true;
         net.match = m;
         net.tries = 0;
         net.t0 = performance.now() - m.clock * TICK_MS; // a rejoin carries on from its clock
@@ -559,7 +683,7 @@ export class Versus {
     window.setTimeout(() => {
       if (this.phase !== 'ending') return;
       this.phase = 'card';
-      this.showCard(title, `${score}. The next round starts in a moment.`, ['vsMenu']);
+      this.showCard(title, `${score}. The settings for the next round come up in a moment.`, ['vsMenu']);
     }, this.deps.finishPauseMs);
   }
 
@@ -578,6 +702,70 @@ export class Versus {
       this.phase = 'card';
       this.showCard(title, text, ['vsAgain', 'vsSetupBtn', 'vsMenu']);
     }, playing ? this.deps.finishPauseMs : 0);
+  }
+
+  /**
+   * Online: the match settings card, before every round (Mike, 2026-11-22). Both names, my own
+   * level, speed and Power-ups choice, and Ready; the other player's choices as they make them.
+   */
+  private onLobby(msg: Lobby) {
+    const net = this.net!;
+    const first = !this.lobby;
+    this.lobby = { msg, until: msg.startsIn ? performance.now() + msg.startsIn : 0 };
+    const me = msg.players[msg.seat], them = msg.players[1 - msg.seat]!;
+    const mine = this.sides[0]!, theirs = this.sides[1]!;
+    mine.name = 'You'; theirs.name = them.name;
+    mine.wins = msg.wins[msg.seat]; theirs.wins = msg.wins[1 - msg.seat]!;
+    this.phase = 'card';
+    this.setCapture(false);
+    const send = (patch: Partial<{ level: number; speed: Speed; power: boolean; ready: boolean }>) => {
+      const cur = this.lobby?.msg.players[msg.seat] ?? me;
+      const out = { t: 'set' as const, level: cur.level, speed: cur.speed, power: cur.power, ready: cur.ready, ...patch };
+      rememberOnline(out.level, out.speed, out.power);
+      if (net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify(out));
+    };
+    if (first) {
+      this.showCard(msg.round === 1 ? `You're playing ${them.name}` : `Round ${msg.round} next`, '', ['vsMenu']);
+      // My row: level, speed, Power-ups and Ready. Changing a choice means not Ready yet.
+      const row = el('div', 'vs-ready-row');
+      const level = Object.assign(document.createElement('input'), { type: 'range', min: '1', max: '20', step: '1', value: String(me.level) });
+      level.id = 'vsLobbyLevel';
+      const out = el('output', '', String(me.level));
+      level.addEventListener('input', () => { out.textContent = level.value; });
+      level.addEventListener('change', () => send({ level: Number(level.value) }));
+      const lvl = el('label', '', 'Level ');
+      lvl.append(out, level);
+      const speed = document.createElement('select');
+      speed.id = 'vsLobbySpeed';
+      speed.append(...SPEED_NAME.slice(0, 3).map((n, i) => new Option(n, String(i))));
+      speed.value = String(me.speed);
+      speed.addEventListener('change', () => send({ speed: Number(speed.value) as Speed }));
+      const spd = el('label', '', 'Speed ');
+      spd.append(speed);
+      const power = checkbox('Power-ups', me.power, on => send({ power: on }));
+      const ready = readyButton(() => { this.deps.audio.play('select'); send({ ready: !(this.lobby?.msg.players[msg.seat].ready ?? false) }); });
+      row.append(el('b', '', 'You'), lvl, spd, power, ready);
+      const other = el('div', 'vs-ready-row');
+      other.id = 'vsLobbyThem';
+      $('vsReadyRows').replaceChildren(row, other);
+      $('vsReadyBox').hidden = false;
+      ready.focus({ preventScroll: true });
+    }
+    // Everything that can change: their row, my Ready, the power-ups line and the countdown.
+    const row = $('vsReadyRows').firstElementChild!;
+    const ready = row.querySelector<HTMLButtonElement>('.vs-ready-btn')!;
+    setReady(ready, me.ready);
+    for (const c of row.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')) c.disabled = me.ready; // un-Ready to change
+    $('vsLobbyThem').replaceChildren(
+      el('b', '', them.name),
+      el('span', '', `Level ${them.level}, ${SPEED_NAME[them.speed]}`),
+      el('span', '', them.power ? 'Power-ups: yes' : 'Power-ups: no'),
+      el('span', `vs-ready-state${them.ready ? ' on' : ''}`, them.ready ? 'Ready' : 'Not ready yet'),
+    );
+    $('vsPowerNote').textContent = me.power && them.power ? 'Power-ups: on (you both want them).' : 'Classic: power-ups are on only if both players turn them on.';
+    const score = msg.round > 1 ? `You ${mine.wins}, ${them.name} ${theirs.wins}. ` : '';
+    this.cardBase = score + 'The match starts 3 seconds after you are both Ready.';
+    this.tickCard(performance.now());
   }
 
   // ---- The cards ----
@@ -609,6 +797,8 @@ export class Versus {
 
   private showCard(title: string, text: string, buttons: ('vsNext' | 'vsAgain' | 'vsStay' | 'vsSetupBtn' | 'vsMenu')[]) {
     $('vsRoomShare').hidden = true;
+    $('vsReadyBox').hidden = true;
+    this.cardBase = text;
     $('vsCardTitle').classList.remove('vs-waiting');
     $('vsCardTitle').textContent = title;
     $('vsCardText').textContent = text;
@@ -652,6 +842,7 @@ export class Versus {
     } else {
       // A card is up: still read the devices, so nothing piles up for the next round.
       for (const s of this.sides.slice(0, this.count)) s.input.poll(null);
+      if (this.phase === 'card') this.tickCard(now);
     }
     this.draw(now);
     this.raf = requestAnimationFrame(this.frame);
@@ -789,6 +980,13 @@ export class Versus {
       setText(s.el.querySelector('.vs-name')!, s.name);
       setText(s.el.querySelector('.vs-info')!, info + wins);
       const coming = s.state.versus ? waitingHalves(s.state.versus) : 0;
+      // Power-ups: a tap target over the icon, for whoever plays this board here.
+      const tap = !!s.state.power && s.input.capture && this.phase === 'playing' && !this.leaveUp;
+      s.powerBtn.hidden = !tap;
+      if (tap) {
+        const r = powerIconRect(s.layout);
+        Object.assign(s.powerBtn.style, { left: `${s.canvas.offsetLeft + r.x}px`, top: `${s.canvas.offsetTop + r.y}px`, width: `${r.size}px`, height: `${r.size}px` });
+      }
       const inc = s.el.querySelector<HTMLElement>('.vs-incoming')!;
       inc.hidden = !coming;
       setText(inc, coming === 1 ? '1 half coming' : `${coming} halves coming`);

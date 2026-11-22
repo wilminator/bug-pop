@@ -63,7 +63,7 @@ export function startRelay(opts: RelayOptions = {}) {
           { level: other.hello.level, speed: other.hello.speed, name: 'Player 1' },
           { level: me.hello.level, speed: me.hello.speed, name: 'Player 2' },
         ];
-        for (const p of match.players) send(p.ws, { t: 'start', seat: p.seat, seed, colors: COLORS, rule: 'race', players, round: 1, wins: [0, 0], botSeed: randomInt(0, 0x7fffffff) });
+        for (const p of match.players) send(p.ws, { t: 'start', seat: p.seat, seed, colors: COLORS, rule: 'race', players, round: 1, wins: [0, 0], botSeed: randomInt(0, 0x7fffffff), power: !!other.hello.power && !!me.hello.power });
         log('match started');
         return;
       }

@@ -27,7 +27,7 @@ export type MatchResult = { winner: Seat | null };
 /** The game config each seat plays (same seed and colors, each player's own level and speed). */
 export function seatConfig(start: Start, seat: Seat): GameConfig {
   const p = start.players[seat];
-  return { seed: start.seed, level: p.level, speed: p.speed, colors: start.colors, versus: true, endless: start.rule === 'last' || undefined };
+  return { seed: start.seed, level: p.level, speed: p.speed, colors: start.colors, versus: true, endless: start.rule === 'last' || undefined, ...(start.power ? { powerUps: true } : {}) };
 }
 
 type Ended = { tick: number; won: boolean };
