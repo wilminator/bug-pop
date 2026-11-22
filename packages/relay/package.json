@@ -1,0 +1,23 @@
+{
+  "name": "@bug-pop/relay",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "description": "Minimal reference relay for Bug Pop online versus: 1 against 1 quick match, no accounts.",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "start": "node dist/relay.js"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "dependencies": {
+    "@bug-pop/protocol": "0.1.0",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "@types/ws": "8.18.1"
+  }
+}

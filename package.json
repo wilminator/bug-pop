@@ -11,7 +11,7 @@
     "build": "npm run build -w @bug-pop/client",
     "preview": "npm run preview -w @bug-pop/client",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/engine && tsc -p packages/client"
+    "typecheck": "tsc -p packages/engine && tsc -p packages/protocol && tsc -p packages/relay && tsc -p packages/client"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

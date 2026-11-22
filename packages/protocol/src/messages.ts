@@ -1,0 +1,114 @@
+// What a client and a relay say to each other in online versus (multiplayer stage 2).
+//
+// The design is an INPUT RELAY: each player's own board runs on their own device, and the relay
+// only passes each player's moves to the other. Every device rebuilds the opponent's board from
+// those moves with the same engine, so nobody has to trust the other's picture of the game.
+//
+// Attacks are never sent as messages. When my copy of your board makes two lines at once, my
+// device sees the attack itself and drops it on my board. I then tell you the tick it landed on
+// ('took'), so your copy of my board takes it at exactly the same moment and stays identical.
+//
+// Every message is one JSON object with a `t` (type) field. All numbers are whole numbers.
+
+import type { Speed } from '@bug-pop/engine';
+
+export const PROTOCOL_VERSION = 1;
+/** Moves go out in small batches: every this many ticks (50 ms at 60 ticks a second). */
+export const SEND_EVERY = 3;
+/** A message bigger than this is refused (a batch of moves is a few dozen bytes). */
+export const MAX_MESSAGE_BYTES = 16 * 1024;
+/** More actions than this in one tick is not a person (a fast swipe can make several). */
+export const MAX_ACTIONS_PER_TICK = 16;
+
+/** The win rules an online match can use (best of 3 comes later: it needs rounds). */
+export type OnlineRule = 'race' | 'last';
+
+export type PlayerInfo = { level: number; speed: Speed; name: string };
+
+// ---- Client to relay ----
+/** Join quick match with my level and speed (each player's own handicap). */
+export type Hello = { t: 'hello'; v: number; level: number; speed: Speed };
+/** My moves: engine log codes (tick * 8 + action) for every tick before `k`, which is my clock. */
+export type Inputs = { t: 'in'; k: number; a: number[] };
+/** An attack landed on my board at my tick `k` (n halves at r ticks a row). */
+export type Took = { t: 'took'; k: number; n: number; r: number };
+/** The match is over on my device: who won (seat 0 or 1), or null for a draw. */
+export type Done = { t: 'done'; winner: 0 | 1 | null };
+/** My copy of the opponent's game broke a rule. */
+export type Flag = { t: 'flag'; why: string };
+export type ClientMsg = Hello | Inputs | Took | Done | Flag;
+
+// ---- Relay to client ----
+/** Queued: waiting for an opponent. */
+export type Wait = { t: 'wait' };
+/** Matched. `seat` is which of `players` I am; both boards use `seed` and `colors`. */
+export type Start = { t: 'start'; seat: 0 | 1; seed: number; colors: number; rule: OnlineRule; players: [PlayerInfo, PlayerInfo] };
+/** The opponent's moves and the attacks they took are passed on unchanged (Inputs, Took). */
+export type End = { t: 'end'; why: 'result' | 'left' | 'flag' | 'disagree'; winner: 0 | 1 | null };
+export type Refused = { t: 'error'; why: string };
+export type ServerMsg = Wait | Start | Inputs | Took | End | Refused;
+
+// ---- Checking what comes in (never trust the other end) ----
+const int = (x: unknown, min: number, max: number): x is number => Number.isInteger(x) && (x as number) >= min && (x as number) <= max;
+const speed = (x: unknown): x is Speed => int(x, 0, 3);
+const seat = (x: unknown): x is 0 | 1 | null => x === 0 || x === 1 || x === null;
+const MAX_TICK = 60 * 60 * 60 * 3; // three hours
+
+function obj(raw: string): Record<string, unknown> | null {
+  if (raw.length > MAX_MESSAGE_BYTES) return null;
+  try {
+    const m: unknown = JSON.parse(raw);
+    return m && typeof m === 'object' && !Array.isArray(m) ? (m as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function inputs(m: Record<string, unknown>): Inputs | null {
+  if (!int(m.k, 0, MAX_TICK) || !Array.isArray(m.a) || !m.a.every(c => int(c, 0, MAX_TICK * 8))) return null;
+  return { t: 'in', k: m.k, a: m.a as number[] };
+}
+function took(m: Record<string, unknown>): Took | null {
+  return int(m.k, 0, MAX_TICK) && int(m.n, 1, 4) && int(m.r, 1, 10000) ? { t: 'took', k: m.k, n: m.n, r: m.r } : null;
+}
+
+/** Read a message from a client, or null if it isn't a valid one. */
+export function parseClient(raw: string): ClientMsg | null {
+  const m = obj(raw);
+  switch (m?.t) {
+    case 'hello': return int(m.v, 0, 1000) && int(m.level, 1, 100) && speed(m.speed) ? { t: 'hello', v: m.v, level: m.level, speed: m.speed } : null;
+    case 'in': return inputs(m);
+    case 'took': return took(m);
+    case 'done': return seat(m.winner) ? { t: 'done', winner: m.winner } : null;
+    case 'flag': return typeof m.why === 'string' ? { t: 'flag', why: m.why.slice(0, 200) } : null;
+    default: return null;
+  }
+}
+
+/** Read a message from the relay, or null if it isn't a valid one. */
+export function parseServer(raw: string): ServerMsg | null {
+  const m = obj(raw);
+  switch (m?.t) {
+    case 'wait': return { t: 'wait' };
+    case 'start': {
+      const players = m.players;
+      const player = (p: unknown): p is PlayerInfo => {
+        const q = p as Record<string, unknown> | null;
+        return !!q && int(q.level, 1, 100) && speed(q.speed) && typeof q.name === 'string';
+      };
+      if ((m.seat !== 0 && m.seat !== 1) || !int(m.seed, -0x80000000, 0xffffffff) || !int(m.colors, 2, 5) || (m.rule !== 'race' && m.rule !== 'last')) return null;
+      if (!Array.isArray(players) || players.length !== 2 || !players.every(player)) return null;
+      const [a, b] = players as PlayerInfo[];
+      const clean = (p: PlayerInfo): PlayerInfo => ({ level: p.level, speed: p.speed, name: p.name.slice(0, 40) });
+      return { t: 'start', seat: m.seat, seed: m.seed, colors: m.colors, rule: m.rule, players: [clean(a!), clean(b!)] };
+    }
+    case 'in': return inputs(m);
+    case 'took': return took(m);
+    case 'end': {
+      const why = m.why;
+      return (why === 'result' || why === 'left' || why === 'flag' || why === 'disagree') && seat(m.winner) ? { t: 'end', why, winner: m.winner } : null;
+    }
+    case 'error': return typeof m.why === 'string' ? { t: 'error', why: m.why.slice(0, 200) } : null;
+    default: return null;
+  }
+}

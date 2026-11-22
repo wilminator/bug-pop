@@ -18,6 +18,8 @@ A falling-block puzzle game: drop two-part pieces to match four of a color with 
 |---|---|---|
 | Engine | `packages/engine` | The rules as a pure state machine. `step(state, actions)` advances one 1/60 s tick. No clock, screen or `Math.random`: a seeded generator makes every game reproducible from its seed and input log. |
 | Client | `packages/client` | The PWA: canvas renderer, input layer, audio, menus, saving. |
+| Protocol | `packages/protocol` | Online versus without the network: message types and checks, and `OnlineMatch`, which plays my board and rebuilds the opponent's from their moves (input relay), checking them as it goes. |
+| Relay | `packages/relay` | The minimal reference server for online play: 1 against 1 quick match, no accounts. `npm run build -w @bug-pop/relay`, then `PORT=8080 npm start -w @bug-pop/relay`. |
 | Skins | `packages/client/src/skin.ts`, `public/skins/` | Pure data (colors, shapes, sprites, sounds). The engine knows "color 2"; the skin decides what color 2 looks like. |
 
 Things worth knowing:
@@ -25,7 +27,10 @@ Things worth knowing:
 - **Saving:** the whole game state is JSON. It is written to `localStorage` every time a piece lands and the moment the page is hidden, so when iOS kills the app the game reopens exactly where it was.
 - **Replays:** every action is logged as `tick * 8 + action`. `replay(config, log)` rebuilds the game bit for bit, which lets a server verify a leaderboard score.
 - **Input:** keyboard, mouse (the piece follows the pointer), gamepads and joysticks (standard mapping), and on-screen touch buttons all feed one input manager that emits engine actions.
-- **Pause:** hides the board so it cannot be used to plan. Competitive (versus) modes will have no pause.
+- **Pause:** hides the board so it cannot be used to plan. Versus has no pause: Leave opens a card while both games keep running.
+- **Versus:** a versus game sends loose halves to the opponent when one piece makes two or more matches (up to 4 wait at once). They fall at half the sender's speed and fill the two middle entry columns last. Multiplayer on one device (`packages/client/src/versus.ts`) plays you against the computer, two people, or the computer against itself.
+- **Computer player:** `Bot` in `packages/engine/src/bot.ts` steers with the same actions a person sends. It has its own random numbers (seeded from the browser), so no two games against it are the same.
+- **Online (in progress):** each device plays its own board and rebuilds the other from its moves, so nobody's picture of the game has to be trusted. Attacks are never sent: each device sees them happen on its copy of the other board.
 - **Accessibility:** the default palette is Okabe-Ito (colorblind-safe) and every color also has its own shape. Reduced-motion is respected.
 
 ## Saving and cloud save
@@ -57,7 +62,7 @@ account allows it.
 
 ## Menus
 
-Title, then **Choose a game** (Single player; Leaderboard run and Multiplayer are shown as "Coming soon"), then **Set up** (level, speed, colors, Start). Every screen after the title has Back (top left) and a Settings gear (top right) for sound, music, touch buttons, shapes, how bugs leave, auto next level, look and the controls help. The design, including the later multiplayer screens, is in [docs/screens.md](docs/screens.md).
+Title, then **Choose a game** (Single player; Multiplayer; Leaderboard run is shown as "Coming soon"), then **Set up** (level, speed, colors, Start). Every screen after the title has Back (top left) and a Settings gear (top right) for sound, music, touch buttons, shapes, how bugs leave, auto next level, look and the controls help. The design, including the later multiplayer screens, is in [docs/screens.md](docs/screens.md).
 
 ## Skins
 
