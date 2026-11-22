@@ -31,13 +31,15 @@ export type Settings = {
   touchLayout: 'edges' | 'four' | 'original';
   /** How much things move: 'auto' follows the device's Reduce motion setting (calm when it is on). */
   motion: 'auto' | Motion;
+  /** Single player with power-ups (opt-in, off by default: Mike, 2026-11-19). */
+  powerUps: boolean;
 };
 
 /** Full: every effect. Calm: nothing wiggles, flashes or flies; things fade. Off: no decorative movement at all. */
 export type Motion = 'full' | 'calm' | 'off';
 const MOTIONS = ['auto', 'full', 'calm', 'off'] as const;
 
-export const defaultSettings: Settings = { level: 1, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site', autoNext: false, touchLayout: 'edges', motion: 'auto' };
+export const defaultSettings: Settings = { level: 1, speed: 1, colors: 3, shapesOnPieces: true, sound: true, music: true, exit: '', look: 'site', autoNext: false, touchLayout: 'edges', motion: 'auto', powerUps: false };
 
 function read(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }

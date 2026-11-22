@@ -11,7 +11,7 @@ import { diagram } from './render';
 import type { Skin, SpriteImages } from './skin';
 
 export type Device = 'touch' | 'keyboard' | 'mouse' | 'gamepad';
-type StepId = 'move' | 'turn' | 'drop' | 'pop' | 'finish';
+type StepId = 'move' | 'turn' | 'drop' | 'pop' | 'next' | 'finish';
 
 const SEEN_KEY = 'bugpop.tutorial.v1';
 /** Has this device been offered the tutorial (or played it)? Then Single player won't offer it again. */
@@ -79,12 +79,17 @@ const WORDS: Record<StepId, { title: string; text: string | Record<Device, strin
     title: 'Pop some bugs',
     text: 'Four of one color in a line pop. Land a {half} on the three {bug} bugs.',
   },
+  next: {
+    // Mike, 2026-11-21: easy to miss when you're focused on the board.
+    title: 'Look ahead',
+    text: 'The glowing NEXT box shows the piece that drops after this one. Plan where it will go.',
+  },
   finish: {
     title: 'Clear the board',
     text: 'Pop the last bugs to win. Lines work up and down too: try standing a piece upright.',
   },
 };
-const ORDER: StepId[] = ['move', 'turn', 'drop', 'pop', 'finish'];
+const ORDER: StepId[] = ['move', 'turn', 'drop', 'pop', 'next', 'finish'];
 
 /**
  * Follows the game's events and moves through the steps. Steps can be finished early:
@@ -112,6 +117,7 @@ export class Coach {
       else if (this.step === 'turn' && e.type === 'rotate') this.next();
       else if (this.step === 'drop' && e.type === 'lock') this.next();
       else if (this.step === 'pop' && e.type === 'cleared' && e.bugs > 0) this.next();
+      else if (this.step === 'next' && e.type === 'lock') this.next(); // one piece landed while watching Next
       else if ((this.step === 'move' || this.step === 'turn') && e.type === 'lock') this.i = ORDER.indexOf('pop'); // dropped before trying everything
     }
   }

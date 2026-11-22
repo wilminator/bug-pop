@@ -83,5 +83,19 @@
   "titleMusic": "../../audio/music/music-title.mp3",
   "title": {
     "background": "title-bg.svg"
+  },
+  "powerUps": {
+    "bomb": {
+      "name": "Rollback"
+    },
+    "drill": {
+      "name": "Stack Trace"
+    },
+    "wild": {
+      "name": "Hotfix"
+    },
+    "freeze": {
+      "name": "Code Freeze"
+    }
   }
 }

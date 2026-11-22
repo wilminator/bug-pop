@@ -48,6 +48,17 @@ export type Skin = {
    * Without it the title page keeps the plain dimmed backdrop.
    */
   title?: { background?: string };
+  /**
+   * Optional power-up names and pictures, per kind (bomb, drill, wild; freeze later).
+   * Each sprite fills one cell. Missing ones use the built-in drawings and names.
+   */
+  powerUps?: Partial<Record<'bomb' | 'drill' | 'wild' | 'freeze', { name?: string; sprite?: string }>>;
+  /**
+   * Optional look for the power-up meter (Mike, 2026-11-21: skinnable). Colors for the notches
+   * and the socket's ready glow, and/or pictures: `notch` / `notchFull` (one notch each, drawn
+   * stretched to the notch's box, e.g. a bud and a flower), `socket` (behind the held icon).
+   */
+  meter?: { empty?: string; full?: string; ready?: string; notch?: string; notchFull?: string; socket?: string };
   /** Milliseconds per animation frame for bugAlt (default 400). */
   frameMs?: number;
   /** Who may pick this skin. Absent = everyone. */
@@ -62,7 +73,18 @@ export type Skin = {
 };
 
 /** Images decoded from Skin.sprites, attached at load time (not part of skin.json). */
-export type SpriteImages = { bug: HTMLImageElement[]; bugAlt: HTMLImageElement[]; half: HTMLImageElement[]; boardInside?: HTMLImageElement; boardFrame?: HTMLImageElement };
+export type SpriteImages = {
+  bug: HTMLImageElement[]; bugAlt: HTMLImageElement[]; half: HTMLImageElement[]; boardInside?: HTMLImageElement; boardFrame?: HTMLImageElement;
+  /** Power-up pictures from Skin.powerUps, by kind. */
+  power?: Partial<Record<string, HTMLImageElement>>;
+  /** Meter pictures from Skin.meter. */
+  meter?: { notch?: HTMLImageElement; notchFull?: HTMLImageElement; socket?: HTMLImageElement };
+};
+
+/** The built-in power-up names, used when a skin doesn't name its own. */
+export const POWER_NAMES: Record<'bomb' | 'drill' | 'wild' | 'freeze', string> = { bomb: 'Bomb', drill: 'Drill', wild: 'Wildcard', freeze: 'Freeze' };
+/** A power-up's name in this skin. */
+export const powerName = (skin: Skin, kind: keyof typeof POWER_NAMES) => skin.powerUps?.[kind]?.name ?? POWER_NAMES[kind];
 
 /** How thick the skin's frame is, in cells (0 when it has none). */
 export const frameCells = (skin: Skin) => (skin.board?.frame ? Math.max(0, skin.board.frameWidth ?? 0.35) : 0);
@@ -109,7 +131,7 @@ export const testSkin: Skin = {
 
 /** Load sprite images (if any). Resolves even if some images fail. */
 export async function loadSprites(skin: Skin): Promise<SpriteImages | null> {
-  if (!skin.sprites && !skin.board) return null;
+  if (!skin.sprites && !skin.board && !skin.powerUps && !skin.meter) return null;
   const load = (src: string) => new Promise<HTMLImageElement>(resolve => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -121,7 +143,13 @@ export async function loadSprites(skin: Skin): Promise<SpriteImages | null> {
     all(skin.sprites?.bug), all(skin.sprites?.bugAlt), all(skin.sprites?.half),
     all(skin.board?.inside ? [skin.board.inside] : []), all(skin.board?.frame ? [skin.board.frame] : []),
   ]);
-  return { bug, bugAlt, half, boardInside, boardFrame };
+  const kinds = Object.entries(skin.powerUps ?? {}).filter(([, v]) => v?.sprite);
+  const pics = await all(kinds.map(([, v]) => v!.sprite!));
+  const power = Object.fromEntries(kinds.map(([k], i) => [k, pics[i]!]));
+  const m = skin.meter ?? {};
+  const one = async (src?: string) => (src ? load(src) : undefined);
+  const [notch, notchFull, socket] = await Promise.all([one(m.notch), one(m.notchFull), one(m.socket)]);
+  return { bug, bugAlt, half, boardInside, boardFrame, power, meter: { notch, notchFull, socket } };
 }
 
 /** Is a seasonal skin in season on this date? */

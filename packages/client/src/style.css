@@ -241,6 +241,9 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .links button.link { font-size: 13px; padding: 0; color: var(--dim); }
 
 /* The guided level's banner, over the empty middle of the board (main.ts places it). */
+.power-btn { position: absolute; background: transparent; border: 0; padding: 0; margin: 0; cursor: pointer; border-radius: 22%; touch-action: none; }
+.power-btn[hidden] { display: none; }
+.power-btn:focus-visible { outline: 2px solid var(--accent); }
 .coach {
   position: absolute; transform: translateX(-50%);
   padding: 10px 14px; border-radius: 14px; background: rgba(10, 12, 16, 0.86); border: 2px solid var(--accent);

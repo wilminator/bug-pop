@@ -26,6 +26,8 @@
         <div><span>flick ▲</span>turn left ⟲</div>
         <p class="hint-go">Tap to start</p>
       </div>
+      <!-- Power-ups: a tap target over the held power-up's icon (drawn on the canvas; see powerIconRect). -->
+      <div id="powerWrap"><button id="powerBtn" class="power-btn" data-input="power" aria-label="Use power-up" hidden></button></div>
       <!-- The guided first level's banner (src/tutorial.ts). Clicks pass through to the board, except Skip. -->
       <div id="coach" class="coach" hidden>
         <div class="coach-body"></div>
@@ -109,8 +111,8 @@
             <label>Colors
               <select id="colors"><option>2</option><option>3</option><option>4</option><option>5</option></select>
             </label>
-            <!-- A teaser: power-ups are opt-in, off by default, and not built yet (Mike, 2026-11-19). -->
-            <label class="check soon"><input type="checkbox" id="powerUps" disabled /> <span>Power-ups <span class="tag-pill soon">Coming soon</span></span></label>
+            <!-- Power-ups are opt-in and off by default (Mike, 2026-11-19), so the vanilla game never changes. -->
+            <label class="check"><input type="checkbox" id="powerUps" /> <span>Power-ups <span class="tag-pill">New</span></span></label>
           </form>
           <button id="start" class="primary" data-primary>Start</button>
           <p class="fine">Your game saves every time a piece lands and whenever you switch apps. Signed in, it follows you to your other devices.</p>
@@ -181,6 +183,7 @@
             <summary>Touch</summary>
             <p>Use the buttons under the board: &#9664; &#9654; move, &#9660; drops faster, &#10227; turns right, &#10226; turns left. Settings has three button layouts to choose from.</p>
             <p>Or play on the board itself: drag sideways to slide the piece, drag down to drop it faster, tap to turn right, flick up to turn left.</p>
+            <p>With power-ups on, tap the power-up icon above the board to use one.</p>
           </details>
           <details data-device="keyboard">
             <summary>Keyboard</summary>
@@ -190,6 +193,7 @@
               <dt>&uarr;, X, W or K</dt><dd>Turn right</dd>
               <dt>Z, Q or J</dt><dd>Turn left</dd>
               <dt>Esc or P</dt><dd>Pause</dd>
+              <dt>Space or E</dt><dd>Use a power-up</dd>
             </dl>
           </details>
           <details data-device="mouse">
@@ -200,6 +204,7 @@
               <dt>Middle click</dt><dd>Turn left</dd>
               <dt>Wheel</dt><dd>Turn (down right, up left)</dd>
               <dt>Hold right button</dt><dd>Drop faster</dd>
+              <dt>Click the power-up icon</dt><dd>Use a power-up</dd>
             </dl>
           </details>
           <details data-device="gamepad">
@@ -209,6 +214,7 @@
               <dt>A, Y or d-pad up</dt><dd>Turn right</dd>
               <dt>B or X</dt><dd>Turn left</dd>
               <dt>Start or Select</dt><dd>Pause</dd>
+              <dt>LB or RB</dt><dd>Use a power-up</dd>
             </dl>
           </details>
           <p class="fine">You can still move and turn while dropping faster.</p>
@@ -239,6 +245,19 @@
           </ul>
           <p>So pop several bugs with one piece, and keep popping without wasting pieces, to keep both climbing.</p>
           <p><b>Clean sweep:</b> finish a level with no piece halves left on the board for a bonus of <b>1,000 + 100 per level</b>, times the speed's points (level 10 on Medium: 4,000).</p>
+        </div>
+
+        <div class="card howto">
+          <h2>Power-ups</h2>
+          <p>Power-ups are off unless you turn on <b>Power-ups</b> before a game. With them off, the game is the classic one.</p>
+          <p>Every bug you pop fills a notch of the <b>power-up meter</b> (a bug popped in a chain fills two). A full meter gives you a power-up. You hold one at a time: use it to start filling the meter again.</p>
+          <p>To use it, <b>tap its icon</b>, press <b>Space or E</b>, or press a <b>shoulder button</b> on a gamepad. It becomes your <b>next piece</b>, so you can see it coming. The piece that was next drops right after it.</p>
+          <div class="figs">
+            <figure><div data-fig="bomb"></div><figcaption><span data-power-name="bomb">Bomb</span>: clears the 3&times;3 square around what it lands on</figcaption></figure>
+            <figure><div data-fig="drill"></div><figcaption><span data-power-name="drill">Drill</span>: bores through the 3 cells below it</figcaption></figure>
+            <figure><div data-fig="wild"></div><figcaption><span data-power-name="wild">Wildcard</span>: both halves match any color</figcaption></figure>
+          </div>
+          <p>Steer a bomb or drill like a piece; the board shows what it will clear. Bugs it destroys score <b>50</b> instead of 100, with no chain bonus. Anything left hanging falls, and new lines it makes pop and chain as usual.</p>
         </div>
 
         <div class="card howto">

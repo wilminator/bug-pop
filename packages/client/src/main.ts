@@ -5,11 +5,11 @@ import { createGame, step, MAX_LEVEL, FINAL_LEVEL, isEndless, endlessGame, endle
 import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
-import { computeLayout, LEAVE_MS, ARRIVE_MS, SWEEP_MS, FLOAT_MS, diagram, loadBubbleFont, render, thumbnail, type Layout, type Leaver, type Sweep, type Float } from './render';
+import { computeLayout, powerIconRect, LEAVE_MS, ARRIVE_MS, SWEEP_MS, FLOAT_MS, diagram, loadBubbleFont, render, thumbnail, type Layout, type Leaver, type Sweep, type Float } from './render';
 import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
 import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
-import { frameCells, inSeason, loadSprites, testSkin, type Skin } from './skin';
+import { frameCells, inSeason, loadSprites, powerName, testSkin, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt } from './storage';
@@ -77,6 +77,8 @@ async function loadSkin(cfg: SiteConfig): Promise<Skin> {
       skin.sprites.half = skin.sprites.half.map(rel);
       if (skin.sprites.bugAlt) skin.sprites.bugAlt = skin.sprites.bugAlt.map(rel);
     }
+    for (const p of Object.values(skin.powerUps ?? {})) if (p?.sprite) p.sprite = rel(p.sprite);
+    if (skin.meter) for (const k of ['notch', 'notchFull', 'socket'] as const) { const v = skin.meter[k]; if (v) skin.meter[k] = rel(v); }
     return skin.pieces?.length >= 5 ? skin : testSkin;
   } catch {
     return testSkin;
@@ -129,6 +131,14 @@ async function main() {
   audio.soundOn = settings.sound;
   audio.musicOn = settings.music;
 
+  // ---- Power-ups: the icon is drawn on the canvas; an invisible button over it takes taps and clicks ----
+  const powerBtn = $<HTMLButtonElement>('powerBtn');
+  const placePowerBtn = () => {
+    const r = powerIconRect(layout);
+    Object.assign(powerBtn.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.size}px`, height: `${r.size}px` });
+  };
+  input.attachTouchButtons($('powerWrap'));
+
   // ---- Sizing ----
   const resize = () => {
     const rect = canvas.getBoundingClientRect();
@@ -137,6 +147,7 @@ async function main() {
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     layout = computeLayout(rect.width, rect.height, 0, frameCells(skin));
     if (coach) placeCoach(); // the tutorial banner follows the board
+    placePowerBtn();
   };
   new ResizeObserver(resize).observe(canvas);
   resize();
@@ -270,6 +281,7 @@ async function main() {
   const autoNext = $<HTMLInputElement>('autoNext');
   const touchLayoutSel = $<HTMLSelectElement>('touchLayout');
   const motionSel = $<HTMLSelectElement>('motion');
+  const powerUpsBox = $<HTMLInputElement>('powerUps');
   const shapes = $<HTMLInputElement>('shapes'), sound = $<HTMLInputElement>('sound'), music = $<HTMLInputElement>('music');
   // The Paused card has its own Sound effects and Music boxes; they mirror the two on the Settings screen.
   const pauseSound = $<HTMLInputElement>('pauseSound'), pauseMusic = $<HTMLInputElement>('pauseMusic');
@@ -310,6 +322,7 @@ async function main() {
     sound.checked = pauseSound.checked = settings.sound;
     music.checked = pauseMusic.checked = settings.music;
     exitSel.value = settings.exit;
+    powerUpsBox.checked = settings.powerUps;
   };
   /** A signed-in player's game settings go to their account a moment after the last change. */
   let pushTimer = 0;
@@ -333,6 +346,7 @@ async function main() {
       autoNext: autoNext.checked,
       touchLayout: isLayout(touchLayoutSel.value) ? touchLayoutSel.value : 'edges',
       motion: (['auto', 'full', 'calm', 'off'] as const).find(m => m === motionSel.value) ?? 'auto',
+      powerUps: powerUpsBox.checked,
     };
     if (touchBar.dataset.layout !== settings.touchLayout) applyLayout();
     audio.soundOn = settings.sound;
@@ -360,7 +374,7 @@ async function main() {
     const seed = crypto.getRandomValues(new Uint32Array(1))[0]!;
     // The notch past level 100 is Endless: a run that starts as level 1 and climbs (Mike, 2026-11-19).
     const endless = isEndless(lvl);
-    begin(createGame({ seed, level: endless ? 1 : Math.max(1, lvl), endless, speed: settings.speed, colors: settings.colors, startScore: endless ? 0 : startScore }));
+    begin(createGame({ seed, level: endless ? 1 : Math.max(1, lvl), endless, speed: settings.speed, colors: settings.colors, startScore: endless ? 0 : startScore, powerUps: settings.powerUps }));
   };
   /**
    * The level after a cleared one, set up and saved the moment the level is won, so the run
@@ -370,7 +384,10 @@ async function main() {
   const prepareNext = (won: GameState) => {
     const seed = crypto.getRandomValues(new Uint32Array(1))[0]!;
     const { speed: spd, colors: cols } = won.config;
-    upNext = createGame({ seed, level: Math.min(MAX_LEVEL, currentLevel(won) + 1), speed: spd, colors: cols, startScore: won.score });
+    // Power-ups carry on into the next level: the meter, and the one held (or used but not yet dropped).
+    const p = won.power;
+    const power = p ? { powerUps: true, startPower: { meter: p.meter, held: p.held ?? p.queued } } : {};
+    upNext = createGame({ seed, level: Math.min(MAX_LEVEL, currentLevel(won) + 1), speed: spd, colors: cols, startScore: won.score, ...power });
     saveGame(upNext);
     const sub = mySub(), rec = loadRecord();
     if (rec && cloud.signedIn && sub && saveOwner() === sub) cloud.put(rec); // the run, everywhere
@@ -623,6 +640,14 @@ async function main() {
       // ...and drops onto the bug below.
       after: ['.. .. ..', '.. .. ..', 'h2 .. ..', 'b0 .. ..'],
     };
+    // Power-ups: the bomb's square, the drill's column and a wildcard finishing a line.
+    figs.bomb = ['.. pb ..', 'b1! b2! h0!', 'b0! b1! b2!', 'b2 h1 b0'];
+    figs.drill = ['pd', 'h1!', 'b2!', 'b0!', 'b1'];
+    figs.wild = ['b1! b1! b1! w-!'];
+    for (const k of ['bomb', 'drill', 'wild'] as const) {
+      const n = overlays.help.querySelector(`[data-power-name="${k}"]`);
+      if (n) n.textContent = powerName(skin, k);
+    }
     overlays.help.querySelectorAll<HTMLElement>('[data-fig]').forEach(el => {
       el.replaceChildren(diagram(figs[el.dataset.fig!]!, skin, images, shapes, 28));
     });
@@ -764,6 +789,26 @@ async function main() {
         }
         case 'won': finish(true); break;
         case 'lost': finish(false); break;
+        // ---- Power-ups ----
+        case 'powerGot': {
+          audio.play('chain', 1.3);
+          const r = powerIconRect(layout);
+          floats.push({ text: `${powerName(skin, e.kind)}!`, x: (r.x - layout.boardX) / layout.cell + 1.5, y: (r.y - layout.boardY) / layout.cell + 1.4, t0: performance.now(), size: 0.55 });
+          break;
+        }
+        case 'powerUse': audio.play('select'); break;
+        case 'blast': {
+          audio.play('sweep', e.kind === 'bomb' ? 0.8 : 1.2);
+          // What it destroys leaves the board like popped cells do (see 'cleared').
+          const now = performance.now();
+          matchedBugs = e.cells.flatMap(i => {
+            const cell = state!.board[i];
+            if (!cell) return [];
+            const kind = cell.t === 'bug' ? 'bug' as const : 'piece' as const;
+            return [{ kind, x: i % BOARD_WIDTH, y: Math.floor(i / BOARD_WIDTH), c: cell.c, t0: now, dir: (i % 2 ? 1 : -1) as 1 | -1 }];
+          });
+          break;
+        }
       }
     }
   };
@@ -841,7 +886,8 @@ async function main() {
     if (sweep && now - sweep.t0 >= SWEEP_MS) sweep = null;
     if (floats.length) floats = floats.filter(f => now - f.t0 < FLOAT_MS);
     if (arrivals.size && [...arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) arrivals = new Map();
-    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, motion: motion(), time: now, images, leavers, arrivals, hidden: mode === 'paused' || (mode === 'help' && helpFrom === 'paused'), bugExit: settings.exit || undefined, sweep, floats });
+    powerBtn.hidden = !(mode === 'playing' && state?.power);
+    if (state) render(ctx, state, skin, layout, { shapesOnPieces: settings.shapesOnPieces, motion: motion(), time: now, images, leavers, arrivals, hidden: mode === 'paused' || (mode === 'help' && helpFrom === 'paused'), bugExit: settings.exit || undefined, sweep, floats, glowNext: coach?.step === 'next' });
     else {
       ctx.fillStyle = skin.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);

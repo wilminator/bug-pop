@@ -1,8 +1,8 @@
 // Canvas drawing. Reads the game state and the skin; never changes either.
 
-import { BOARD_HEIGHT as H, BOARD_WIDTH as W, idx, pieceCells, endlessGame, endlessRound, currentLevel, scoreMultiplier, type GameState, type Link } from '@bug-pop/engine';
+import { BOARD_HEIGHT as H, BOARD_WIDTH as W, DRILL_DEPTH, METER_FULL, idx, pieceCells, type PowerKind, endlessGame, endlessRound, currentLevel, scoreMultiplier, type GameState, type Link } from '@bug-pop/engine';
 import type { Motion } from './storage';
-import { DEFAULT_EXITS, frameCells, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
+import { DEFAULT_EXITS, frameCells, powerName, type ExitStyle, type ObjectKind, type ShapeKind, type Skin, type SpriteImages } from './skin';
 
 export type Layout = { boardX: number; boardY: number; cell: number; portrait: boolean };
 
@@ -54,6 +54,8 @@ export type RenderOptions = {
   floats?: Float[];
   /** A clean sweep to celebrate over the board (banner and fireworks). */
   sweep?: Sweep | null;
+  /** The tutorial's "look ahead" step: make the Next piece glow. */
+  glowNext?: boolean;
 };
 
 const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
@@ -135,7 +137,8 @@ function drawBugArt(ctx: CanvasRenderingContext2D, skin: Skin, color: number, x:
 }
 
 /** One half of a piece: a rounded block, flat on the side that joins its partner. */
-function drawHalf(ctx: CanvasRenderingContext2D, skin: Skin, color: number, link: Link, x: number, y: number, s: number, shapes: boolean, alpha = 1, images: SpriteImages | null = null) {
+function drawHalf(ctx: CanvasRenderingContext2D, skin: Skin, color: number, link: Link, x: number, y: number, s: number, shapes: boolean, alpha = 1, images: SpriteImages | null = null, wild = false) {
+  if (wild) { drawWildHalf(ctx, skin, link, x, y, s, alpha, images); return; }
   const img = images?.half[color];
   if (ready(img)) {
     ctx.globalAlpha = alpha;
@@ -180,6 +183,192 @@ function drawHalf(ctx: CanvasRenderingContext2D, skin: Skin, color: number, link
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+}
+
+/** The rounded block every half is drawn as: square on the side that joins its partner. */
+function halfPath(ctx: CanvasRenderingContext2D, link: Link, x: number, y: number, s: number) {
+  const pad = s * 0.08, r = s * 0.32;
+  const L = x + pad, T = y + pad, R = x + s - pad, B = y + s - pad;
+  const radii = [r, r, r, r];
+  if (link === 'R') { radii[1] = 0; radii[2] = 0; }
+  if (link === 'L') { radii[0] = 0; radii[3] = 0; }
+  if (link === 'D') { radii[2] = 0; radii[3] = 0; }
+  if (link === 'U') { radii[0] = 0; radii[1] = 0; }
+  const l = link === 'L' ? L - pad : L, rr = link === 'R' ? R + pad : R;
+  const t = link === 'U' ? T - pad : T, b = link === 'D' ? B + pad : B;
+  ctx.beginPath();
+  ctx.roundRect(l, t, rr - l, b - t, radii);
+}
+
+/**
+ * A wildcard half (power-ups): striped in every piece color of the skin, with a white star,
+ * so it reads as "any color" in any skin. A skin can supply its own picture (powerUps.wild).
+ */
+function drawWildHalf(ctx: CanvasRenderingContext2D, skin: Skin, link: Link, x: number, y: number, s: number, alpha: number, images: SpriteImages | null) {
+  ctx.globalAlpha = alpha;
+  const img = images?.power?.wild;
+  if (ready(img)) {
+    drawJoint(ctx, skin, link, x, y, s);
+    ctx.drawImage(img, x, y, s, s);
+    ctx.globalAlpha = 1;
+    return;
+  }
+  const g = ctx.createLinearGradient(x, y, x + s, y + s);
+  const colors = skin.pieces.map(p => p.color);
+  colors.forEach((col, i) => { g.addColorStop(i / colors.length, col); g.addColorStop((i + 1) / colors.length - 0.001, col); });
+  halfPath(ctx, link, x, y, s);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, s * 0.05);
+  ctx.strokeStyle = '#fff';
+  ctx.stroke();
+  star(ctx, x + s / 2, y + s / 2, s * 0.3, '#fff');
+  ctx.globalAlpha = 1;
+}
+
+/** The joint bar between two sprite halves. */
+function drawJoint(ctx: CanvasRenderingContext2D, skin: Skin, link: Link, x: number, y: number, s: number) {
+  if (!link) return;
+  const [dx, dy] = link === 'L' ? [-1, 0] : link === 'R' ? [1, 0] : link === 'U' ? [0, -1] : [0, 1];
+  ctx.strokeStyle = skin.connector ?? skin.boardEdge;
+  ctx.lineWidth = s * 0.16;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x + s / 2, y + s / 2);
+  ctx.lineTo(x + s / 2 + dx * s * 0.5, y + s / 2 + dy * s * 0.5);
+  ctx.stroke();
+}
+
+export type PowerArt = PowerKind;
+
+/**
+ * A power-up's picture, filling one cell: the skin's sprite when it has one, else a built-in
+ * drawing (a round bomb with a lit fuse, a drill bit pointing down, a rainbow star).
+ */
+export function drawPower(ctx: CanvasRenderingContext2D, skin: Skin, kind: PowerKind, x: number, y: number, s: number, images: SpriteImages | null, time = 0, alpha = 1) {
+  ctx.globalAlpha = alpha;
+  const img = images?.power?.[kind];
+  if (ready(img)) { ctx.drawImage(img, x, y, s, s); ctx.globalAlpha = 1; return; }
+  const cx = x + s / 2, cy = y + s / 2;
+  if (kind === 'bomb') {
+    ctx.fillStyle = '#2b2d36';
+    ctx.beginPath(); ctx.arc(cx, cy + s * 0.08, s * 0.34, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = Math.max(1, s * 0.05); ctx.strokeStyle = '#000'; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.arc(cx - s * 0.12, cy - s * 0.04, s * 0.09, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#6b6f80'; ctx.fillRect(cx - s * 0.08, cy - s * 0.32, s * 0.16, s * 0.1); // the cap
+    ctx.strokeStyle = '#c9a26b'; ctx.lineWidth = Math.max(1, s * 0.05); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, cy - s * 0.32); ctx.quadraticCurveTo(cx + s * 0.05, cy - s * 0.45, cx + s * 0.18, cy - s * 0.4); ctx.stroke();
+    const flick = 0.75 + 0.25 * Math.sin(time / 60);
+    star(ctx, cx + s * 0.2, cy - s * 0.4, s * 0.16 * flick, '#ffb703');
+    star(ctx, cx + s * 0.2, cy - s * 0.4, s * 0.07 * flick, '#fff6b0');
+  } else if (kind === 'drill') {
+    const top = y + s * 0.1, tip = y + s * 0.94, half = s * 0.28;
+    ctx.fillStyle = '#c2c8d6'; // the bit, pointing down
+    ctx.beginPath(); ctx.moveTo(cx - half, top + s * 0.22); ctx.lineTo(cx + half, top + s * 0.22); ctx.lineTo(cx, tip); ctx.closePath(); ctx.fill();
+    ctx.lineWidth = Math.max(1, s * 0.04); ctx.strokeStyle = '#4d5466'; ctx.stroke();
+    ctx.save(); ctx.clip(); // spiral grooves that turn with time
+    ctx.strokeStyle = '#6d7488'; ctx.lineWidth = Math.max(1, s * 0.05);
+    const turn = ((time / 90) % 1) * s * 0.2;
+    for (let k = -2; k < 6; k++) { const yy = top + s * 0.22 + k * s * 0.2 + turn; ctx.beginPath(); ctx.moveTo(cx - half, yy); ctx.lineTo(cx + half, yy + s * 0.12); ctx.stroke(); }
+    ctx.restore();
+    ctx.fillStyle = '#ffb703'; // the handle
+    ctx.beginPath(); ctx.roundRect(cx - half * 0.9, top, half * 1.8, s * 0.22, s * 0.05); ctx.fill();
+    ctx.strokeStyle = '#7a4f00'; ctx.lineWidth = Math.max(1, s * 0.04); ctx.stroke();
+  } else if (kind === 'wild') {
+    const g = ctx.createConicGradient(time / 900, cx, cy);
+    const colors = skin.pieces.map(p => p.color);
+    colors.forEach((col, i) => g.addColorStop(i / colors.length, col));
+    g.addColorStop(1, colors[0]!);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, s * 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = Math.max(1, s * 0.05); ctx.strokeStyle = '#fff'; ctx.stroke();
+    star(ctx, cx, cy, s * 0.3, '#fff');
+  } else {
+    // freeze (versus play, later): a snowflake
+    ctx.strokeStyle = '#bfe8ff'; ctx.lineWidth = Math.max(1, s * 0.07); ctx.lineCap = 'round';
+    for (let k = 0; k < 3; k++) {
+      const a = (k * Math.PI) / 3;
+      ctx.beginPath(); ctx.moveTo(cx - Math.cos(a) * s * 0.38, cy - Math.sin(a) * s * 0.38); ctx.lineTo(cx + Math.cos(a) * s * 0.38, cy + Math.sin(a) * s * 0.38); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Where the power-up icon sits on screen (CSS pixels), so main.ts can put a tap target over it. */
+export function powerIconRect(layout: Layout): { x: number; y: number; size: number } {
+  const { boardX: bx, boardY: by, cell: c } = layout;
+  if (layout.portrait) return { x: bx, y: by - c * 1.35, size: c * 1.05 };
+  return { x: bx + c * W + c * 1.2, y: by + c * 13.6, size: c * 1.4 };
+}
+
+/**
+ * The power-up meter: METER_FULL notches that fill with popped bugs, and the held power-up's
+ * icon (or an empty socket). Glows gently when one is ready to use.
+ */
+function drawPowerHud(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, layout: Layout, opt: RenderOptions) {
+  const p = s.power;
+  if (!p) return;
+  const { cell: c } = layout;
+  const r = powerIconRect(layout);
+  const look = skin.meter ?? {}, pics = opt.images?.meter;
+  const fullColor = look.full ?? '#ffb703', emptyColor = look.empty ?? 'rgba(255,255,255,0.12)';
+  // The socket: the skin's picture, or a dark rounded box. Its edge glows when one is ready.
+  if (ready(pics?.socket)) ctx.drawImage(pics.socket, r.x, r.y, r.size, r.size);
+  else {
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.size, r.size, r.size * 0.25); ctx.fill();
+  }
+  ctx.strokeStyle = p.held ? look.ready ?? fullColor : skin.boardEdge;
+  ctx.lineWidth = Math.max(1, c * (p.held ? 0.08 : 0.04));
+  ctx.beginPath(); ctx.roundRect(r.x, r.y, r.size, r.size, r.size * 0.25); ctx.stroke();
+  if (p.held) {
+    const pulse = opt.motion === 'full' ? 1 + Math.sin(opt.time / 220) * 0.05 : 1;
+    const sz = r.size * 0.86 * pulse;
+    drawPower(ctx, skin, p.held, r.x + (r.size - sz) / 2, r.y + (r.size - sz) / 2, sz, opt.images, opt.motion === 'full' ? opt.time : 0);
+  }
+  // The notches, to the right of the socket (phone) or under it (wide screens).
+  const n = METER_FULL, filled = p.held ? n : Math.min(n, p.meter);
+  const gap = c * 0.06;
+  const [mx, my, mw, mh] = layout.portrait
+    ? [r.x + r.size + c * 0.25, r.y + r.size * 0.55, c * 3.2, c * 0.3]
+    : [r.x, r.y + r.size + c * 0.25, r.size * 2.6, c * 0.3];
+  const w = (mw - gap * (n - 1)) / n;
+  for (let i = 0; i < n; i++) {
+    const nx = mx + i * (w + gap), on = i < filled, pic = on ? pics?.notchFull : pics?.notch;
+    if (ready(pic)) {
+      // Picture notches keep their own shape: square, centered on the notch's box.
+      const sz = Math.min(w, mh * 2.2);
+      ctx.drawImage(pic, nx + (w - sz) / 2, my + mh / 2 - sz / 2, sz, sz);
+      continue;
+    }
+    ctx.fillStyle = on ? fullColor : emptyColor;
+    ctx.beginPath(); ctx.roundRect(nx, my, w, mh, mh * 0.4); ctx.fill();
+  }
+  ctx.textAlign = 'left';
+  ctx.fillStyle = skin.textDim;
+  ctx.font = `500 ${Math.round(c * 0.42)}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  const label = p.held ? powerName(skin, p.held) : p.queued ? `${powerName(skin, p.queued)} is next` : 'POWER-UP';
+  if (layout.portrait) ctx.fillText(p.held ? `${label} ready` : label, mx, my - c * 0.12);
+  else ctx.fillText(label, r.x, r.y - c * 0.15);
+}
+
+/** The next piece: a pair of halves, or the power-up the player just used, waiting to drop. */
+function drawNext(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, x: number, y: number, size: number, opt: RenderOptions) {
+  const q = s.power?.queued;
+  if (opt.glowNext) {
+    const k = opt.motion === 'full' ? 0.5 + 0.5 * Math.sin(opt.time / 200) : 1;
+    ctx.save();
+    ctx.shadowColor = '#ffb703'; ctx.shadowBlur = size * 0.6 * k;
+    ctx.strokeStyle = '#ffb703'; ctx.lineWidth = Math.max(2, size * 0.08);
+    ctx.beginPath(); ctx.roundRect(x - size * 0.2, y - size * 0.2, size * 2.4, size * 1.4, size * 0.3); ctx.stroke();
+    ctx.restore();
+  }
+  if (q === 'bomb' || q === 'drill') drawPower(ctx, skin, q, x + size * 0.5, y, size, opt.images, opt.motion === 'full' ? opt.time : 0);
+  else {
+    drawHalf(ctx, skin, s.next.a, 'R', x, y, size, opt.shapesOnPieces, 1, opt.images, q === 'wild');
+    drawHalf(ctx, skin, s.next.b, 'L', x + size, y, size, opt.shapesOnPieces, 1, opt.images, q === 'wild');
+  }
 }
 
 export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, layout: Layout, opt: RenderOptions) {
@@ -241,7 +430,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
         continue;
       }
       if (fading && flashOn) {
-        if (reducedMotion) drawHalf(ctx, skin, cell.c, cell.t === 'half' ? cell.l : null, px, py, c, opt.shapesOnPieces, 1, opt.images);
+        if (reducedMotion) drawHalf(ctx, skin, cell.c, cell.t === 'half' ? cell.l : null, px, py, c, opt.shapesOnPieces, 1, opt.images, cell.t === 'half' && !!cell.w);
         ctx.fillStyle = reducedMotion ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.85)';
         ctx.beginPath();
         ctx.roundRect(px + c * 0.1, py + c * 0.1, c * 0.8, c * 0.8, c * 0.3);
@@ -269,17 +458,27 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
         const wiggle = reducedMotion ? 0 : Math.sin(opt.time / 300 + x * 1.7 + y * 0.9) * c * 0.04;
         // Time 0 holds every bug on its first frame, so skins with walking bugs keep them still.
         drawBug(ctx, skin, cell.c, px, py, c, wiggle, opt.images, reducedMotion ? 0 : opt.time + (x * 137 + y * 61));
-      } else drawHalf(ctx, skin, cell.c, cell.l, px, py, c, opt.shapesOnPieces, 1, opt.images);
+      } else drawHalf(ctx, skin, cell.c, cell.l, px, py, c, opt.shapesOnPieces, 1, opt.images, !!cell.w);
     }
   }
 
   // Falling piece and a faint guide showing where it would land.
   if (s.piece && s.phase === 'falling') {
     let ghost = s.piece;
-    const fitsAt = (p: typeof ghost) => pieceCells(p).every(h => h.y < H && h.x >= 0 && h.x < W && (h.y < 0 || s.board[idx(h.x, h.y)] === null));
+    const fitsAt = (p: typeof ghost) => p.k ? p.y + 0 < H && s.board[idx(p.x, p.y)] === null : pieceCells(p).every(h => h.y < H && h.x >= 0 && h.x < W && (h.y < 0 || s.board[idx(h.x, h.y)] === null));
     while (fitsAt({ ...ghost, y: ghost.y + 1 })) ghost = { ...ghost, y: ghost.y + 1 };
-    if (ghost.y !== s.piece.y) for (const h of pieceCells(ghost)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, false, 0.18, opt.images);
-    for (const h of pieceCells(s.piece)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, opt.shapesOnPieces, 1, opt.images);
+    const k = s.piece.k, wild = !!s.piece.w;
+    if (k) {
+      // A bomb or drill: one cell. Its guide shows where it lands, and (faintly) what it will take with it.
+      const t = reducedMotion ? 0 : opt.time;
+      if (ghost.y !== s.piece.y) drawPower(ctx, skin, k, bx + ghost.x * c, by + ghost.y * c, c, opt.images, 0, 0.25);
+      ctx.fillStyle = 'rgba(255,183,3,0.18)';
+      for (const i of blastCells(s, ghost)) ctx.fillRect(bx + (i % W) * c + 1, by + Math.floor(i / W) * c + 1, c - 2, c - 2);
+      drawPower(ctx, skin, k, bx + s.piece.x * c, by + s.piece.y * c, c, opt.images, t);
+    } else {
+      if (ghost.y !== s.piece.y) for (const h of pieceCells(ghost)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, false, 0.18, opt.images, wild);
+      for (const h of pieceCells(s.piece)) drawHalf(ctx, skin, h.c, h.l, bx + h.x * c, by + h.y * c, c, opt.shapesOnPieces, 1, opt.images, wild);
+    }
   }
 
   // Cleared objects leave the board, each kind in the skin's chosen style.
@@ -376,16 +575,20 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.fillStyle = multColor(s, skin);
     ctx.font = font(c * 0.5, 700);
     ctx.fillText(multText(s), bx + c * W, y + c * 1.55);
-    drawHalf(ctx, skin, s.next.a, 'R', bx + c * 4, y - c * 0.2, c * 0.9, opt.shapesOnPieces, 1, opt.images);
-    drawHalf(ctx, skin, s.next.b, 'L', bx + c * 4.9, y - c * 0.2, c * 0.9, opt.shapesOnPieces, 1, opt.images);
+    // NEXT: labelled, between Bugs and Score (Mike, 2026-11-21: easy to miss without a label).
+    ctx.textAlign = 'center';
+    ctx.fillStyle = skin.textDim;
+    ctx.font = font(c * 0.42, 500);
+    ctx.fillText('NEXT', bx + c * 4.85, y);
+    drawNext(ctx, s, skin, bx + c * 4, y + c * 0.12, c * 0.85, opt);
+    drawPowerHud(ctx, s, skin, layout, opt);
   } else {
     const x = bx + c * W + c * 1.2;
     ctx.textAlign = 'left';
     ctx.fillStyle = skin.textDim;
     ctx.font = font(c * 0.42, 500);
     ctx.fillText('NEXT', x, by + c * 0.4);
-    drawHalf(ctx, skin, s.next.a, 'R', x, by + c * 0.7, c, opt.shapesOnPieces, 1, opt.images);
-    drawHalf(ctx, skin, s.next.b, 'L', x + c, by + c * 0.7, c, opt.shapesOnPieces, 1, opt.images);
+    drawNext(ctx, s, skin, x, by + c * 0.7, c, opt);
     stat(...levelStat(s), x, by + c * 3.2);
     stat('SPEED', speedName, x, by + c * 5.2);
     stat('BUGS', String(s.bugsLeft), x, by + c * 7.2);
@@ -394,7 +597,23 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.fillStyle = multColor(s, skin);
     ctx.font = font(c * 0.75, 700);
     ctx.fillText(multText(s), x, by + c * 12.05);
+    drawPowerHud(ctx, s, skin, layout, opt);
   }
+}
+
+/** The cells a bomb or drill resting at p would clear (the same rule as the engine's). */
+function blastCells(s: GameState, p: { x: number; y: number; k?: 'bomb' | 'drill' }): number[] {
+  const out: number[] = [];
+  if (p.k === 'bomb') {
+    const cy = p.y + 1 < H ? p.y + 1 : p.y;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = p.x + dx, y = cy + dy;
+      if (x >= 0 && x < W && y >= 0 && y < H && s.board[idx(x, y)]) out.push(idx(x, y));
+    }
+  } else if (p.k === 'drill') {
+    for (let d = 1; d <= DRILL_DEPTH && p.y + d < H; d++) if (s.board[idx(p.x, p.y + d)]) out.push(idx(p.x, p.y + d));
+  }
+  return out;
 }
 
 /** "x1.4": the multiplier the next popped bug scores at. */
@@ -546,6 +765,8 @@ function levelStat(s: GameState): [string, string] {
  *   b0 - b4   a bug of that color
  *   h0 - h4   a lone piece half
  *   L0 R0 U0 D0   a half joined to its partner on the Left / Right / Up / Down
+ *   w-  wL wR wU wD   a wildcard half (power-ups), lone or joined
+ *   pb pd pw  a power-up's picture: bomb, drill, wildcard
  * A trailing ! marks a cell that is about to pop (drawn with a glow).
  */
 export function diagram(rows: string[], skin: Skin, images: SpriteImages | null, shapesOnPieces: boolean, cell = 30): HTMLCanvasElement {
@@ -584,6 +805,8 @@ export function diagram(rows: string[], skin: Skin, images: SpriteImages | null,
       ctx.fill();
     }
     if (kind === 'b') drawBug(ctx, skin, color, px, py, cell, 0, images, 0);
+    else if (kind === 'p') drawPower(ctx, skin, tok[1] === 'b' ? 'bomb' : tok[1] === 'd' ? 'drill' : 'wild', px, py, cell, images);
+    else if (kind === 'w') drawHalf(ctx, skin, 0, tok[1] === '-' ? null : (tok[1] as Exclude<Link, null>), px, py, cell, false, 1, images, true);
     else drawHalf(ctx, skin, color, kind === 'h' ? null : (kind as Exclude<Link, null>), px, py, cell, shapesOnPieces, 1, images);
   }));
   return canvas;
