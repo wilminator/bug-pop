@@ -95,6 +95,8 @@ export class TableMatch {
   private tooks = new Map<string, Took & { s: number }>();
   /** Takes not yet checked against their attack's targets. */
   private unchecked: (Took & { s: number })[] = [];
+  /** Seats this device is coming back to, waiting for the stand-in to hand them over. */
+  private claiming = new Set<number>();
 
   constructor(readonly start: TableStart, private send: (m: TableOut) => void) {
     this.boards = start.seats.map((seat, s) => {
@@ -122,6 +124,8 @@ export class TableMatch {
    * and stand-ins choose their own. Returns nothing: events go to onEvents.
    */
   tick(actions: ReadonlyMap<number, readonly Action[]> = new Map()) {
+    // Once the round is decided, every board stops where it is (each copy at the same tick).
+    if (this.result || this.flagged) return;
     for (const b of this.boards) {
       if (!b.local) continue;
       const events: GameEvent[] = [];
@@ -131,8 +135,6 @@ export class TableMatch {
         if ((b.state.versus?.received.length ?? 0) > before) this.out({ t: 'ttook', s: b.s, k: b.state.tick, n: a.n, r: a.r, from: a.from, i: a.i });
       }
       b.incoming = [];
-      // Once the round is decided, boards stop where they are (every copy stops at the same tick).
-      if (this.result) continue;
       const want = this.ended(b) ? [] : b.bot ? b.bot.bot.act(b.state) : [...(actions.get(b.s) ?? [])];
       const at = b.state.tick;
       const ev = step(b.state, want);
@@ -217,7 +219,11 @@ export class TableMatch {
     const b = this.boards[msg.s];
     if (!b) return void this.flag('a seat that is not at this table');
     if (b.local) return; // my own seats come back to me only by mistake
-    if (msg.t === 'ttook') {
+    if (msg.t === 'thand') {
+      if (msg.k !== b.clock) return void this.flag('handed over at the wrong time');
+      if (this.claiming.has(msg.s)) this.claim(b, msg.k);
+      else this.handed(msg.s, msg.k);
+    } else if (msg.t === 'ttook') {
       const key = `${msg.from}:${msg.i}:${msg.s}`;
       if (this.tooks.has(key)) return void this.flag('an attack taken twice');
       if (msg.k < b.clock) return void this.flag('took an attack at the wrong time');
@@ -357,9 +363,9 @@ export class TableMatch {
     for (const o of this.boards) o.attacks.forEach((a, i) => { if (a.to?.includes(s) && !this.tooks.has(`${o.s}:${i}:${s}`)) b.incoming.push({ from: o.s, i, n: a.n, r: a.r }); });
     // Catch it up to my clock (its device was behind mine).
     while (b.state.tick < this.ticks && !this.ended(b)) {
-      const want = b.bot.bot.act(b.state);
       for (const a of b.incoming) { receiveAttack(b.state, a); this.out({ t: 'ttook', s, k: b.state.tick, n: a.n, r: a.r, from: a.from, i: a.i }); }
       b.incoming = [];
+      const want = b.bot.bot.act(b.state);
       const at = b.state.tick;
       for (const e of step(b.state, want)) if (e.type === 'attack') this.attackMade(b, at, e.attack.n, e.attack.r);
       this.stepped(b);
@@ -390,12 +396,30 @@ export class TableMatch {
     b.bot = null;
     b.clock = this.ticks;
     (b.handedAt ??= []).push(b.state.tick);
+    this.out({ t: 'thand', s, k: b.state.tick });
   }
 
   /** On other devices: the person took their seat back at its tick `k`. */
   handed(s: number, k: number) {
     const b = this.boards[s];
     if (b) (b.handedAt ??= []).push(k);
+  }
+
+  /**
+   * This device is the person coming back to seat `s` (after catching up from the relay's record).
+   * It plays the seat again once the stand-in hands it over ('thand').
+   */
+  rejoin(s: number) { this.claiming.add(s); }
+
+  private claim(b: Board, k: number) {
+    this.claiming.delete(b.s);
+    (b.handedAt ??= []).push(k);
+    b.local = true;
+    b.bot = null;
+    b.sentLog = b.state.log.length;
+    this.ticks = Math.max(this.ticks, b.clock);
+    // Attacks aimed at it that the stand-in hadn't taken yet come to it now.
+    for (const o of this.boards) o.attacks.forEach((a, i) => { if (a.to?.includes(b.s) && !this.tooks.has(`${o.s}:${i}:${b.s}`)) b.incoming.push({ from: o.s, i, n: a.n, r: a.r }); });
   }
 
   private flag(why: string) {

@@ -279,7 +279,9 @@ export type TableInputs = { t: 'tin'; s: number; k: number; a: number[] };
 export type TableTook = { t: 'ttook'; s: number; k: number; n: number; r: number; from: number; i: number };
 /** The round is over on my device: the winning seat, or null for a draw. */
 export type TableDone = { t: 'tdone'; winner: number | null };
-export type TableMsg = TableInputs | TableTook;
+/** The stand-in stopped playing seat `s` at its tick `k`: the person plays it again from there. */
+export type TableHand = { t: 'thand'; s: number; k: number };
+export type TableMsg = TableInputs | TableTook | TableHand;
 
 const seatNo = (x: unknown): x is number => int(x, 0, MAX_SEATS - 1);
 
@@ -296,6 +298,7 @@ export function parseTable(m: Record<string, unknown> | null): TableMsg | TableD
       const tk = took(m);
       return tk && { t: 'ttook', s: m.s, k: tk.k, n: tk.n, r: tk.r, from: m.from, i: m.i };
     }
+    case 'thand': return seatNo(m.s) && int(m.k, 0, 10_000_000) ? { t: 'thand', s: m.s, k: m.k } : null;
     case 'tdone': return m.winner === null || seatNo(m.winner) ? { t: 'tdone', winner: m.winner as number | null } : null;
     default: return null;
   }

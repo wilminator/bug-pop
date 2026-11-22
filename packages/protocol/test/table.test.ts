@@ -13,38 +13,74 @@ const SEATS: SeatInfo[] = [
  * A table: `devices` lists the person seats each device plays; `cpus` seats are computers run by
  * device 0. People are played by Hard bots handing in actions, like fingers would.
  */
-function table(opts: { devices: number[][]; seats?: SeatInfo[]; cpus?: number[]; watchers?: number; delay?: number; target?: 'leader' | 'random' | 'everyone'; tamper?: (from: number, m: TableOut) => TableOut | null }) {
+function table(opts: {
+  devices: number[][]; seats?: SeatInfo[]; cpus?: number[]; watchers?: number; delay?: number; target?: 'leader' | 'random' | 'everyone';
+  tamper?: (from: number, m: TableOut) => TableOut | null;
+  /** A device drops at tick `at`; device `to` plays its seats with the stand-in; it comes `back` (a fresh device) later. */
+  drop?: { device: number; at: number; to: number; back?: number };
+}) {
   const seats = (opts.seats ?? SEATS.slice(0, opts.devices.flat().length + (opts.cpus?.length ?? 0))).map((p, s) => (opts.cpus?.includes(s) ? { ...p, name: 'Computer', cpu: 'medium' as const } : p));
   const delay = opts.delay ?? 6;
   const base = { t: 'tstart' as const, table: 1, seed: 4242, botSeed: 99, colors: 3, rule: 'race' as const, target: opts.target ?? 'leader', power: false, seats, round: 1, wins: seats.map(() => 0) };
   const plan = [...opts.devices.map((mine, d) => ({ mine, runs: d === 0 ? opts.cpus ?? [] : [] })), ...Array.from({ length: opts.watchers ?? 0 }, () => ({ mine: [] as number[], runs: [] as number[] }))];
-  const queue: { at: number; to: number; raw: string }[] = [];
+  // The relay: messages on their way (in order), and its record of everything passed on.
+  type Q = { at: number; to: number; raw: string; drop?: number; back?: number };
+  const queue: Q[] = [];
+  const record: string[] = [];
   let now = 0;
   const done: (number | null)[][] = plan.map(() => []);
-  const devices = plan.map((p, d) => {
+  let gone = -1;
+  const device = (d: number, p: { mine: number[]; runs: number[] }) => {
     // The start goes through the real checks, as it would from the relay.
     const start = parseTableStart(JSON.stringify({ ...base, ...p }))!;
     expect(start).not.toBeNull();
     return new TableMatch(start, m => {
       const msg = opts.tamper ? opts.tamper(d, m) : m;
-      if (!msg) return;
+      if (!msg || d === gone) return;
       if (msg.t === 'tdone') { done[d]!.push(msg.winner); return; }
       if (msg.t === 'flag') return;
+      record.push(JSON.stringify(msg));
       for (let to = 0; to < plan.length; to++) if (to !== d) queue.push({ at: now + delay, to, raw: JSON.stringify(msg) });
     });
-  });
+  };
+  const devices = plan.map((p, d) => device(d, p));
   const people = new Map<number, Bot>(opts.devices.flat().map(s => [s, new Bot(BOT_SKILLS.hard, 1000 + s)]));
+  const deliver = (q: Q) => {
+    if (q.to === gone) return;
+    const dev = devices[q.to]!;
+    if (q.drop !== undefined) for (const s of plan[q.drop]!.mine) (q.to === opts.drop!.to ? dev.takeOver(s) : dev.away(s));
+    else if (q.back !== undefined) { for (const s of plan[q.back]!.mine) dev.handOver(s); }
+    else dev.receive(parseTableRaw(q.raw) as never);
+  };
   const run = (ticks: number) => {
-    for (let i = 0; i < ticks && !devices.every(d => d.result || d.flagged); i++, now++) {
+    for (let i = 0; i < ticks && !devices.every((d, n) => n === gone || d.result || d.flagged); i++, now++) {
+      const dr = opts.drop;
+      // A device drops: it stops. After its last moves, the relay tells everyone and one device plays its seats.
+      if (dr && now === dr.at) {
+        gone = dr.device;
+        for (let to = 0; to < plan.length; to++) if (to !== gone) queue.push({ at: now + delay, to, raw: '', drop: gone });
+      }
+      // It comes back as a fresh device: it catches up from the relay's record, then asks for its seats back.
+      if (dr?.back !== undefined && now === dr.back) {
+        const d = dr.device;
+        gone = -1;
+        for (let k = queue.length - 1; k >= 0; k--) if (queue[k]!.to === d) queue.splice(k, 1);
+        const fresh = device(d, { mine: [], runs: [] });
+        devices[d] = fresh;
+        for (const raw of record) fresh.receive(parseTableRaw(raw) as never);
+        for (const s of plan[d]!.mine) fresh.rejoin(s);
+        queue.push({ at: now + delay, to: dr.to, raw: '', back: d });
+      }
       devices.forEach((dev, d) => {
+        if (d === gone) return;
         const acts = new Map<number, Action[]>();
         for (const s of plan[d]!.mine) acts.set(s, people.get(s)!.act(dev.boards[s]!.state));
         dev.tick(acts);
       });
-      while (queue.length && queue[0]!.at <= now) { const q = queue.shift()!; devices[q.to]!.receive(parseTableRaw(q.raw) as never); }
+      while (queue.length && queue[0]!.at <= now) deliver(queue.shift()!);
     }
     // Whatever is still on its way arrives.
-    while (queue.length) { const q = queue.shift()!; devices[q.to]!.receive(parseTableRaw(q.raw) as never); }
+    while (queue.length) deliver(queue.shift()!);
   };
   return { devices, run, done, start: base as Omit<TableStart, 'mine' | 'runs'> };
 }
@@ -74,6 +110,31 @@ describe('online tables (2 to 4 seats)', { timeout: 30_000 }, () => {
     boardsMatch(devices);
     // Attacks really flew between boards.
     expect(devices[0]!.boards.reduce((n, b) => n + b.attacks.length, 0)).toBeGreaterThan(0);
+  });
+
+  it('a device that drops out: its board is played by the stand-in on another device, and everyone agrees', () => {
+    const { devices, run } = table({ devices: [[0], [1], [2]], delay: 6, drop: { device: 1, at: 1500, to: 2 } });
+    run(60 * 60 * 10);
+    const left = [devices[0]!, devices[2]!];
+    expect(left.map(d => d.flagged), JSON.stringify(left.map(d => d.flagged))).toEqual([null, null]);
+    expect(left[0]!.result).not.toBeNull();
+    expect(left[1]!.result).toEqual(left[0]!.result);
+    boardsMatch(left);
+    expect(devices[2]!.boards[1]!.local).toBe(true);
+    expect(devices[0]!.boards[1]!.state.tick).toBeGreaterThan(1600);
+  });
+
+  it('the dropped person comes back on a fresh device and takes their seat back from the stand-in', () => {
+    const { devices, run } = table({ devices: [[0], [1], [2]], delay: 6, drop: { device: 1, at: 1500, to: 2, back: 2400 } });
+    run(60 * 60 * 10);
+    expect(devices.map(d => d.flagged)).toEqual([null, null, null]);
+    expect(devices[0]!.result).not.toBeNull();
+    for (const d of devices) expect(d.result).toEqual(devices[0]!.result);
+    boardsMatch(devices);
+    // Seat 1 is played on device 1 again, not by the stand-in on device 2.
+    expect(devices[1]!.boards[1]!.local).toBe(true);
+    expect(devices[2]!.boards[1]!.local).toBe(false);
+    expect(devices[0]!.boards[1]!.handedAt?.length).toBe(1);
   });
 
   it('random targets are the same on every device', () => {
