@@ -354,9 +354,15 @@ export class TableMatch {
     const b = this.boards[s];
     if (!b || b.local || this.result) return;
     this.forgetAhead(b);
-    const d: Driver = { from: b.state.tick, kind: 'standin' };
-    b.drivers.push(d);
-    b.bot = { bot: driverBot(this.start, s, d), d };
+    // A computer's board, or one a stand-in already plays (its device dropped too): the same
+    // player carries on here (this device has been checking it move by move, so it's in step).
+    const now = this.driving(b);
+    if (now) { if (b.bot?.d !== now) b.bot = { bot: driverBot(this.start, s, now), d: now }; }
+    else {
+      const d: Driver = { from: b.state.tick, kind: 'standin' };
+      b.drivers.push(d);
+      b.bot = { bot: driverBot(this.start, s, d), d };
+    }
     b.local = true;
     b.sentLog = b.state.log.length;
     // Attacks already aimed at it but not taken yet come to it now (later ones as they're worked out).
@@ -378,7 +384,13 @@ export class TableMatch {
     const b = this.boards[s];
     if (!b || b.local) return;
     this.forgetAhead(b);
-    b.drivers.push({ from: b.clock, kind: 'standin' });
+    if (!this.driving(b)) b.drivers.push({ from: b.clock, kind: 'standin' });
+  }
+
+  /** The computer or stand-in playing a board at its current tick, if one is. */
+  private driving(b: Board): Driver | null {
+    const t = b.state.tick;
+    return [...b.drivers].reverse().find(x => x.from <= t && (x.kind === 'cpu' || this.standInAt(b, x, t))) ?? null;
   }
 
   private forgetAhead(b: Board) {

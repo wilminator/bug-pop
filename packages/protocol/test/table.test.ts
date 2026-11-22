@@ -48,7 +48,7 @@ function table(opts: {
   const deliver = (q: Q) => {
     if (q.to === gone) return;
     const dev = devices[q.to]!;
-    if (q.drop !== undefined) for (const s of plan[q.drop]!.mine) (q.to === opts.drop!.to ? dev.takeOver(s) : dev.away(s));
+    if (q.drop !== undefined) for (const s of [...plan[q.drop]!.mine, ...plan[q.drop]!.runs]) (q.to === opts.drop!.to ? dev.takeOver(s) : dev.away(s));
     else if (q.back !== undefined) { for (const s of plan[q.back]!.mine) dev.handOver(s); }
     else dev.receive(parseTableRaw(q.raw) as never);
   };
@@ -135,6 +135,19 @@ describe('online tables (2 to 4 seats)', { timeout: 30_000 }, () => {
     expect(devices[1]!.boards[1]!.local).toBe(true);
     expect(devices[2]!.boards[1]!.local).toBe(false);
     expect(devices[0]!.boards[1]!.handedAt?.length).toBe(1);
+  });
+
+  it('the device running the computer drops: another device carries the computer on, in step', () => {
+    const { devices, run } = table({ devices: [[0], [1], [2]], cpus: [3], delay: 6, drop: { device: 0, at: 1200, to: 1 } });
+    run(60 * 60 * 10);
+    const left = [devices[1]!, devices[2]!];
+    expect(left.map(d => d.flagged)).toEqual([null, null]);
+    expect(left[0]!.result).not.toBeNull();
+    expect(left[1]!.result).toEqual(left[0]!.result);
+    boardsMatch(left);
+    expect(devices[1]!.boards[3]!.local).toBe(true);
+    expect(devices[1]!.boards[3]!.drivers.map(d => d.kind)).toEqual(['cpu']);
+    expect(devices[1]!.boards[0]!.drivers.map(d => d.kind)).toEqual(['standin']);
   });
 
   it('random targets are the same on every device', () => {

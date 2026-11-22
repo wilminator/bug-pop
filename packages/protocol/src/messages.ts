@@ -42,7 +42,7 @@ export const COUNTDOWN_MS = 3000;
  * `room: 'new'` opens a room and the relay answers with its code; a 4-letter code joins that room.
  * (The reference relay has quick match only and refuses rooms.)
  */
-export type Hello = { t: 'hello'; v: number; level: number; speed: Speed; room?: string; power?: boolean };
+export type Hello = { t: 'hello'; v: number; level: number; speed: Speed; room?: string; power?: boolean; people?: string[] };
 /**
  * My choices on the match settings card, sent whenever one changes: my level and speed, whether I
  * want power-ups (they're on only if both players want them, Mike 2026-11-22), and Ready.
@@ -148,6 +148,11 @@ export function parseClient(raw: string): ClientMsg | null {
       if (!int(m.v, 0, 1000) || !int(m.level, 1, 100) || !speed(m.speed)) return null;
       if (m.power !== undefined && typeof m.power !== 'boolean') return null;
       const hello: Hello = { t: 'hello', v: m.v, level: m.level, speed: m.speed, ...(m.power ? { power: true } : {}) };
+      // Protocol 5 rooms: up to 3 more people playing on this device, by the names typed on it.
+      if (m.people !== undefined) {
+        if (!Array.isArray(m.people) || m.people.length > MAX_PER_DEVICE - 1 || !m.people.every(n => typeof n === 'string' && n.trim())) return null;
+        hello.people = (m.people as string[]).map(n => n.trim().slice(0, 40));
+      }
       if (m.room === undefined) return hello;
       return typeof m.room === 'string' && ROOM_CODE.test(m.room) ? { ...hello, room: m.room } : null;
     }
@@ -328,4 +333,225 @@ export function parseTableStart(raw: string): TableStart | null {
     t: 'tstart', table: m.table, seed: m.seed, botSeed: m.botSeed, colors: m.colors, rule: m.rule as OnlineRule, target: m.target as Target, power: m.power,
     seats: list as SeatInfo[], mine, runs, round: m.round, wins: m.wins as number[],
   };
+}
+
+// ---- Rooms (protocol 5, Mike 2026-11-22) -----------------------------------------------------
+//
+// Friends gather in a room of up to 16 people; a device may bring up to 4 of them (people sharing
+// a phone or tablet). The room's owner (whoever made it) sets the room rules; every game in the
+// room uses them, and they can't change while a game is going. Two ways to play:
+//   Open pool: anyone not playing starts a game of 2 to 4; seats left over get computers at the
+//     people's average. Between rounds the rotation picks who plays next. Several games at once.
+//   Tournament: always 1 against 1, up to two games at once, everyone else watches.
+// Each person can give up their seat or say Watch only at any time, and take a computer's seat.
+// Every device can watch any game: it rebuilds every board from the moves, like the players do.
+
+/** At most this many people in a room, and on one device. */
+export const MAX_ROOM = 16;
+export const MAX_PER_DEVICE = 4;
+/** Who plays the next round of a game: the winner keeps their seat, or a draw that favours who sat out. */
+export type Rotation = 'winner' | 'random';
+/** Tournament kinds: a bracket of best-of-3 matches, a bracket of single games, or out at 2 losses. */
+export type TourKind = 'best3' | 'single' | 'double';
+export type RoomRules = {
+  mode: 'pool' | 'tour';
+  /** How a game is won (a tournament's best3 plays rounds of 'race'). */
+  rule: OnlineRule;
+  rotation: Rotation;
+  target: Target;
+  colors: number;
+  tour: TourKind;
+  /** Tournament level and speed: the same for everyone (below), or each player chooses. */
+  tourLevels: 'same' | 'choose';
+  level: number;
+  speed: Speed;
+};
+export const DEFAULT_RULES: RoomRules = { mode: 'pool', rule: 'race', rotation: 'winner', target: 'leader', colors: 3, tour: 'single', tourLevels: 'choose', level: 5, speed: 1 };
+
+// Client to server, in a room. People are named by `pid`, which the server hands out.
+/** The owner changes the room rules (refused while a game is going). */
+export type SetRules = { t: 'rrules'; rules: RoomRules };
+/** Add someone else on this device (a name typed on it), or take them out of the room. */
+export type AddPerson = { t: 'radd'; name: string };
+export type DropPerson = { t: 'rdel'; pid: string };
+/** `by` starts a new game of `size` seats in the open pool. */
+export type NewGame = { t: 'rnew'; by: string; size: number };
+/** Watch only (never picked to play), or not. */
+export type WatchOnly = { t: 'rwatch'; pid: string; watch: boolean };
+/** Give up my seat: from the next round someone else (or a computer) plays it. */
+export type GiveUp = { t: 'rfree'; pid: string };
+/** Take a computer's seat `s` at game `g`, from its next round. */
+export type TakeSeat = { t: 'rtake'; pid: string; g: number; s: number };
+/** Which game this device watches (it gets that game's moves), or none. */
+export type View = { t: 'rview'; g: number | null };
+/** The owner starts the tournament with everyone not on Watch only. */
+export type StartTour = { t: 'rtour' };
+/** A person's choices on a game's settings card (like 'set'). */
+export type GameSet = { t: 'gset'; g: number; pid: string; level: number; speed: Speed; power: boolean; ready: boolean };
+/** A table message for game `g` (moves, takes, hand-backs, my result). */
+export type GameMsg = { t: 'g'; g: number; m: TableMsg | TableDone | Flag };
+export type RoomClientMsg = SetRules | AddPerson | DropPerson | NewGame | WatchOnly | GiveUp | TakeSeat | View | StartTour | GameSet | GameMsg | Quit;
+
+// Server to client, in a room.
+export type RoomPerson = { pid: string; name: string; mine: boolean; watch: boolean; here: boolean; game: number | null };
+export type RoomSeat = { name: string; pid?: string; cpu?: BotName };
+export type RoomGame = { g: number; seats: RoomSeat[]; round: number; wins: number[]; phase: 'lobby' | 'playing'; tour: boolean };
+export type TourPlayer = { pid: string; name: string; wins: number; losses: number; out: boolean };
+export type TourMatch = { a: string; b: string; winner: string | null; g: number | null; round: number };
+export type TourInfo = { kind: TourKind; players: TourPlayer[]; matches: TourMatch[]; champion: string | null };
+/** Everything about the room, sent whenever it changes. */
+export type RoomState = { t: 'rstate'; code: string; owner: string; rules: RoomRules; people: RoomPerson[]; games: RoomGame[]; tour: TourInfo | null };
+export type LobbySeat = { name: string; level: number; speed: Speed; power: boolean; ready: boolean; pid?: string; cpu?: BotName };
+/** A game's settings card before each round (like 'lobby'). */
+export type GameLobby = { t: 'globby'; g: number; round: number; wins: number[]; seats: LobbySeat[]; startsIn: number };
+/** A dropped device's seat: `you` play it with the stand-in from here (takeOver), or someone else does (away). */
+export type GameDrop = { t: 'gdrop'; g: number; s: number; you: boolean };
+/** The person is back: stop the stand-in on seat `s` and hand it over (handOver). */
+export type GameBack = { t: 'gback'; g: number; s: number };
+/** One step of a game's record, for a device catching up: a table message or a seat dropping. */
+export type RecordStep = TableMsg | { t: 'drop'; s: number };
+/** Catch up on a game in progress (joining late, watching, or coming back); then claim `claim` seats. */
+export type GameCatchUp = { t: 'gcatch'; g: number; start: TableStart; steps: RecordStep[]; claim: number[] };
+export type GameEnd = { t: 'gend'; g: number; why: 'result' | 'flag' | 'disagree' | 'empty'; winner: number | null };
+export type RoomServerMsg = RoomState | GameLobby | TableStart | GameMsg | GameDrop | GameBack | GameCatchUp | GameEnd | Refused;
+
+const PID = /^p[0-9]{1,4}$/;
+const pid = (x: unknown): x is string => typeof x === 'string' && PID.test(x);
+const gameNo = (x: unknown): x is number => int(x, 0, 1_000_000);
+const botName = (x: unknown): x is BotName => x === 'easy' || x === 'medium' || x === 'hard';
+const name40 = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim().slice(0, 40) : null);
+
+/** Read room rules, or null. */
+export function parseRules(x: unknown): RoomRules | null {
+  const m = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
+  if (!m || (m.mode !== 'pool' && m.mode !== 'tour') || !RULES.includes(m.rule) || (m.rotation !== 'winner' && m.rotation !== 'random')) return null;
+  if (!TARGETS.includes(m.target as Target) || !int(m.colors, 2, 5) || (m.tour !== 'best3' && m.tour !== 'single' && m.tour !== 'double')) return null;
+  if ((m.tourLevels !== 'same' && m.tourLevels !== 'choose') || !int(m.level, 1, 100) || !speed(m.speed)) return null;
+  return { mode: m.mode, rule: m.rule as OnlineRule, rotation: m.rotation, target: m.target as Target, colors: m.colors, tour: m.tour, tourLevels: m.tourLevels, level: m.level, speed: m.speed };
+}
+
+/** Read a room message from a client, or null. */
+export function parseRoomClient(raw: string): RoomClientMsg | null {
+  const m = obj(raw);
+  switch (m?.t) {
+    case 'rrules': { const rules = parseRules(m.rules); return rules && { t: 'rrules', rules }; }
+    case 'radd': { const n = name40(m.name); return n ? { t: 'radd', name: n } : null; }
+    case 'rdel': return pid(m.pid) ? { t: 'rdel', pid: m.pid } : null;
+    case 'rnew': return pid(m.by) && int(m.size, 2, MAX_SEATS) ? { t: 'rnew', by: m.by, size: m.size } : null;
+    case 'rwatch': return pid(m.pid) && typeof m.watch === 'boolean' ? { t: 'rwatch', pid: m.pid, watch: m.watch } : null;
+    case 'rfree': return pid(m.pid) ? { t: 'rfree', pid: m.pid } : null;
+    case 'rtake': return pid(m.pid) && gameNo(m.g) && seatNo(m.s) ? { t: 'rtake', pid: m.pid, g: m.g, s: m.s } : null;
+    case 'rview': return m.g === null || gameNo(m.g) ? { t: 'rview', g: m.g as number | null } : null;
+    case 'rtour': return { t: 'rtour' };
+    case 'gset':
+      return gameNo(m.g) && pid(m.pid) && int(m.level, 1, 100) && speed(m.speed) && typeof m.power === 'boolean' && typeof m.ready === 'boolean'
+        ? { t: 'gset', g: m.g, pid: m.pid, level: m.level, speed: m.speed, power: m.power, ready: m.ready } : null;
+    case 'g': {
+      if (!gameNo(m.g)) return null;
+      const q = m.m && typeof m.m === 'object' ? (m.m as Record<string, unknown>) : null;
+      if (q?.t === 'flag') return typeof q.why === 'string' ? { t: 'g', g: m.g, m: { t: 'flag', why: q.why.slice(0, 200) } } : null;
+      const inner = parseTable(q);
+      return inner && { t: 'g', g: m.g, m: inner };
+    }
+    case 'quit': return { t: 'quit' };
+    default: return null;
+  }
+}
+
+function lobbySeat(x: unknown): LobbySeat | null {
+  const q = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
+  const n = q && name40(q.name);
+  if (!q || !n || !int(q.level, 1, 100) || !speed(q.speed) || typeof q.power !== 'boolean' || typeof q.ready !== 'boolean') return null;
+  if ((q.pid !== undefined && !pid(q.pid)) || (q.cpu !== undefined && !botName(q.cpu))) return null;
+  return { name: n, level: q.level, speed: q.speed, power: q.power, ready: q.ready, ...(q.pid ? { pid: q.pid as string } : {}), ...(q.cpu ? { cpu: q.cpu as BotName } : {}) };
+}
+
+function roomState(m: Record<string, unknown>): RoomState | null {
+  const rules = parseRules(m.rules);
+  if (!rules || typeof m.code !== 'string' || !/^[A-Z]{4}$/.test(m.code) || !pid(m.owner)) return null;
+  const list = (x: unknown) => (Array.isArray(x) ? (x as unknown[]).map(v => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {})) : null);
+  const people = list(m.people), games = list(m.games);
+  if (!people || people.length > MAX_ROOM || !games || games.length > MAX_ROOM) return null;
+  const ps: RoomPerson[] = [];
+  for (const p of people) {
+    const n = name40(p.name);
+    if (!pid(p.pid) || !n || typeof p.mine !== 'boolean' || typeof p.watch !== 'boolean' || typeof p.here !== 'boolean' || !(p.game === null || gameNo(p.game))) return null;
+    ps.push({ pid: p.pid, name: n, mine: p.mine, watch: p.watch, here: p.here, game: p.game as number | null });
+  }
+  const gs: RoomGame[] = [];
+  for (const g of games) {
+    const seats = list(g.seats);
+    if (!gameNo(g.g) || !seats || seats.length < 2 || seats.length > MAX_SEATS || !int(g.round, 1, 100) || (g.phase !== 'lobby' && g.phase !== 'playing') || typeof g.tour !== 'boolean') return null;
+    if (!Array.isArray(g.wins) || g.wins.length !== seats.length || !g.wins.every(w => int(w, 0, 100))) return null;
+    const ss: RoomSeat[] = [];
+    for (const s of seats) {
+      const n = name40(s.name);
+      if (!n || (s.pid !== undefined && !pid(s.pid)) || (s.cpu !== undefined && !botName(s.cpu))) return null;
+      ss.push({ name: n, ...(s.pid ? { pid: s.pid as string } : {}), ...(s.cpu ? { cpu: s.cpu as BotName } : {}) });
+    }
+    gs.push({ g: g.g, seats: ss, round: g.round, wins: g.wins as number[], phase: g.phase, tour: g.tour });
+  }
+  let tour: TourInfo | null = null;
+  if (m.tour !== null) {
+    const t = m.tour && typeof m.tour === 'object' ? (m.tour as Record<string, unknown>) : null;
+    const players = list(t?.players), matches = list(t?.matches);
+    if (!t || (t.kind !== 'best3' && t.kind !== 'single' && t.kind !== 'double') || !players || !matches || !(t.champion === null || pid(t.champion))) return null;
+    const tp: TourPlayer[] = [];
+    for (const p of players) {
+      const n = name40(p.name);
+      if (!pid(p.pid) || !n || !int(p.wins, 0, 1000) || !int(p.losses, 0, 1000) || typeof p.out !== 'boolean') return null;
+      tp.push({ pid: p.pid, name: n, wins: p.wins, losses: p.losses, out: p.out });
+    }
+    const tm: TourMatch[] = [];
+    for (const x of matches) {
+      if (!pid(x.a) || !pid(x.b) || !(x.winner === null || pid(x.winner)) || !(x.g === null || gameNo(x.g)) || !int(x.round, 1, 100)) return null;
+      tm.push({ a: x.a, b: x.b, winner: x.winner as string | null, g: x.g as number | null, round: x.round });
+    }
+    tour = { kind: t.kind, players: tp, matches: tm, champion: t.champion as string | null };
+  }
+  return { t: 'rstate', code: m.code, owner: m.owner, rules, people: ps, games: gs, tour };
+}
+
+/** Read a room message from the server, or null. */
+export function parseRoomServer(raw: string): RoomServerMsg | null {
+  const m = obj(raw, MAX_RESUME_BYTES);
+  switch (m?.t) {
+    case 'rstate': return roomState(m);
+    case 'globby': {
+      const seats = Array.isArray(m.seats) ? m.seats.map(lobbySeat) : null;
+      if (!gameNo(m.g) || !int(m.round, 1, 100) || !int(m.startsIn, 0, 60_000) || !seats || seats.length < 2 || seats.length > MAX_SEATS || !seats.every(Boolean)) return null;
+      if (!Array.isArray(m.wins) || m.wins.length !== seats.length || !m.wins.every(w => int(w, 0, 100))) return null;
+      return { t: 'globby', g: m.g, round: m.round, wins: m.wins as number[], seats: seats as LobbySeat[], startsIn: m.startsIn };
+    }
+    case 'tstart': return parseTableStart(raw);
+    case 'g': {
+      if (!gameNo(m.g)) return null;
+      const q = m.m && typeof m.m === 'object' ? (m.m as Record<string, unknown>) : null;
+      if (q?.t === 'flag') return typeof q.why === 'string' ? { t: 'g', g: m.g, m: { t: 'flag', why: q.why.slice(0, 200) } } : null;
+      const inner = parseTable(q);
+      return inner && { t: 'g', g: m.g, m: inner };
+    }
+    case 'gdrop': return gameNo(m.g) && seatNo(m.s) && typeof m.you === 'boolean' ? { t: 'gdrop', g: m.g, s: m.s, you: m.you } : null;
+    case 'gback': return gameNo(m.g) && seatNo(m.s) ? { t: 'gback', g: m.g, s: m.s } : null;
+    case 'gcatch': {
+      const st = m.start && typeof m.start === 'object' ? parseTableStart(JSON.stringify(m.start)) : null;
+      if (!gameNo(m.g) || !st || !Array.isArray(m.steps) || !Array.isArray(m.claim) || !m.claim.every(seatNo)) return null;
+      const steps: RecordStep[] = [];
+      for (const x of m.steps) {
+        const q = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
+        if (q?.t === 'drop') { if (!seatNo(q.s)) return null; steps.push({ t: 'drop', s: q.s }); continue; }
+        const tm = parseTable(q);
+        if (!tm || tm.t === 'tdone') return null;
+        steps.push(tm);
+      }
+      return { t: 'gcatch', g: m.g, start: st, steps, claim: m.claim as number[] };
+    }
+    case 'gend': {
+      const why = m.why;
+      return gameNo(m.g) && (why === 'result' || why === 'flag' || why === 'disagree' || why === 'empty') && (m.winner === null || seatNo(m.winner))
+        ? { t: 'gend', g: m.g, why, winner: m.winner as number | null } : null;
+    }
+    case 'error': return typeof m.why === 'string' ? { t: 'error', why: m.why.slice(0, 200) } : null;
+    default: return null;
+  }
 }
