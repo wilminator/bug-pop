@@ -14,6 +14,7 @@ import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt, lookNoticeSeen, markLookNotice } from './storage';
 import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
+import { scanRoom } from './scan';
 import { Versus, initSetupForm, lastOnline, readSetup, refreshSetupForm, rememberOnline } from './versus';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
@@ -663,6 +664,25 @@ async function main() {
   const code = $<HTMLInputElement>('vsCode');
   code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });
   $('vsJoin').addEventListener('click', () => { if (/^[A-Z]{4}$/.test(code.value)) goOnline(code.value); else code.focus(); });
+  // Scan a friend's room QR code right here (an iPhone's Camera app would open Safari instead).
+  let scanning: { stop: () => void } | null = null;
+  const closeScan = () => { scanning?.stop(); scanning = null; $('scanScreen').hidden = true; };
+  $('scanCancel').addEventListener('click', () => { audio.play('select'); closeScan(); });
+  $('vsScan').addEventListener('click', () => {
+    audio.play('select');
+    $('scanText').textContent = "Point the camera at the QR code on your friend's screen.";
+    $('scanScreen').hidden = false;
+    const s = scanRoom($<HTMLVideoElement>('scanVideo'));
+    scanning = s;
+    s.found.then(room => {
+      if (scanning !== s) return;
+      closeScan();
+      if (room) { code.value = room; goOnline(room); }
+    }, () => {
+      if (scanning !== s) return;
+      $('scanText').textContent = "The camera isn't available. Allow camera access for this site, or type the 4 letters under Room code instead.";
+    });
+  });
   $('vsStart').addEventListener('click', () => {
     audio.unlock();
     audio.play('select');

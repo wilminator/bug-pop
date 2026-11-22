@@ -12,6 +12,7 @@
   "dependencies": {
     "@bug-pop/engine": "0.1.0",
     "@bug-pop/protocol": "0.1.0",
+    "jsqr": "1.4.0",
     "qrcode-generator": "1.4.4"
   }
 }

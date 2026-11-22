@@ -194,6 +194,7 @@
           <button id="vsCreate">Create a room</button>
           <label>Room code <input id="vsCode" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" /></label>
           <button id="vsJoin">Join a room</button>
+          <button id="vsScan">Scan a room QR code</button>
           </div>
         </div>
       </div>
@@ -442,6 +443,16 @@
     </section>
 
     <!-- Multiplayer: the leave question, and the round / match result. The game keeps running behind "Leave?". -->
+    <!-- Scanning a friend's room QR code with the camera (src/scan.ts). -->
+    <section id="scanScreen" class="overlay" hidden>
+      <div class="card scan-card">
+        <h2>Scan a room code</h2>
+        <video id="scanVideo" muted playsinline aria-label="Camera"></video>
+        <p id="scanText" class="tag">Point the camera at the QR code on your friend's screen.</p>
+        <button id="scanCancel">Cancel</button>
+      </div>
+    </section>
+
     <section id="vsCard" class="overlay" hidden>
       <div class="card">
         <h2 id="vsCardTitle"></h2>

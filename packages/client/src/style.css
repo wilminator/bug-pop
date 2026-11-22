@@ -303,3 +303,6 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .vs-waiting::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: vs-dots 1.5s steps(4, end) infinite; }
 @keyframes vs-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
 @media (prefers-reduced-motion: reduce) { .vs-waiting::after { animation: none; content: '...'; } }
+
+/* Scanning a room QR code: the camera picture in a square. */
+.scan-card video { width: min(320px, 75vw); aspect-ratio: 1; object-fit: cover; border-radius: 12px; background: #000; display: block; margin: 0 auto 1rem; }
