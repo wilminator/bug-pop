@@ -1,11 +1,11 @@
 // Online versus without a network: two OnlineMatch sides joined by a fake relay with a delay.
 import { describe, expect, it } from 'vitest';
 import { Bot, BOT_SKILLS, replay, type Action } from '@bug-pop/engine';
-import { OnlineMatch, parseClient, parseServer, seatConfig, type ClientMsg, type Start } from '../src';
+import { OnlineMatch, parseClient, parseServer, seatConfig, type ClientMsg, type SeatLog, type Start } from '../src';
 
 const start = (seat: 0 | 1, seed = 4242, rule: 'race' | 'last' = 'race'): Start => ({
   t: 'start', seat, seed, colors: 3, rule,
-  players: [{ level: 3, speed: 1, name: 'Ann' }, { level: 5, speed: 2, name: 'Bo' }],
+  players: [{ level: 3, speed: 1, name: 'Ann' }, { level: 5, speed: 2, name: 'Bo' }], round: 1, wins: [0, 0],
 });
 
 /** Messages travel through JSON and arrive `delay` ticks later, like a real connection. */
@@ -15,23 +15,33 @@ function pair(opts: { delay?: number; seed?: number; rule?: 'race' | 'last'; tam
   let now = 0;
   const sides: OnlineMatch[] = [];
   const done: (ClientMsg & { t: 'done' })[][] = [[], []];
-  for (const seat of [0, 1] as const) {
-    sides[seat] = new OnlineMatch(start(seat, opts.seed, opts.rule), m => {
-      const msg = opts.tamper ? opts.tamper(seat, m) : m;
-      if (!msg) return;
-      if (msg.t === 'done') done[seat]!.push(msg);
-      // The relay checks each message and passes moves and attacks taken to the other player.
-      const checked = parseClient(JSON.stringify(msg));
-      if (checked && (checked.t === 'in' || checked.t === 'took')) queue.push({ at: now + delay, to: (1 - seat) as 0 | 1, raw: JSON.stringify(checked) });
-    });
-  }
+  // What the relay keeps of each seat, as the hosted relay does (for rejoining).
+  const logs: SeatLog[] = [{ moves: [], took: [], clock: 0 }, { moves: [], took: [], clock: 0 }];
+  const relay = (seat: 0 | 1) => (m: ClientMsg) => {
+    const msg = opts.tamper ? opts.tamper(seat, m) : m;
+    if (!msg) return;
+    if (msg.t === 'done') done[seat]!.push(msg);
+    // The relay checks each message and passes moves and attacks taken to the other player.
+    const checked = parseClient(JSON.stringify(msg));
+    if (checked?.t === 'in') { logs[seat]!.moves.push(...checked.a); logs[seat]!.clock = checked.k; }
+    if (checked?.t === 'took') logs[seat]!.took.push({ k: checked.k, n: checked.n, r: checked.r });
+    if (checked && (checked.t === 'in' || checked.t === 'took')) queue.push({ at: now + delay, to: (1 - seat) as 0 | 1, raw: JSON.stringify(checked) });
+  };
+  for (const seat of [0, 1] as const) sides[seat] = new OnlineMatch(start(seat, opts.seed, opts.rule), relay(seat));
   const run = (ticks: number, act: (seat: 0 | 1, m: OnlineMatch) => Action[]) => {
     for (let i = 0; i < ticks && !(sides[0]!.result && sides[1]!.result); i++, now++) {
       for (const seat of [0, 1] as const) sides[seat]!.tick(act(seat, sides[seat]!));
       while (queue.length && queue[0]!.at <= now) { const q = queue.shift()!; sides[q.to]!.receive(parseServer(q.raw)); }
     }
   };
-  return { a: sides[0]!, b: sides[1]!, run, done };
+  const clone = (l: SeatLog): SeatLog => JSON.parse(JSON.stringify(l)) as SeatLog;
+  /** Seat 1 drops out (its unsent moves are lost) and comes back, rebuilt from the relay's logs. */
+  const rejoin = () => {
+    queue.splice(0, queue.length, ...queue.filter(q => q.to !== 1)); // what was on its way to them is gone too
+    sides[1] = OnlineMatch.rebuild(start(1, opts.seed, opts.rule), relay(1), clone(logs[1]!), clone(logs[0]!));
+    return sides[1];
+  };
+  return { a: sides[0]!, b: sides[1]!, sides, run, done, rejoin };
 }
 
 describe('online match', () => {
@@ -60,6 +70,33 @@ describe('online match', () => {
     expect(took).toBeGreaterThan(0);
     expect(a.flagged ?? b.flagged).toBeNull();
     expect(a.them.board).toEqual(b.me.board);
+  });
+
+  it('a player who drops out and rejoins is rebuilt exactly and plays on', () => {
+    const { sides, run, done, rejoin } = pair({ delay: 5, seed: 9 });
+    const bots = [new Bot(BOT_SKILLS.hard, 5), new Bot(BOT_SKILLS.medium, 6)];
+    run(60 * 30, (seat, m) => bots[seat]!.act(m.me));
+    const b = rejoin();
+    // The rebuilt board is the board seat 0 has been watching.
+    expect(b.me.board).toEqual(sides[0]!.them.board);
+    run(60 * 60 * 8, (seat, m) => bots[seat]!.act(m.me));
+    expect(sides[0]!.me.versus!.received.length + b.me.versus!.received.length).toBeGreaterThan(0);
+    expect(sides[0]!.flagged).toBeNull();
+    expect(b.flagged).toBeNull();
+    expect(sides[0]!.result).not.toBeNull();
+    expect(sides[0]!.result).toEqual(b.result);
+    expect(done[0]!.at(-1)!.winner).toBe(done[1]!.at(-1)!.winner);
+    expect(sides[0]!.them.board).toEqual(b.me.board);
+  });
+
+  it('rounds and rejoins come through the relay intact', () => {
+    const st = start(1);
+    expect(parseServer(JSON.stringify(st))).toEqual(st);
+    expect(parseServer(JSON.stringify({ ...st, rule: 'best3', round: 2, wins: [1, 0] }))).toMatchObject({ rule: 'best3', round: 2, wins: [1, 0] });
+    const log: SeatLog = { moves: [8, 17], took: [{ k: 40, n: 2, r: 30 }], clock: 50 };
+    expect(parseServer(JSON.stringify({ t: 'resume', start: st, mine: log, theirs: log }))).toEqual({ t: 'resume', start: st, mine: log, theirs: log });
+    expect(parseServer(JSON.stringify({ t: 'resume', start: st, mine: { ...log, clock: -1 }, theirs: log }))).toBeNull();
+    expect(parseServer('{"t":"away","seconds":60}')).toEqual({ t: 'away', seconds: 60 });
   });
 
   it('a player who quietly ignores attacks is flagged', () => {

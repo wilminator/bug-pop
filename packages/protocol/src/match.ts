@@ -11,7 +11,7 @@
 // them, on time and unchanged. A broken rule raises a flag (sent to the relay, and onFlag).
 
 import { createGame, receiveAttack, step, ACTIONS, type Action, type Attack, type GameConfig, type GameEvent, type GameState } from '@bug-pop/engine';
-import { MAX_ACTIONS_PER_TICK, SEND_EVERY, type ClientMsg, type ServerMsg, type Start } from './messages';
+import { MAX_ACTIONS_PER_TICK, SEND_EVERY, type ClientMsg, type SeatLog, type ServerMsg, type Start } from './messages';
 
 /**
  * How far apart the two players' tick clocks may be when an attack lands. Both clocks start when
@@ -62,6 +62,38 @@ export class OnlineMatch {
     this.seat = start.seat;
     this.me = createGame(seatConfig(start, start.seat));
     this.them = createGame(seatConfig(start, (1 - start.seat) as Seat));
+  }
+
+  /**
+   * Rebuild a round in progress from both seats' logs (rejoining after a disconnect, or the
+   * relay's stand-in computer taking over a board). The result is exactly the match the
+   * original device had: same boards, same attacks owed, same clocks. Then play on with tick().
+   */
+  static rebuild(start: Start, send: (m: ClientMsg) => void, mine: SeatLog, theirs: SeatLog): OnlineMatch {
+    const m = new OnlineMatch(start, () => undefined);
+    const moves = new Map<number, Action[]>();
+    for (const code of mine.moves) {
+      const a = ACTIONS[code % 8];
+      if (!a) continue;
+      const t = Math.floor(code / 8);
+      moves.set(t, [...(moves.get(t) ?? []), a]);
+    }
+    // My board, tick by tick, taking each attack at the tick I took it before.
+    const took = [...mine.took];
+    while (m.ticks < mine.clock) {
+      while (took.length && took[0]!.k <= m.me.tick) { const t = took.shift()!; m.incoming.push({ n: t.n, r: t.r }); }
+      m.tick(moves.get(m.me.tick) ?? []);
+    }
+    // Their board, from what they sent: the attacks they took, then their moves.
+    for (const t of theirs.took) m.onTook(t.k, t.n, t.r);
+    m.receive({ t: 'in', k: theirs.clock, a: theirs.moves });
+    // Their attacks I already took are done; any after those are still on their way to me.
+    m.incoming = m.incoming.slice(mine.took.length);
+    m.sentLog = m.me.log.length;
+    m.lastSend = m.ticks;
+    m.send = send;
+    if (m.result) send({ t: 'done', winner: m.result.winner });
+    return m;
   }
 
   /** My clock: ticks played since the start. */

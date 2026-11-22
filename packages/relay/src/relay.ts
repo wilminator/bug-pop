@@ -63,7 +63,7 @@ export function startRelay(opts: RelayOptions = {}) {
           { level: other.hello.level, speed: other.hello.speed, name: 'Player 1' },
           { level: me.hello.level, speed: me.hello.speed, name: 'Player 2' },
         ];
-        for (const p of match.players) send(p.ws, { t: 'start', seat: p.seat, seed, colors: COLORS, rule: 'race', players });
+        for (const p of match.players) send(p.ws, { t: 'start', seat: p.seat, seed, colors: COLORS, rule: 'race', players, round: 1, wins: [0, 0] });
         log('match started');
         return;
       }
@@ -73,6 +73,7 @@ export function startRelay(opts: RelayOptions = {}) {
       switch (msg.t) {
         case 'in': case 'took': send(other.ws, msg); break; // passed on as checked, nothing added
         case 'flag': end(match, 'flag', null); break;
+        case 'quit': end(match, 'left', (1 - me.seat) as 0 | 1); break;
         case 'done': {
           me.done = msg.winner;
           if (other.done === undefined) break;

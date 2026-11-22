@@ -18,7 +18,7 @@ import {
   BOT_SKILLS, BOARD_WIDTH, Bot, TICKS_PER_SECOND, createGame, receiveAttack, step, waitingHalves,
   type BotLevel, type GameEvent, type GameState, type Speed,
 } from '@bug-pop/engine';
-import { OnlineMatch, PROTOCOL_VERSION, parseServer, type ServerMsg } from '@bug-pop/protocol';
+import { OnlineMatch, PROTOCOL_VERSION, parseServer, type ClientMsg, type ServerMsg } from '@bug-pop/protocol';
 import type { AudioManager } from './audio';
 import { InputManager } from './input';
 import { computeLayout, FLOAT_MS, LEAVE_MS, ARRIVE_MS, render, type Float, type Layout, type Leaver } from './render';
@@ -282,7 +282,9 @@ export class Versus {
   private stage = $('vsStage');
   private card = $('vsCard');
   /** Online: the connection, the match once it starts, and how we joined (for Play again). */
-  private net: { ws: WebSocket; match: OnlineMatch | null; join: OnlineJoin; t0: number; over: boolean } | null = null;
+  private net: { ws: WebSocket; match: OnlineMatch | null; join: OnlineJoin; t0: number; over: boolean; tries: number } | null = null;
+  /** The rule line above the boards online (also shows when the other player dropped out). */
+  private netRule = '';
 
   constructor(private deps: VersusDeps) {
     const make = (i: number): Side => {
@@ -411,12 +413,12 @@ export class Versus {
   get canPlayOnline() { return !!this.deps.playUrl; }
 
   /** Connect and wait for an opponent (quick match), or open or join a room. */
-  startOnline(join: OnlineJoin) {
+  startOnline(join: OnlineJoin, tries = 0) {
     this.closeNet();
     const url = new URL(this.deps.playUrl!, location.href);
     url.protocol = url.protocol === 'https:' ? 'wss:' : url.protocol === 'http:' ? 'ws:' : url.protocol;
     const ws = new WebSocket(url);
-    const net = { ws, match: null as OnlineMatch | null, join, t0: 0, over: false };
+    const net = { ws, match: null as OnlineMatch | null, join, t0: 0, over: false, tries };
     this.net = net;
     this.setup = { rule: 'race', colors: 3, target: 'leader', players: [{ level: join.level, speed: join.speed, control: 'any', bot: null }, { level: 1, speed: 1, control: 'remote', bot: null }] };
     for (const s of this.sides) { s.state = null; s.wins = 0; s.quiet = false; s.input.accept = () => false; s.input.reset(); }
@@ -427,19 +429,23 @@ export class Versus {
     cancelAnimationFrame(this.raf);
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.frame);
-    this.showCard('Connecting...', 'Reaching the game server.', ['vsMenu']);
+    this.showCard(tries ? 'Reconnecting...' : 'Connecting...', tries ? 'The computer plays your board until you are back.' : 'Reaching the game server.', ['vsMenu']);
     ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, level: join.level, speed: join.speed, ...(join.room ? { room: join.room } : {}) })));
     ws.addEventListener('message', e => { if (this.net === net) this.onNet(parseServer(String(e.data))); });
     ws.addEventListener('close', () => {
       if (this.net !== net || net.over) return;
       net.over = true;
-      this.endOnline(null, net.match ? 'Connection lost' : "Couldn't reach the game server", net.match ? 'The match ended because the connection dropped.' : 'Check your connection and try again.');
+      // Dropped out of a match: try to get back in (the server rejoins us to it, Mike 2026-11-22).
+      if ((net.match || net.tries) && net.tries < 3) { window.setTimeout(() => { if (this.net === net) this.startOnline(net.join, net.tries + 1); }, 1500); return; }
+      this.endOnline(null, net.match || net.tries ? 'Connection lost' : "Couldn't reach the game server", net.match || net.tries ? 'Go back into Multiplayer within a minute to rejoin the match: the computer plays your board until then.' : 'Check your connection and try again.');
     });
   }
 
   private closeNet() {
     const net = this.net;
     if (!net) return;
+    // Leaving a match on purpose forfeits it at once (and counts as a disconnect).
+    if (!net.over && net.match && !net.match.result && net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify({ t: 'quit' }));
     net.over = true;
     this.net = null;
     try { net.ws.close(); } catch { /* already closed */ }
@@ -452,13 +458,16 @@ export class Versus {
       case 'wait': this.showCard('Looking for an opponent...', 'The match starts as soon as someone joins.', ['vsMenu']); break;
       case 'room': this.showCard(`Room ${msg.code}`, `Tell your friend this code. They choose Join a room on the Multiplayer screen and type ${msg.code}.`, ['vsMenu']); break;
       case 'error': net.over = true; this.endOnline(null, "Can't play online right now", msg.why); break;
-      case 'start': {
-        const m = new OnlineMatch(msg, out => { if (net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify(out)); });
+      case 'start': case 'resume': {
+        const send = (out: ClientMsg) => { if (net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify(out)); };
+        const m = msg.t === 'start' ? new OnlineMatch(msg, send) : OnlineMatch.rebuild(msg.start, send, msg.mine, msg.theirs);
         net.match = m;
-        net.t0 = performance.now();
+        net.tries = 0;
+        net.t0 = performance.now() - m.clock * TICK_MS; // a rejoin carries on from its clock
         const me = this.sides[0]!, them = this.sides[1]!;
         me.state = m.me; them.state = m.them;
         me.name = 'You'; them.name = m.theirName;
+        me.wins = m.start.wins[m.seat]; them.wins = m.start.wins[1 - m.seat]!;
         for (const s of this.sides) { s.leavers = []; s.floats = []; s.matched = []; s.arrivals = new Map(); }
         me.input.attachTouchButtons(this.deps.touchBar);
         me.input.accept = () => true;
@@ -467,11 +476,15 @@ export class Versus {
         this.leaveUp = false;
         this.phase = 'playing';
         this.setCapture(true);
-        $('vsRuleText').textContent = 'Online: first to clear their bugs';
+        this.setup!.rule = m.start.rule;
+        this.netRule = m.start.rule === 'best3' ? `Online: best of 3, round ${m.start.round}` : m.start.rule === 'last' ? 'Online: last one standing' : 'Online: first to clear their bugs';
+        $('vsRuleText').textContent = this.netRule;
         this.sides.forEach(s => this.resize(s));
         this.deps.audio.startMusic(true);
         break;
       }
+      case 'away': $('vsRuleText').textContent = `${this.sides[1]!.name} lost their connection. The computer plays for them for up to ${msg.seconds} seconds.`; break;
+      case 'back': $('vsRuleText').textContent = this.netRule; break;
       case 'in': case 'took': {
         const m = net.match;
         if (!m) return;
@@ -502,8 +515,33 @@ export class Versus {
     if (m.result) {
       const w = m.result.winner;
       const winner = w === null ? null : w === m.seat ? 0 : 1;
+      if (m.start.rule === 'best3') return this.roundOver(winner);
       this.endOnline(winner, winner === 0 ? 'You win' : winner === 1 ? `${this.sides[1]!.name} wins` : 'A draw', 'Good game.');
     }
+  }
+
+  /**
+   * Online best of 3: a round is decided. The match is over at 2 wins; otherwise the card says
+   * who took the round and the relay starts the next one with the same opponent.
+   */
+  private roundOver(winner: 0 | 1 | null) {
+    const me = this.sides[0]!, them = this.sides[1]!;
+    if (winner === 0) me.wins++; else if (winner === 1) them.wins++;
+    const score = `${me.wins} to ${them.wins}`;
+    if (me.wins >= 2) return this.endOnline(0, 'You win the match', `You won ${score}. Good game.`);
+    if (them.wins >= 2) return this.endOnline(1, `${them.name} wins the match`, `${them.name} won ${score}. Good game.`);
+    this.phase = 'ending';
+    this.setCapture(false);
+    if (this.leaveUp) { this.leaveUp = false; this.card.hidden = true; }
+    for (const s of this.sides) s.input.reset();
+    this.deps.audio.stopMusic();
+    this.deps.audio.play(winner === 1 ? 'lose' : 'win');
+    const title = winner === 0 ? 'You win the round' : winner === 1 ? `${them.name} wins the round` : 'A drawn round';
+    window.setTimeout(() => {
+      if (this.phase !== 'ending') return;
+      this.phase = 'card';
+      this.showCard(title, `${score}. The next round starts in a moment.`, ['vsMenu']);
+    }, this.deps.finishPauseMs);
   }
 
   /** An online match is over: the usual pause, then the card. The connection closes. */

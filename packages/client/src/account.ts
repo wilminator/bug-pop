@@ -114,3 +114,16 @@ function isMe(m: unknown): m is Me {
   const o = m as Me;
   return !!o && typeof o.sub === 'string' && typeof o.ads === 'boolean';
 }
+
+/**
+ * Is this player in an unfinished online match (GET /api/play/active, signed in only)? Going back
+ * into Multiplayer then rejoins it. Any failure counts as no.
+ */
+export async function activeMatch(apiBase: string, timeoutMs = 2500): Promise<boolean> {
+  try {
+    const res = await fetch(`${trim(apiBase)}/play/active`, { credentials: 'include', signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok && ((await res.json()) as { active?: unknown }).active === true;
+  } catch {
+    return false;
+  }
+}

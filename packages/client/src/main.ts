@@ -6,7 +6,7 @@ import './style.css';
 import { AudioManager } from './audio';
 import { InputManager, type InputFrame, type Nav } from './input';
 import { computeLayout, powerIconRect, LEAVE_MS, ARRIVE_MS, SWEEP_MS, FLOAT_MS, diagram, loadBubbleFont, render, thumbnail, type Layout, type Leaver, type Sweep, type Float } from './render';
-import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
+import { activeMatch, fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
 import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
 import { frameCells, inSeason, inWindow, lookChoices, loadSprites, powerName, seasonKey, testSkin, type SiteLook, type Skin } from './skin';
@@ -613,7 +613,13 @@ async function main() {
     skin, images, audio, touchBar, motion, settings: () => settings, finishPauseMs: FINISH_PAUSE_MS, playUrl: cfg.play,
     exit: to => show(to === 'menu' ? 'menu' : 'versusSetup'),
   });
-  $('multiGame').addEventListener('click', () => { audio.play('select'); refreshSetupForm(); show('versusSetup'); });
+  $('multiGame').addEventListener('click', () => {
+    audio.play('select');
+    refreshSetupForm();
+    show('versusSetup');
+    // An unfinished online match comes first: going back into Multiplayer rejoins it (Mike, 2026-11-22).
+    if (cfg.api && versus!.canPlayOnline) void activeMatch(cfg.api).then(on => { if (on && mode === 'versusSetup') goOnline(); });
+  });
   initSetupForm(settings.speed);
   {
     const o = lastOnline(settings.speed), r = $<HTMLInputElement>('vsOnlineLevel');
@@ -639,7 +645,7 @@ async function main() {
     const out = r.closest('label')!.querySelector('output')!;
     r.addEventListener('input', () => { out.value = r.value; });
   });
-  const goOnline = (room?: string) => {
+  function goOnline(room?: string) {
     const me = { level: Number($<HTMLInputElement>('vsOnlineLevel').value), speed: Number($<HTMLSelectElement>('vsOnlineSpeed').value) as 0 | 1 | 2 };
     rememberOnline(me.level, me.speed);
     audio.unlock();
