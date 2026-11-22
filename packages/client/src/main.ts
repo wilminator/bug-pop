@@ -14,7 +14,7 @@ import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt, lookNoticeSeen, markLookNotice } from './storage';
 import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
-import { Versus, readSetup, refreshSetupForm } from './versus';
+import { Versus, initSetupForm, lastOnline, readSetup, refreshSetupForm, rememberOnline } from './versus';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
@@ -614,7 +614,12 @@ async function main() {
     exit: to => show(to === 'menu' ? 'menu' : 'versusSetup'),
   });
   $('multiGame').addEventListener('click', () => { audio.play('select'); refreshSetupForm(); show('versusSetup'); });
-  $('vsWho').addEventListener('input', refreshSetupForm);
+  initSetupForm(settings.speed);
+  {
+    const o = lastOnline(settings.speed), r = $<HTMLInputElement>('vsOnlineLevel');
+    r.value = String(o.level); r.closest('label')!.querySelector('output')!.value = r.value;
+    $<HTMLSelectElement>('vsOnlineSpeed').value = String(o.speed);
+  }
   // Online / On this device: one card at a time, picked with the selector (Mike, 2026-11-22).
   // Phones start on Online (one screen is cramped for two players), computers on This device.
   const online = versus.canPlayOnline;
@@ -636,6 +641,7 @@ async function main() {
   });
   const goOnline = (room?: string) => {
     const me = { level: Number($<HTMLInputElement>('vsOnlineLevel').value), speed: Number($<HTMLSelectElement>('vsOnlineSpeed').value) as 0 | 1 | 2 };
+    rememberOnline(me.level, me.speed);
     audio.unlock();
     audio.play('select');
     show('versus');
@@ -646,7 +652,6 @@ async function main() {
   const code = $<HTMLInputElement>('vsCode');
   code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });
   $('vsJoin').addEventListener('click', () => { if (/^[A-Z]{4}$/.test(code.value)) goOnline(code.value); else code.focus(); });
-  window.addEventListener('gamepadconnected', () => { if (mode === 'versusSetup') refreshSetupForm(); });
   $('vsStart').addEventListener('click', () => {
     audio.unlock();
     audio.play('select');

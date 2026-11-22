@@ -147,17 +147,10 @@
         </div>
         <div id="vsLocal" class="card vs-setup">
           <form id="vsForm">
-            <label>Who plays
-              <select id="vsWho">
-                <option value="human-bot">You against the computer</option>
-                <option value="human-human">Two players on this device</option>
-                <option value="bot-bot">Watch the computer play itself</option>
-              </select>
-            </label>
             <label>How to win
               <select id="vsRule">
                 <option value="race">First to clear their bugs</option>
-                <option value="best3">Best of 3</option>
+                <option value="best3" selected>Best of 3</option>
                 <option value="last">Last one standing</option>
               </select>
             </label>
@@ -166,12 +159,14 @@
             </label>
             <fieldset class="vs-player" id="vsP0">
               <legend>Player 1</legend>
+              <label>Played by <select class="vs-control"></select></label>
               <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" class="vs-level" min="1" max="20" step="1" value="5" /></label>
               <label>Speed <select class="vs-speed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
               <label class="vs-skill-row">Computer <select class="vs-skill"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></label>
             </fieldset>
             <fieldset class="vs-player" id="vsP1">
               <legend>Player 2</legend>
+              <label>Played by <select class="vs-control"></select></label>
               <label class="vs-level-row"><span>Level <output class="vs-level-out">5</output></span><input type="range" class="vs-level" min="1" max="20" step="1" value="5" /></label>
               <label>Speed <select class="vs-speed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
               <label class="vs-skill-row">Computer <select class="vs-skill"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></label>

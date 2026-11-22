@@ -1,4 +1,4 @@
-// Multiplayer on one device: 2 to 4 boards side by side, each played by a person or by the computer.
+// Multiplayer on one device: 2 boards side by side (3 and 4 later; the board code handles them), each played by a person or by the computer.
 //
 // Each board is an ordinary engine game with `versus: true`. Once per tick every board steps; when
 // one sends an attack (two or more matches from one piece) it goes to an opponent with
@@ -58,7 +58,7 @@ export type VersusDeps = {
 export type OnlineJoin = { level: number; speed: Speed; room?: string };
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
-const MAX_PLAYERS = 4;
+const MAX_PLAYERS = 2; // 3 and 4 players: later (Mike, 2026-11-22). The board code already handles them.
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const RULE_TEXT: Record<WinRule, string> = { race: 'First to clear their bugs', best3: 'Best of 3', last: 'Last one standing' };
 const SKILL_NAME: Record<BotLevel, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
@@ -121,35 +121,87 @@ function accepts(c: Control): (src: string) => boolean {
 }
 
 const fieldset = (i: number) => $(`vsP${i}`);
-const playerCount = () => (isTouch() ? 2 : Math.max(2, Math.min(MAX_PLAYERS, Number($<HTMLSelectElement>('vsCount').value) || 2)));
+const playerCount = () => MAX_PLAYERS;
 
-/** Fill the "Played by" lists and set each player's starting choice. Call once at start-up. */
-export function initSetupForm() {
-  for (let i = 0; i < MAX_PLAYERS; i++) {
-    const sel = fieldset(i).querySelector<HTMLSelectElement>('.vs-control')!;
-    sel.addEventListener('input', refreshSetupForm);
+/**
+ * The setup screen remembers the last match on this device (Mike, 2026-11-22): rule, colors, and
+ * each player's level, speed, who plays and computer skill, plus the online level and speed. It is
+ * only a convenience, so it lives in this browser's storage and is never synced.
+ */
+const LAST_KEY = 'bugpop.versus.last.v1';
+type Last = { rule: WinRule; colors: number; players: { level: number; speed: Speed; control: Control; bot: BotLevel }[]; online?: { level: number; speed: Speed } };
+function readLast(): Last | null {
+  try { const v = JSON.parse(localStorage.getItem(LAST_KEY) ?? 'null') as Last | null; return v && Array.isArray(v.players) ? v : null; } catch { return null; }
+}
+function writeLast(patch: Partial<Last>) {
+  try { localStorage.setItem(LAST_KEY, JSON.stringify({ ...readLast(), ...patch })); } catch { /* private mode: nothing to remember */ }
+}
+/** Remember the online card's level and speed (main.ts calls this when a match starts). */
+export function rememberOnline(level: number, speed: Speed) { writeLast({ online: { level, speed } }); }
+/** The online card's starting level and speed. */
+export function lastOnline(fallbackSpeed: Speed): { level: number; speed: Speed } {
+  return readLast()?.online ?? { level: 5, speed: versusSpeed(fallbackSpeed) };
+}
+/** The versus lists offer Low, Medium and High; single player's Slo-mo (3) starts them on Low. */
+const versusSpeed = (s: Speed): Speed => (s === 3 ? 0 : s);
+
+const setLevel = (fs: HTMLElement, level: number) => {
+  const r = fs.querySelector<HTMLInputElement>('.vs-level')!;
+  r.value = String(level);
+  r.closest('label')!.querySelector('output')!.value = r.value;
+};
+
+/**
+ * Fill the "Played by" lists and set every starting value. Call once at start-up, with single
+ * player's speed: the first time, both players start at that speed.
+ */
+export function initSetupForm(singleSpeed: Speed) {
+  const last = readLast();
+  if (last) {
+    $<HTMLSelectElement>('vsRule').value = last.rule;
+    $<HTMLSelectElement>('vsColors').value = String(last.colors);
   }
-  fillControls(true);
-  $('vsCount').addEventListener('input', refreshSetupForm);
-  window.addEventListener('gamepadconnected', () => fillControls(false));
-  window.addEventListener('gamepaddisconnected', () => fillControls(false));
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    const fs = fieldset(i), saved = last?.players[i];
+    setLevel(fs, saved?.level ?? 5);
+    fs.querySelector<HTMLSelectElement>('.vs-speed')!.value = String(saved?.speed ?? versusSpeed(singleSpeed));
+    if (saved?.bot) fs.querySelector<HTMLSelectElement>('.vs-skill')!.value = saved.bot;
+    fs.querySelector<HTMLSelectElement>('.vs-control')!.addEventListener('input', refreshSetupForm);
+  }
+  fillControls(last?.players.map(p => p.control) ?? null);
+  // A gamepad plugged in while setting up takes over player 2 from the computer; unplugging it
+  // hands player 2 back to the computer.
+  window.addEventListener('gamepadconnected', e => {
+    fillControls(null, true);
+    const p2 = fieldset(1).querySelector<HTMLSelectElement>('.vs-control')!;
+    if (p2.value === 'cpu') { p2.value = `pad-${e.gamepad.index}`; refreshSetupForm(); }
+  });
+  window.addEventListener('gamepaddisconnected', e => {
+    fillControls(null, true);
+    for (let i = 0; i < MAX_PLAYERS; i++) {
+      const sel = fieldset(i).querySelector<HTMLSelectElement>('.vs-control')!;
+      if (sel.value === `pad-${e.gamepad.index}`) sel.value = i === 0 ? (isTouch() ? 'touch' : 'kb') : 'cpu';
+    }
+    refreshSetupForm();
+  });
 }
 
 /**
- * Rebuild the "Played by" lists (gamepads come and go). With `defaults`, also pick each player's
- * starting choice (Mike, 2026-11-22): Player 1 an input device (touch on a phone, else the
- * keyboard and mouse); Player 2 the computer, unless a gamepad is connected; the rest the computer.
+ * Rebuild the "Played by" lists (gamepads come and go). `start` gives each player's choice; with
+ * none, the defaults (Mike, 2026-11-22): player 1 an input device (touch on a phone, else the
+ * keyboard and mouse), player 2 the computer unless a gamepad is connected. `keep` keeps the
+ * current choices instead.
  */
-function fillControls(defaults: boolean) {
+function fillControls(start: Control[] | null, keep = false) {
   const pads = connectedPads();
   for (let i = 0; i < MAX_PLAYERS; i++) {
     const sel = fieldset(i).querySelector<HTMLSelectElement>('.vs-control')!;
-    const keep = sel.value as Control;
+    const now = sel.value as Control;
     sel.replaceChildren(...controlChoices().map(([v, label]) => new Option(label, v)));
-    let pick: Control = keep;
-    if (defaults || !keep) pick = i === 0 ? (isTouch() ? 'touch' : 'kb') : i === 1 && pads.length ? `pad-${pads[0]!}` : 'cpu';
+    const pick: Control = keep && now ? now
+      : start?.[i] ?? (i === 0 ? (isTouch() ? 'touch' : 'kb') : pads.length ? `pad-${pads[0]!}` : 'cpu');
     sel.value = pick;
-    if (sel.value !== pick) sel.value = 'cpu';
+    if (sel.value !== pick) sel.value = i === 0 ? (isTouch() ? 'touch' : 'kb') : 'cpu';
   }
   refreshSetupForm();
 }
@@ -165,7 +217,9 @@ export function readSetup(): VersusSetup {
     const control = fs.querySelector<HTMLSelectElement>('.vs-control')!.value as Control;
     players.push({ level, speed, control, bot: control === 'cpu' ? (fs.querySelector<HTMLSelectElement>('.vs-skill')!.value as BotLevel) : null });
   }
-  return { rule: $<HTMLSelectElement>('vsRule').value as WinRule, colors: Number($<HTMLSelectElement>('vsColors').value), target: $<HTMLSelectElement>('vsTarget').value as Target, players };
+  const setup: VersusSetup = { rule: $<HTMLSelectElement>('vsRule').value as WinRule, colors: Number($<HTMLSelectElement>('vsColors').value), target: 'leader', players };
+  writeLast({ rule: setup.rule, colors: setup.colors, players: players.map((p, i) => ({ ...p, bot: p.bot ?? (fieldset(i).querySelector<HTMLSelectElement>('.vs-skill')!.value as BotLevel) })) });
+  return setup;
 }
 
 /** Names on the boards, always saying which ones are the computer. One person alone is "You". */
@@ -180,16 +234,11 @@ function names(setup: VersusSetup): string[] {
 }
 
 /**
- * The setup screen: how many players (computers only; a phone always has 2), a double-wide card
- * for 3 or 4, the Computer skill picker only for computer players, the attack setting only for 3
- * or more, and a warning (Start turned off) when two players picked the same device.
+ * The setup screen: the Computer skill picker only for computer players, and a warning (Start
+ * turned off) when both players picked the same device.
  */
 export function refreshSetupForm() {
-  const touch = isTouch();
-  $('vsCountRow').hidden = touch;
   const n = playerCount();
-  $('vsLocal').classList.toggle('wide', n > 2);
-  $('vsTargetRow').hidden = n < 3;
   const controls: Control[] = [];
   for (let i = 0; i < MAX_PLAYERS; i++) {
     const fs = fieldset(i);
@@ -371,7 +420,7 @@ export class Versus {
     this.net = net;
     this.setup = { rule: 'race', colors: 3, target: 'leader', players: [{ level: join.level, speed: join.speed, control: 'any', bot: null }, { level: 1, speed: 1, control: 'remote', bot: null }] };
     for (const s of this.sides) { s.state = null; s.wins = 0; s.quiet = false; s.input.accept = () => false; s.input.reset(); }
-    this.sides[1].quiet = true;
+    this.sides[1]!.quiet = true;
     this.showSides(2, true);
     this.stage.hidden = false;
     this.phase = 'card';
@@ -407,7 +456,7 @@ export class Versus {
         const m = new OnlineMatch(msg, out => { if (net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify(out)); });
         net.match = m;
         net.t0 = performance.now();
-        const [me, them] = this.sides;
+        const me = this.sides[0]!, them = this.sides[1]!;
         me.state = m.me; them.state = m.them;
         me.name = 'You'; them.name = m.theirName;
         for (const s of this.sides) { s.leavers = []; s.floats = []; s.matched = []; s.arrivals = new Map(); }
@@ -426,7 +475,7 @@ export class Versus {
       case 'in': case 'took': {
         const m = net.match;
         if (!m) return;
-        this.effects(this.sides[1], m.receive(msg));
+        this.effects(this.sides[1]!, m.receive(msg));
         if (m.flagged) { net.over = true; this.endOnline(null, 'Match stopped', 'Something in the other player\'s moves did not add up, so the match was stopped.'); }
         break;
       }
@@ -436,7 +485,7 @@ export class Versus {
         const mine = net.match?.seat;
         const winner = msg.winner === null || mine === undefined ? null : msg.winner === mine ? 0 : 1;
         if (msg.why === 'left') this.endOnline(winner, 'You win', 'The other player left the match.');
-        else if (msg.why === 'result') this.endOnline(winner, winner === 0 ? 'You win' : winner === 1 ? `${this.sides[1].name} wins` : 'A draw', 'Good game.');
+        else if (msg.why === 'result') this.endOnline(winner, winner === 0 ? 'You win' : winner === 1 ? `${this.sides[1]!.name} wins` : 'A draw', 'Good game.');
         else this.endOnline(null, 'Match stopped', 'The two games did not agree, so the match was stopped.');
         break;
       }
@@ -446,14 +495,14 @@ export class Versus {
   /** One tick of my board online (theirs moves on as their moves arrive). */
   private netTick() {
     const m = this.net!.match!;
-    const me = this.sides[0];
+    const me = this.sides[0]!;
     const f = me.input.poll(this.leaveUp ? null : m.me);
     if (f.pause) { if (this.leaveUp) this.closeLeave(); else this.openLeave(); }
     this.effects(me, m.tick(this.leaveUp ? [] : f.actions));
     if (m.result) {
       const w = m.result.winner;
       const winner = w === null ? null : w === m.seat ? 0 : 1;
-      this.endOnline(winner, winner === 0 ? 'You win' : winner === 1 ? `${this.sides[1].name} wins` : 'A draw', 'Good game.');
+      this.endOnline(winner, winner === 0 ? 'You win' : winner === 1 ? `${this.sides[1]!.name} wins` : 'A draw', 'Good game.');
     }
   }
 
