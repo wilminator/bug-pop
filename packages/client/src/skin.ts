@@ -194,6 +194,9 @@ export function seasonKey(season: Season, now = new Date()): string {
  */
 export type SiteLook = { id: string; name: string; skin: string; season?: Season };
 
-/** The looks a player can pick today, in the order config.json lists them. */
-export const lookChoices = (looks: SiteLook[] | undefined, now = new Date()) =>
-  (looks ?? []).filter(l => l.id && l.id !== 'site' && l.id !== 'test' && inWindow(l.season, now));
+/**
+ * The looks a player can pick today, in the order config.json lists them. `anySeason` lists
+ * every look whatever the date (config.json `allLooks`, for testing on a staging site).
+ */
+export const lookChoices = (looks: SiteLook[] | undefined, now = new Date(), anySeason = false) =>
+  (looks ?? []).filter(l => l.id && l.id !== 'site' && l.id !== 'test' && (anySeason || inWindow(l.season, now)));

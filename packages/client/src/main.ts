@@ -9,7 +9,7 @@ import { computeLayout, powerIconRect, LEAVE_MS, ARRIVE_MS, SWEEP_MS, FLOAT_MS, 
 import { fetchAccount, loginUrl, logout, personalizedAds, shownName, supporterBadge, wantsAds, type AccountStatus } from './account';
 import { setAdSlot, type AdsConfig } from './ads';
 import { httpCloud, makeRecord, newest, noCloud, recordState, timeAgo, type CloudSave, type SaveRecord } from './cloud';
-import { frameCells, inSeason, lookChoices, loadSprites, powerName, seasonKey, testSkin, type SiteLook, type Skin } from './skin';
+import { frameCells, inSeason, inWindow, lookChoices, loadSprites, powerName, seasonKey, testSkin, type SiteLook, type Skin } from './skin';
 import { isLayout, LAYOUTS, renderButtons, renderPreview } from './layouts';
 import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt, lookNoticeSeen, markLookNotice } from './storage';
@@ -30,6 +30,7 @@ type Mode = 'title' | 'menu' | 'setup' | 'settings' | 'help' | 'tutorialOffer' |
  *   home     { url, name, icon? } the publisher's site, linked from the title page
  *   looks    [{ id, name, skin, season? }] extra looks offered in Settings, e.g. seasonal ones
  *            (season { from: 'MM-DD', to: 'MM-DD' }; they are only listed while in season)
+ *   allLooks true lists every look in Settings whatever the date (for testing on staging)
  */
 type SiteConfig = {
   skin?: string; api?: string; privacy?: string; terms?: string; ads?: AdsConfig;
@@ -39,6 +40,8 @@ type SiteConfig = {
   home?: { url: string; name: string; icon?: string };
   /** Extra looks for the Settings picker (see SiteLook in skin.ts). */
   looks?: SiteLook[];
+  /** List every look whatever the season (a staging site, so all of them can be checked). */
+  allLooks?: boolean;
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -66,7 +69,7 @@ async function loadSkin(cfg: SiteConfig): Promise<Skin> {
   const look = loadSettings().look;
   if (look === 'test' || new URLSearchParams(location.search).get('skin') === 'test') return testSkin;
   // A picked look that is in season; if its files fail to load, fall back to the site's own skin.
-  const picked = lookChoices(cfg.looks).find(l => l.id === look);
+  const picked = lookChoices(cfg.looks, new Date(), cfg.allLooks).find(l => l.id === look);
   if (picked) {
     const skin = await fetchSkin(picked.skin);
     if (skin !== testSkin) return skin;
@@ -132,7 +135,7 @@ async function main() {
   const audio = new AudioManager(skin);
   let settings: Settings = loadSettings();
   // A seasonal look whose season has ended (or a look the site no longer offers) goes back to the default.
-  const looks = lookChoices(cfg.looks);
+  const looks = lookChoices(cfg.looks, new Date(), cfg.allLooks);
   if (settings.look !== 'site' && settings.look !== 'test' && !looks.some(l => l.id === settings.look)) {
     settings.look = 'site';
     saveSettings(settings);
@@ -390,7 +393,7 @@ async function main() {
   const siteName = settings.look === 'site' ? (skin === testSkin ? 'Default (test pattern)' : skin.name) : 'Default';
   siteOption.textContent = siteName;
   let prev: Element = siteOption;
-  for (const l of looks) { const o = Object.assign(document.createElement('option'), { value: l.id, textContent: l.name }); prev.after(o); prev = o; }
+  for (const l of looks) { const o = Object.assign(document.createElement('option'), { value: l.id, textContent: inWindow(l.season) ? l.name : `${l.name} (out of season)` }); prev.after(o); prev = o; }
   // Keep the order: Default, then the looks as config.json lists them, then Test pattern last.
   const testOption = look.querySelector('option[value="test"]')!;
   look.append(testOption);
@@ -398,7 +401,7 @@ async function main() {
   look.addEventListener('change', () => { settings.look = look.value; saveSettings(settings); location.reload(); });
 
   // Once per season, the title page says that new looks are out for this time of year.
-  const seasonal = looks.filter(l => l.season);
+  const seasonal = looks.filter(l => l.season && inWindow(l.season)); // the note is about this season only
   const noticeKey = seasonal.length ? seasonKey(seasonal[0]!.season!) : '';
   const notice = $('lookNotice');
   if (noticeKey && !lookNoticeSeen(noticeKey) && !seasonal.some(l => l.id === settings.look)) {

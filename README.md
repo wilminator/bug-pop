@@ -71,7 +71,7 @@ A deployment can offer extra looks in Settings → Look by listing them in `conf
 "looks": [{"id": "code-bugs-winter", "name": "Snow Day Bugs", "skin": "skins/code-bugs-winter/skin.json", "season": {"from": "12-01", "to": "02-29"}}]
 ```
 
-A look with a `season` (MM-DD to MM-DD, inclusive, may wrap the new year) is listed only while it is in season. Nothing changes by itself: once per season the title page says new looks are out, with a button to Settings. When the picked look's season ends, the game goes back to the default look. The Look setting stays on each device. A skin can add weather over its board with `"ambient": {"kind": "snow" | "leaves" | "petals" | "fireflies", "colors": [...], "count": 18}`; it stands still with Calm motion and is left out with motion Off.
+A look with a `season` (MM-DD to MM-DD, inclusive, may wrap the new year) is listed only while it is in season. Nothing changes by itself: once per season the title page says new looks are out, with a button to Settings. When the picked look's season ends, the game goes back to the default look. The Look setting stays on each device. A testing site can add `"allLooks": true` to list every look whatever the date (out-of-season ones are marked); the title-page note still follows the real season. A skin can add weather over its board with `"ambient": {"kind": "snow" | "leaves" | "petals" | "fireflies", "colors": [...], "count": 18}`; it stands still with Calm motion and is left out with motion Off.
 
 The open-source build ships four seasonal Code Bugs looks (winter, spring, summer, fall), drawn from the Code Bugs art by `python3 tools/draw-seasons.py`, which also writes the `looks` list into `packages/client/public/config.json`.
 

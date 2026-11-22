@@ -38,4 +38,7 @@ describe('look choices', () => {
     expect(lookChoices(looks, day(2027, 4, 1)).map(l => l.id)).toEqual(['spring', 'always']);
     expect(lookChoices(undefined)).toEqual([]);
   });
+  it('lists every look on a testing site, whatever the date', () => {
+    expect(lookChoices(looks, day(2026, 12, 25), true).map(l => l.id)).toEqual(['winter', 'spring', 'always']);
+  });
 });
