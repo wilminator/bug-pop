@@ -25,11 +25,16 @@ export type BotSkill = {
   drop: boolean;
   /** Plans two pieces ahead: where this one goes, judged by the best spot for the next one. */
   lookahead?: boolean;
+  /**
+   * Chance (0 to 1) that a piece is placed the old way: no thought for buried bugs and no
+   * planning ahead. Medium mixes the two (Mike, 2026-11-22), so it sits between Easy and Hard.
+   */
+  oldWay?: number;
 };
 
 export const BOT_SKILLS = {
   easy: { think: 40, moveEvery: 12, slip: 0.35, drop: false },
-  medium: { think: 20, moveEvery: 6, slip: 0.12, drop: true },
+  medium: { think: 20, moveEvery: 6, slip: 0.12, drop: true, oldWay: 0.5 },
   hard: { think: 8, moveEvery: 3, slip: 0.02, drop: true, lookahead: true }, // plans one piece ahead (Mike, 2026-11-22: Hard only)
 } as const satisfies Record<string, BotSkill>;
 export type BotLevel = keyof typeof BOT_SKILLS;
@@ -77,7 +82,7 @@ export const BOT_WEIGHTS = {
  * Put the piece on a copy of the board, play out what it sets off, and score it: pops are best,
  * then neat stacking; building high is bad. Null if the piece would stick out of the top.
  */
-function land(board: Cell[], p: Piece): Landed | null {
+function land(board: Cell[], p: Piece, buried: number): Landed | null {
   const b = board.map(c => (c ? { ...c } : null)); // removeCells re-links halves: never touch the real board
   const cells = pieceCells(p);
   if (cells.some(h => h.y < 0)) return null;
@@ -111,7 +116,7 @@ function land(board: Cell[], p: Piece): Landed | null {
     if (height > 10) score -= (height - 10) * (x === 3 || x === 4 ? 30 : 10);
   }
   // Easy to recover from? (Mike, 2026-11-22.) Count only what this piece made worse or better.
-  score += trouble(board) - trouble(b);
+  if (buried) score += trouble(board, buried) - trouble(b, buried);
   return { board: b, score };
 }
 
@@ -122,7 +127,7 @@ function land(board: Cell[], p: Piece): Landed | null {
  * progress, but every cell of another color above that has to be popped first.
  * (Tried and dropped: a cost for gaps under pieces. It made the bot stack worse, not better.)
  */
-export function trouble(b: Cell[]): number {
+export function trouble(b: Cell[], buried = BOT_WEIGHTS.buried): number {
   let t = 0;
   for (let x = 0; x < BOARD_WIDTH; x++) {
     let cover = 0; // cells above, in this column
@@ -131,7 +136,7 @@ export function trouble(b: Cell[]): number {
       const c = b[idx(x, y)];
       if (!c) continue;
       if (c.c === runColor) run++; else { runColor = c.c; run = 1; }
-      if (c.t === 'bug') t += (cover - (run - 1)) * BOT_WEIGHTS.buried; // what sits on its own run
+      if (c.t === 'bug') t += (cover - (run - 1)) * buried; // what sits on its own run
       cover++;
     }
   }
@@ -163,12 +168,12 @@ function landings(board: Cell[], p: Piece): { rot: Piece['rot']; x: number; at: 
  * by the best place for the NEXT piece after it (the piece shown in the Next window), the way a
  * person plans two pieces ahead.
  */
-export function plans(s: GameState, lookahead = false): Plan[] {
+export function plans(s: GameState, lookahead = false, buried: number = BOT_WEIGHTS.buried): Plan[] {
   const p = s.piece;
   if (!p) return [];
   const out: Plan[] = [];
   for (const { rot, x, at } of landings(s.board, p)) {
-    const first = land(s.board, at);
+    const first = land(s.board, at, buried);
     if (!first) { out.push({ rot, x, score: -1e6 }); continue; }
     let score = first.score;
     if (lookahead) {
@@ -176,7 +181,7 @@ export function plans(s: GameState, lookahead = false): Plan[] {
       let best = -Infinity;
       if (fits(first.board, next)) {
         for (const n of landings(first.board, next)) {
-          const second = land(first.board, n.at);
+          const second = land(first.board, n.at, buried);
           if (second) best = Math.max(best, second.score);
         }
       }
@@ -222,7 +227,8 @@ export class Bot {
     }
     if (this.wait > 0) { this.wait--; return actions; }
     if (!this.plan) {
-      const all = plans(s, !!this.skill.lookahead);
+      const old = !!this.skill.oldWay && this.chance(this.skill.oldWay);
+      const all = old ? plans(s, false, 0) : plans(s, !!this.skill.lookahead);
       if (!all.length) return actions;
       // Usually the best spot; now and then (more often when easy) one of the next few instead.
       let pick = 0;
