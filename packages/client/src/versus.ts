@@ -412,6 +412,8 @@ export class Versus {
 
   // ---- Online (a relay passes moves between two devices; see packages/protocol) ----
   get canPlayOnline() { return !!this.deps.playUrl; }
+  /** A round is being played, or an online match is under way (no update check then). */
+  get busy() { return this.phase === 'playing' || this.phase === 'ending' || (!!this.net && !this.net.over); }
 
   /** Connect and wait for an opponent (quick match), or open or join a room. */
   startOnline(join: OnlineJoin, tries = 0) {

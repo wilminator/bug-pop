@@ -498,6 +498,21 @@ async function main() {
     if (!menuModes.includes(mode) || !(await shouldOffer()) || !menuModes.includes(mode)) return;
     await updateGate();
   };
+  // Coming back to the app (Mike, 2026-11-22): check whenever it isn't in the middle of a round.
+  // A single player game was paused and saved when the app went away, so updating reopens it
+  // paused, right where it was. Not during the tutorial, a round, or an online match.
+  let checking = false; // focus and visibilitychange often come together: one check at a time
+  const checkUpdateOnReturn = async () => {
+    const outsideRound = () => mode !== 'playing' && mode !== 'ending' && mode !== 'update' && !coach && !(mode === 'versus' && versus?.busy);
+    if (checking || !outsideRound()) return;
+    checking = true;
+    try {
+      if (await shouldOffer() && outsideRound()) await updateGate();
+    } finally {
+      checking = false;
+    }
+  };
+  window.addEventListener('focus', () => void checkUpdateOnReturn());
   $('updateLater').addEventListener('click', () => keepPlaying?.());
   $('updateNow').addEventListener('click', () => {
     if (unfinished(state) && !coach) { saveGame(state); upload(); } // reopens paused, right where it was
@@ -955,7 +970,7 @@ async function main() {
 
   // ---- Leaving the app: pause and save at once (iOS may kill us next) ----
   // Sound is frozen whenever the page is hidden, on menus and the title screen too.
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); save(); audio.suspend(); } else { audio.wake(); void checkUpdateInMenus(); } });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); save(); audio.suspend(); } else { audio.wake(); void checkUpdateOnReturn(); } });
   window.addEventListener('pagehide', () => { pause(); save(); audio.suspend(); });
   window.addEventListener('pageshow', () => { if (!document.hidden) audio.wake(); });
   document.addEventListener('freeze', () => { pause(); save(); audio.suspend(); });
