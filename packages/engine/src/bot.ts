@@ -30,7 +30,7 @@ export type BotSkill = {
 export const BOT_SKILLS = {
   easy: { think: 40, moveEvery: 12, slip: 0.35, drop: false },
   medium: { think: 20, moveEvery: 6, slip: 0.12, drop: true },
-  hard: { think: 8, moveEvery: 3, slip: 0.02, drop: true },
+  hard: { think: 8, moveEvery: 3, slip: 0.02, drop: true, lookahead: true }, // plans one piece ahead (Mike, 2026-11-22: Hard only)
 } as const satisfies Record<string, BotSkill>;
 export type BotLevel = keyof typeof BOT_SKILLS;
 
