@@ -298,6 +298,10 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
   .vs-boards.minimap .vs-side.main { grid-column: 1; grid-row: 1 / span 3; }
   .vs-boards.minimap .vs-side:not(.main) { grid-column: 2; }
   .vs-boards.minimap .vs-side:not(.main) .vs-label { font-size: 10px; line-height: 1.2; }
+  /* Name on one line, bug count on the next, so a long name never hides the count. */
+  .vs-boards.minimap .vs-side:not(.main) .vs-label { font-size: 12px; min-height: 2.4em; }
+  .vs-boards.minimap .vs-side:not(.main) .vs-name,
+  .vs-boards.minimap .vs-side:not(.main) .vs-info { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vs-boards.minimap .vs-side:not(.main) .vs-incoming { display: none; }
 }
 /* The room screen (src/rooms.ts). */

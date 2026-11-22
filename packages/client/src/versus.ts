@@ -78,6 +78,8 @@ type Side = {
   ctx: CanvasRenderingContext2D;
   /** An invisible button over the power-up icon, for touch (keys: E or Space). */
   powerBtn: HTMLButtonElement;
+  /** Drawn as a minimap: board only, no stats. */
+  bare: boolean;
   layout: Layout;
   input: InputManager;
   bot: Bot | null;
@@ -394,7 +396,7 @@ export class Versus {
       const el = $(`vsSide${i}`);
       const canvas = el.querySelector('canvas')!;
       const side: Side = {
-        el, canvas, ctx: canvas.getContext('2d')!, powerBtn: el.querySelector<HTMLButtonElement>('.power-btn')!, layout: computeLayout(1, 1, 0), input: new InputManager(), bot: null,
+        el, canvas, ctx: canvas.getContext('2d')!, powerBtn: el.querySelector<HTMLButtonElement>('.power-btn')!, bare: false, layout: computeLayout(1, 1, 0), input: new InputManager(), bot: null,
         name: '', state: null, wins: 0, leavers: [], floats: [], matched: [], arrivals: new Map(), quiet: false,
       };
       new ResizeObserver(() => this.resize(side)).observe(canvas);
@@ -456,7 +458,13 @@ export class Versus {
     side.canvas.width = Math.round(rect.width * devicePixelRatio);
     side.canvas.height = Math.round(rect.height * devicePixelRatio);
     side.ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    side.layout = computeLayout(rect.width, rect.height, 0, frameCells(this.deps.skin));
+    side.bare = this.isMini(side);
+    side.layout = computeLayout(rect.width, rect.height, 0, frameCells(this.deps.skin), side.bare);
+  }
+
+  /** An opponent's minimap on a phone (Mike, 2026-11-22): only the board and its bug count. */
+  private isMini(side: Side) {
+    return !side.el.classList.contains('main') && !!side.el.closest('.vs-boards.minimap') && matchMedia('(max-width: 700px)').matches;
   }
 
   /**
@@ -1277,15 +1285,15 @@ export class Versus {
       if (s.floats.length) s.floats = s.floats.filter(f => now - f.t0 < FLOAT_MS);
       if (s.arrivals.size && [...s.arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) s.arrivals = new Map();
       if (!s.state) continue;
-      render(s.ctx, s.state, skin, s.layout, { shapesOnPieces: set.shapesOnPieces, motion: motion(), time: now, images, leavers: s.leavers, arrivals: s.arrivals, floats: s.floats, bugExit: set.exit || undefined });
+      render(s.ctx, s.state, skin, s.layout, { shapesOnPieces: set.shapesOnPieces, motion: motion(), time: now, images, leavers: s.leavers, arrivals: s.arrivals, floats: s.floats, bugExit: set.exit || undefined, bare: s.bare });
       // The label over the board: name, progress, and halves on their way.
-      const info = s.state.phase === 'lost' && this.phase === 'playing' ? 'out' : this.setup!.rule === 'last' ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? '1 bug left' : `${s.state.bugsLeft} bugs left`;
+      const info = s.state.phase === 'lost' && this.phase === 'playing' ? 'out' : this.setup!.rule === 'last' && !s.bare ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? '1 bug left' : `${s.state.bugsLeft} bugs left`;
       const wins = this.setup!.rule === 'best3' ? ` · ${'★'.repeat(s.wins)}${'☆'.repeat(2 - Math.min(2, s.wins))}` : '';
       setText(s.el.querySelector('.vs-name')!, s.name);
       setText(s.el.querySelector('.vs-info')!, info + wins);
       const coming = s.state.versus ? waitingHalves(s.state.versus) : 0;
       // Power-ups: a tap target over the icon, for whoever plays this board here.
-      const tap = !!s.state.power && s.input.capture && this.phase === 'playing' && !this.leaveUp;
+      const tap = !s.bare && !!s.state.power && s.input.capture && this.phase === 'playing' && !this.leaveUp;
       s.powerBtn.hidden = !tap;
       if (tap) {
         const r = powerIconRect(s.layout);

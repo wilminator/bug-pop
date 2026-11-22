@@ -56,6 +56,8 @@ export type RenderOptions = {
   sweep?: Sweep | null;
   /** The tutorial's "look ahead" step: make the Next piece glow. */
   glowNext?: boolean;
+  /** An opponent's minimap: just the board, no Next, stats or power-up meter. */
+  bare?: boolean;
 };
 
 const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
@@ -111,8 +113,14 @@ function drawAmbient(ctx: CanvasRenderingContext2D, skin: Skin, bx: number, by: 
  * Work out where the board goes for a canvas of this CSS size. `frame` is how
  * many cells of skin frame surround the board; the cells shrink a little to fit it.
  */
-export function computeLayout(w: number, h: number, reserveBottom: number, frame = 0): Layout {
+export function computeLayout(w: number, h: number, reserveBottom: number, frame = 0, bare = false): Layout {
   const usableH = h - reserveBottom;
+  // A bare board (an opponent's minimap) has no stats around it: just fit and center the board.
+  if (bare) {
+    const f2 = frame * 2;
+    const cell = Math.max(1, Math.floor(Math.min((w * 0.96) / (W + f2), (usableH * 0.98) / (H + f2))));
+    return { boardX: Math.round((w - cell * W) / 2), boardY: Math.round((usableH - cell * H) / 2), cell, portrait: true };
+  }
   const portrait = w < usableH * 0.8;
   const f2 = frame * 2;
   const cell = portrait
@@ -608,7 +616,8 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
 
   if (opt.sweep && opt.time - opt.sweep.t0 < SWEEP_MS) drawSweep(ctx, skin, layout, opt.sweep, opt.time, opt.motion);
 
-  // Side panel: next piece and stats.
+  // Side panel: next piece and stats (none on a minimap).
+  if (opt.bare) return;
   const font = (px: number, weight = 600) => `${weight} ${Math.round(px)}px system-ui, -apple-system, Segoe UI, sans-serif`;
   const stat = (label: string, value: string, x: number, y: number, align: CanvasTextAlign = 'left') => {
     ctx.textAlign = align;
