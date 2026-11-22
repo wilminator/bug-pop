@@ -1285,12 +1285,16 @@ export class Versus {
       if (s.floats.length) s.floats = s.floats.filter(f => now - f.t0 < FLOAT_MS);
       if (s.arrivals.size && [...s.arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) s.arrivals = new Map();
       if (!s.state) continue;
-      render(s.ctx, s.state, skin, s.layout, { shapesOnPieces: set.shapesOnPieces, motion: motion(), time: now, images, leavers: s.leavers, arrivals: s.arrivals, floats: s.floats, bugExit: set.exit || undefined, bare: s.bare });
+      render(s.ctx, s.state, skin, s.layout, { shapesOnPieces: set.shapesOnPieces, motion: motion(), time: now, images, leavers: s.leavers, arrivals: s.arrivals, floats: s.floats, bugExit: set.exit || undefined, bare: s.bare,
+        matchStat: this.setup!.rule === 'best3' ? ['WINS', `${'★'.repeat(s.wins)}${'☆'.repeat(2 - Math.min(2, s.wins))}`] : null });
       // The label over the board: name, progress, and halves on their way.
       const info = s.state.phase === 'lost' && this.phase === 'playing' ? 'out' : this.setup!.rule === 'last' && !s.bare ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? '1 bug left' : `${s.state.bugsLeft} bugs left`;
       const wins = this.setup!.rule === 'best3' ? ` · ${'★'.repeat(s.wins)}${'☆'.repeat(2 - Math.min(2, s.wins))}` : '';
-      setText(s.el.querySelector('.vs-name')!, s.name);
-      setText(s.el.querySelector('.vs-info')!, info + wins);
+      // The one person's own board already shows bugs and score in its stats (Mike, 2026-11-22):
+      // over it, only the halves on their way (below). Its round stars sit in the stats.
+      const own = s.el.classList.contains('main');
+      setText(s.el.querySelector('.vs-name')!, own ? '' : s.name);
+      setText(s.el.querySelector('.vs-info')!, own ? '' : info + wins);
       const coming = s.state.versus ? waitingHalves(s.state.versus) : 0;
       // Power-ups: a tap target over the icon, for whoever plays this board here.
       const tap = !s.bare && !!s.state.power && s.input.capture && this.phase === 'playing' && !this.leaveUp;

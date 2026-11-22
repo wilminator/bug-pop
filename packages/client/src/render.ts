@@ -58,6 +58,8 @@ export type RenderOptions = {
   glowNext?: boolean;
   /** An opponent's minimap: just the board, no Next, stats or power-up meter. */
   bare?: boolean;
+  /** In a match, what takes Level's place in the stats: the round stars, or nothing (null). */
+  matchStat?: [string, string] | null;
 };
 
 const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
@@ -629,9 +631,11 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.fillText(value, x, y + c * 0.85);
   };
   const speedName = ['Low', 'Med', 'High', 'Slo'][s.config.speed]!;
+  // Level says nothing in a match (Mike, 2026-11-22): the round stars go there instead.
+  const first = opt.matchStat !== undefined ? opt.matchStat : levelStat(s);
   if (layout.portrait) {
     const y = by - c * 2.3;
-    stat(...levelStat(s), bx, y);
+    if (first) stat(...first, bx, y);
     stat('BUGS', String(s.bugsLeft), bx + c * 2, y);
     stat('SCORE', String(s.score), bx + c * W, y, 'right');
     // The multiplier sits small under the score, in the gap above the board.
@@ -653,7 +657,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.font = font(c * 0.42, 500);
     ctx.fillText('NEXT', x, by + c * 0.4);
     drawNext(ctx, s, skin, x, by + c * 0.7, c, opt);
-    stat(...levelStat(s), x, by + c * 3.2);
+    if (first) stat(...first, x, by + c * 3.2);
     stat('SPEED', speedName, x, by + c * 5.2);
     stat('BUGS', String(s.bugsLeft), x, by + c * 7.2);
     stat('SCORE', String(s.score), x, by + c * 9.2);
