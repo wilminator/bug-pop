@@ -460,7 +460,14 @@ export class Versus {
       case 'error': net.over = true; this.endOnline(null, "Can't play online right now", msg.why); break;
       case 'start': case 'resume': {
         const send = (out: ClientMsg) => { if (net.ws.readyState === net.ws.OPEN) net.ws.send(JSON.stringify(out)); };
-        const m = msg.t === 'start' ? new OnlineMatch(msg, send) : OnlineMatch.rebuild(msg.start, send, msg.mine, msg.theirs);
+        // A rejoin rebuilds both boards and checks every move the stand-in computer made for me,
+        // in this round and any earlier one it played part of (Mike, 2026-11-22).
+        const m = msg.t === 'start' ? new OnlineMatch(msg, send) : OnlineMatch.rebuild(msg.start, send, msg.mine, msg.theirs, msg.standIns);
+        if (msg.t === 'resume') {
+          const bad = msg.earlier.map(r => OnlineMatch.check(r.start, r.mine, r.theirs, r.standIns)).find(Boolean);
+          if (bad && !m.flagged) send({ t: 'flag', why: bad });
+        }
+        m.onTheirEvents = ev => this.effects(this.sides[1]!, ev);
         net.match = m;
         net.tries = 0;
         net.t0 = performance.now() - m.clock * TICK_MS; // a rejoin carries on from its clock
@@ -483,8 +490,12 @@ export class Versus {
         this.deps.audio.startMusic(true);
         break;
       }
-      case 'away': $('vsRuleText').textContent = `${this.sides[1]!.name} lost their connection. The computer plays for them for up to ${msg.seconds} seconds.`; break;
-      case 'back': $('vsRuleText').textContent = this.netRule; break;
+      case 'away':
+        // The other player dropped out: the computer plays their board here until they're back.
+        net.match?.takeOver();
+        $('vsRuleText').textContent = `${this.sides[1]!.name} lost their connection. The computer plays for them for up to ${msg.seconds} seconds.`;
+        break;
+      case 'back': net.match?.handOver(); $('vsRuleText').textContent = this.netRule; break;
       case 'in': case 'took': {
         const m = net.match;
         if (!m) return;

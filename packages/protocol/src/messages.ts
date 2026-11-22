@@ -12,7 +12,7 @@
 
 import type { Speed } from '@bug-pop/engine';
 
-export const PROTOCOL_VERSION = 2; // 2: rounds (best of 3), rejoining a match
+export const PROTOCOL_VERSION = 3; // 2: rounds (best of 3), rejoining a match. 3: the stand-in computer runs on the other player's device
 /** Moves go out in small batches: every this many ticks (50 ms at 60 ticks a second). */
 export const SEND_EVERY = 3;
 /** A message bigger than this is refused (a batch of moves is a few dozen bytes). */
@@ -46,9 +46,19 @@ export type Took = { t: 'took'; k: number; n: number; r: number };
 export type Done = { t: 'done'; winner: 0 | 1 | null };
 /** My copy of the opponent's game broke a rule. */
 export type Flag = { t: 'flag'; why: string };
+/**
+ * The stand-in computer (Mike, 2026-11-22). When the other player drops out, my device plays their
+ * board with the round's `botSeed`, in step with mine, and sends its moves ('bin', like 'in') and
+ * the attacks it dropped on their board ('btook', like 'took'). The relay keeps them for that
+ * player, who checks every one of them when they rejoin (OnlineMatch.rebuild).
+ */
+export type BotInputs = { t: 'bin'; k: number; a: number[] };
+export type BotTook = { t: 'btook'; k: number; n: number; r: number };
+/** I stopped the stand-in at its tick `k` (the other player is back): they carry on from there. */
+export type Handed = { t: 'handed'; k: number };
 /** I'm leaving the match on purpose (it ends now, and the other player wins). */
 export type Quit = { t: 'quit' };
-export type ClientMsg = Hello | Inputs | Took | Done | Flag | Quit;
+export type ClientMsg = Hello | Inputs | Took | Done | Flag | Quit | BotInputs | BotTook | Handed;
 
 // ---- Relay to client ----
 /** Queued: waiting for an opponent. */
@@ -58,19 +68,28 @@ export type Room = { t: 'room'; code: string };
 /**
  * Matched, or the next round of the match. `seat` is which of `players` I am; both boards use
  * `seed` and `colors`. `round` counts from 1 and `wins` is the rounds each seat has won so far.
+ * `botSeed` is the stand-in computer's, should either player drop out this round.
  */
-export type Start = { t: 'start'; seat: 0 | 1; seed: number; colors: number; rule: OnlineRule; players: [PlayerInfo, PlayerInfo]; round: number; wins: [number, number] };
+export type Start = { t: 'start'; seat: 0 | 1; seed: number; botSeed: number; colors: number; rule: OnlineRule; players: [PlayerInfo, PlayerInfo]; round: number; wins: [number, number] };
 /** One seat's side of a round so far: every move, every attack taken, and its clock. */
 export type SeatLog = { moves: number[]; took: { k: number; n: number; r: number }[]; clock: number };
+/** Where the stand-in computer played my board this round: my ticks from `from` up to `to`. */
+export type StandIn = { from: number; to: number };
 /**
  * Back in a match I dropped out of (Mike, 2026-11-22: going back into Multiplayer rejoins it).
- * While I was away the computer played my board; `mine` includes its moves. Rebuild both boards
- * with OnlineMatch.rebuild and play on from my clock.
+ * While I was away the other player's device ran the stand-in computer on my board; `mine`
+ * includes its moves, and `standIns` says where. Rebuild both boards with OnlineMatch.rebuild
+ * (which checks the stand-in's every move) and play on from my clock.
  */
-export type Resume = { t: 'resume'; start: Start; mine: SeatLog; theirs: SeatLog };
-/** The other player dropped out: the computer plays their board for up to `seconds`. */
+export type Resume = { t: 'resume'; start: Start; mine: SeatLog; theirs: SeatLog; standIns: StandIn[]; earlier: RoundLog[] };
+/**
+ * An earlier round of this match that the stand-in played part of for me (it may have decided
+ * that round), so my device checks it too.
+ */
+export type RoundLog = { start: Start; mine: SeatLog; theirs: SeatLog; standIns: StandIn[] };
+/** The other player dropped out: run the stand-in computer on their board (up to `seconds`). */
 export type Away = { t: 'away'; seconds: number };
-/** The other player is back. */
+/** The other player is back: stop the stand-in and answer 'handed'. */
 export type Back = { t: 'back' };
 /** The opponent's moves and the attacks they took are passed on unchanged (Inputs, Took). */
 export type End = { t: 'end'; why: 'result' | 'left' | 'flag' | 'disagree'; winner: 0 | 1 | null };
@@ -117,6 +136,9 @@ export function parseClient(raw: string): ClientMsg | null {
     case 'done': return seat(m.winner) ? { t: 'done', winner: m.winner } : null;
     case 'flag': return typeof m.why === 'string' ? { t: 'flag', why: m.why.slice(0, 200) } : null;
     case 'quit': return { t: 'quit' };
+    case 'bin': { const i = inputs(m); return i && { ...i, t: 'bin' }; }
+    case 'btook': { const t = took(m); return t && { ...t, t: 'btook' }; }
+    case 'handed': return int(m.k, 0, MAX_TICK) ? { t: 'handed', k: m.k } : null;
     default: return null;
   }
 }
@@ -129,10 +151,11 @@ function start(m: Record<string, unknown>): Start | null {
   };
   if ((m.seat !== 0 && m.seat !== 1) || !int(m.seed, -0x80000000, 0xffffffff) || !int(m.colors, 2, 5) || !RULES.includes(m.rule)) return null;
   if (!Array.isArray(players) || players.length !== 2 || !players.every(player)) return null;
+  if (!int(m.botSeed, -0x80000000, 0xffffffff)) return null;
   if (!int(m.round, 1, 100) || !Array.isArray(m.wins) || m.wins.length !== 2 || !m.wins.every(w => int(w, 0, 100))) return null;
   const [a, b] = players as PlayerInfo[];
   const clean = (p: PlayerInfo): PlayerInfo => ({ level: p.level, speed: p.speed, name: p.name.slice(0, 40) });
-  return { t: 'start', seat: m.seat, seed: m.seed, colors: m.colors, rule: m.rule as OnlineRule, players: [clean(a!), clean(b!)], round: m.round, wins: [m.wins[0] as number, m.wins[1] as number] };
+  return { t: 'start', seat: m.seat, seed: m.seed, botSeed: m.botSeed, colors: m.colors, rule: m.rule as OnlineRule, players: [clean(a!), clean(b!)], round: m.round, wins: [m.wins[0] as number, m.wins[1] as number] };
 }
 
 function seatLog(x: unknown): SeatLog | null {
@@ -144,6 +167,17 @@ function seatLog(x: unknown): SeatLog | null {
   return { moves: m.moves as number[], took: took.map(t => ({ k: t.k as number, n: t.n as number, r: t.r as number })), clock: m.clock };
 }
 
+function roundLog(x: unknown): RoundLog | null {
+  const m = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
+  if (!m) return null;
+  const st = m.start && typeof m.start === 'object' ? start(m.start as Record<string, unknown>) : null;
+  const mine = seatLog(m.mine), theirs = seatLog(m.theirs);
+  const standIns = Array.isArray(m.standIns) ? m.standIns.map(x => x as Record<string, unknown>) : null;
+  if (!st || !mine || !theirs || !standIns) return null;
+  if (!standIns.every(x => x && int(x.from, 0, MAX_TICK) && int(x.to, 0, MAX_TICK) && (x.to as number) >= (x.from as number))) return null;
+  return { start: st, mine, theirs, standIns: standIns.map(x => ({ from: x.from as number, to: x.to as number })) };
+}
+
 /** Read a message from the relay, or null if it isn't a valid one. */
 export function parseServer(raw: string): ServerMsg | null {
   const m = obj(raw, MAX_RESUME_BYTES);
@@ -152,9 +186,10 @@ export function parseServer(raw: string): ServerMsg | null {
     case 'room': return typeof m.code === 'string' && ROOM_CODE.test(m.code) && m.code !== 'new' ? { t: 'room', code: m.code } : null;
     case 'start': return start(m);
     case 'resume': {
-      const st = m.start && typeof m.start === 'object' ? start(m.start as Record<string, unknown>) : null;
-      const mine = seatLog(m.mine), theirs = seatLog(m.theirs);
-      return st && mine && theirs ? { t: 'resume', start: st, mine, theirs } : null;
+      const now = roundLog(m);
+      const earlier = Array.isArray(m.earlier) ? m.earlier.map(roundLog) : null;
+      if (!now || !earlier || earlier.length > 2 || !earlier.every(r => r)) return null;
+      return { t: 'resume', ...now, earlier: earlier as RoundLog[] };
     }
     case 'away': return int(m.seconds, 0, 600) ? { t: 'away', seconds: m.seconds } : null;
     case 'back': return { t: 'back' };
