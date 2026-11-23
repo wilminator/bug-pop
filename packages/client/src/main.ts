@@ -490,9 +490,11 @@ async function main() {
 
   // ---- New version check: before a game starts or resumes. Single player may skip it. ----
   let keepPlaying: (() => void) | null = null;
+  let gateBack: Mode = 'menu'; // the screen the update card came up over
   const updateGate = async () => {
     if (!(await shouldOffer())) return;
     const back = mode;
+    gateBack = back;
     show('update');
     await new Promise<void>(res => { keepPlaying = () => { decline(); show(back); res(); }; });
   };
@@ -519,6 +521,47 @@ async function main() {
   };
   window.addEventListener('focus', () => void checkUpdateOnReturn());
   $('updateLater').addEventListener('click', () => keepPlaying?.());
+  // ---- Where the player was, so a reload (an update, or by hand) comes back to it (Mike, 2026-11-22) ----
+  // Kept for this tab only (sessionStorage), and only for a while: an old tab reopened days later starts fresh.
+  // A single player game needs nothing here: it is saved, and opens paused where it was.
+  const PLACE_KEY = 'bugpop.place.v1', PLACE_MS = 30 * 60_000;
+  type Place = { mode: 'menu' | 'setup' | 'settings' | 'help' | 'versusSetup' | 'room'; tab: typeof tab; room: string | null; at: number };
+  const rememberPlace = () => {
+    // On the update card: the screen under it (about to start a game: back to its options).
+    const here = mode === 'update' ? gateBack : mode;
+    const inRoom = (here === 'room' || here === 'versus') && !!rooms?.open;
+    const m = inRoom ? 'room' : here === 'versus' ? 'versusSetup' : here;
+    const ok = m === 'menu' || m === 'setup' || m === 'settings' || m === 'help' || m === 'versusSetup' || m === 'room';
+    try {
+      if (!ok) sessionStorage.removeItem(PLACE_KEY);
+      else sessionStorage.setItem(PLACE_KEY, JSON.stringify({ mode: m, tab, room: inRoom ? rooms!.code : null, at: Date.now() } satisfies Place));
+    } catch { /* storage off: start fresh after a reload */ }
+  };
+  window.addEventListener('pagehide', rememberPlace);
+  const takePlace = (): Place | null => {
+    try {
+      const p = JSON.parse(sessionStorage.getItem(PLACE_KEY) ?? 'null') as Place | null;
+      sessionStorage.removeItem(PLACE_KEY);
+      return p && typeof p.at === 'number' && Date.now() - p.at < PLACE_MS ? p : null;
+    } catch { return null; }
+  };
+  /** Back where the player was. False if there is nowhere to go back to. */
+  const backToPlace = (p: Place | null): boolean => {
+    if (!p) return false;
+    const online = !!versus?.canPlayOnline && account.kind !== 'signedOut';
+    if (p.mode === 'room' || p.mode === 'versusSetup') {
+      refreshSetupForm();
+      pickTab(p.tab === 'local' || online ? p.tab : 'local');
+      show('versusSetup');
+      if (p.mode === 'room' && p.room && online) goOnline(p.room);
+      return true;
+    }
+    if (p.mode === 'setup') setupFrom = 'menu';
+    if (p.mode === 'settings' || p.mode === 'help') settingsFrom = 'menu';
+    show(p.mode);
+    return true;
+  };
+
   $('updateNow').addEventListener('click', () => {
     if (unfinished(state) && !coach) { saveGame(state); upload(); } // reopens paused, right where it was
     void updateNow();
@@ -645,6 +688,7 @@ async function main() {
   if (cfg.play) rooms = new RoomScreen({
     url: cfg.play.replace(/play\/?$/, 'room'), audio, versus,
     show: m => show(m), here: () => mode === 'room',
+    outdated: () => void updateNow(rememberPlace),
   });
   initSetupForm(settings.speed);
   {
@@ -1189,6 +1233,8 @@ async function main() {
     refreshSetupForm();
     pickTab(playTab === 'room' ? 'room' : 'quick');
     show('versusSetup');
+  } else if (backToPlace(takePlace())) {
+    // back where they were before the reload
   } else if (await offerNewerCloud()) {
     // showing the offer
   } else if (unfinished(state)) {

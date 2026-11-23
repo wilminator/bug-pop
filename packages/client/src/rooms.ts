@@ -34,6 +34,8 @@ export type RoomDeps = {
   show: (m: 'room' | 'versus' | 'versusSetup') => void;
   /** Is the room screen (or a game from it) on show? */
   here: () => boolean;
+  /** The server runs a newer version: update now, and come back to this room after. */
+  outdated: () => void;
 };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
@@ -83,6 +85,8 @@ export class RoomScreen {
   }
 
   get open() { return !!this.session; }
+  /** The room this device is in, or joining (null while making a new one). */
+  get code(): string | null { return this.session?.state?.code ?? (this.join && this.join.room !== 'new' ? this.join.room : null); }
 
   /** The join form's line under the code: joining, or why it didn't work. */
   private note(text: string, bad = false) {
@@ -135,9 +139,11 @@ export class RoomScreen {
     const people = this.session?.mine.slice(1).map(p => p.name) ?? [];
     ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'hello', v: ROOM_VERSION, level: j.level, speed: j.speed, room, ...(j.power ? { power: true } : {}), ...(people.length ? { people } : {}) })));
     ws.addEventListener('message', e => { if (this.ws === ws) { this.tries = 0; this.session?.receive(parseRoomServer(String(e.data))); } });
-    ws.addEventListener('close', () => {
+    ws.addEventListener('close', e => {
       if (this.ws !== ws || this.leaving) return;
       this.ws = null;
+      // Refused for an old version (4004): fetch the new one; the page comes back to this room.
+      if (e.code === 4004) { this.note('Getting the new version of Bug Pop...'); return this.deps.outdated(); }
       const code = this.session?.state?.code;
       // Lost the connection: back in the same room (the server keeps my seats; the stand-in plays meanwhile).
       if (code && this.tries < 5) {
@@ -190,7 +196,8 @@ export class RoomScreen {
   /** The room changed: redraw it, and bring up any game of mine that needs me. */
   private changed() {
     const s = this.session;
-    if (!s?.state) { if (s?.error) this.fail(s.error); return; }
+    // Refused at the door: the server closes the connection next, and that says what went wrong.
+    if (!s?.state) return;
     if (!this.entered) { this.entered = true; this.note(''); this.deps.show('room'); }
     this.render(s.state);
     const mine = this.mine();
