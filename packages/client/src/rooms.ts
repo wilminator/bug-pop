@@ -150,6 +150,8 @@ export class RoomScreen {
       this.ws = null;
       // Refused for an old version (4004): fetch the new one; the page comes back to this room.
       if (e.code === 4004) { this.note('Getting the new version of Bug Pop...'); return this.deps.outdated(); }
+      // The server restarted (4007): the room is gone, so don't try to reconnect to it.
+      if (e.code === 4007) return this.fail(this.session?.error ?? 'The game server restarted, so the room closed. Open a new room in a minute.');
       const code = this.session?.state?.code;
       // Lost the connection: back in the same room (the server keeps my seats; the stand-in plays meanwhile).
       if (code && this.tries < 5) {
