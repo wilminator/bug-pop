@@ -299,6 +299,11 @@
             <button>Add</button>
           </form>
         </div>
+        <div class="card" id="roomFriendsCard" hidden>
+          <h2>Invite friends</h2>
+          <ul id="roomFriendList" class="friend-list"></ul>
+          <p class="fine">They see your invite in Bug Pop for 10 minutes (while the room has space).</p>
+        </div>
       </div>
     </section>
 
@@ -558,6 +563,13 @@
           <p id="friendsNone" class="fine">No friends yet. Add people from a room's People list, or from the card after a match. You're friends once they add you back.</p>
           <p class="fine">A nickname is only for you: nobody else sees it.</p>
         </div>
+        <div class="card room-share" id="friendMeCard" hidden>
+          <img id="friendMeQr" alt="QR code that adds you as a friend" width="160" height="160" />
+          <div>
+            <p>Your friend link: whoever scans this or opens the link adds you, and you see "added you" to add them back. It works until you make a new code.</p>
+            <div class="room-row"><button id="friendMeShare" class="primary">Share my friend link</button><button id="friendMeNew">New code</button></div>
+          </div>
+        </div>
         <div id="friendsAskedCard" class="card" hidden><h2>Waiting for them to add you back</h2><ul id="friendsAsked" class="friend-list"></ul></div>
         <div id="friendsBlockedCard" class="card" hidden><h2>Blocked</h2><ul id="friendsBlocked" class="friend-list"></ul></div>
       </div>
@@ -600,5 +612,9 @@
     </section>
 
     <script type="module" src="/src/main.ts"></script>
-  </body>
+    <div id="notice" class="notice" role="alertdialog" aria-labelledby="noticeText" hidden>
+    <p id="noticeText"></p>
+    <div class="room-row"><button id="noticeYes" class="primary">OK</button><button id="noticeNo">Not now</button></div>
+  </div>
+</body>
 </html>

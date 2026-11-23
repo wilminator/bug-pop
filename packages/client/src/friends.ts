@@ -5,12 +5,16 @@
 //   POST /api/friends/nick     { fid, nick }  my private nickname for a friend
 //   POST /api/friends/block    { fid, on }    block / unblock
 //   GET  /api/friends/rooms    { rooms }      the rooms my friends are in right now
+//   POST /api/friends/invite   { fid, room }  invite a friend to the room I'm in (Mike, 2026-11-22)
+// Invites waiting for me come with the lists (`invites`): shown in the app for 10 minutes.
 // A friendship counts only when both people added each other. People are named by friend handle
 // (fid), never by account id. Without a server (the open-source build) none of this shows.
 
 /** One person: their friend handle, the name others may see, and my private nickname for them. */
 export type FriendRow = { fid: string; name: string; nick: string | null };
-export type FriendLists = { me: string; friends: FriendRow[]; waiting: FriendRow[]; asked: FriendRow[]; blocked: FriendRow[] };
+/** A friend asks me into their room: `from` is how I see them (my nickname, else their name). */
+export type FriendInvite = { code: string; from: string; fid: string | null };
+export type FriendLists = { me: string; friends: FriendRow[]; waiting: FriendRow[]; asked: FriendRow[]; blocked: FriendRow[]; invites?: FriendInvite[] };
 /** One row of the friends' rooms list. */
 export type FriendRoom = { code: string; friends: string[]; people: number; max: number; open: number; tour: boolean };
 /** Where someone stands with me. */
@@ -26,6 +30,12 @@ export class Friends {
   private loading: Promise<void> | null = null;
 
   constructor(private api: string) {}
+
+  /** Load again after a change: waits out a load already on its way (it may predate the change). */
+  private async reload() {
+    if (this.loading) await this.loading;
+    await this.refresh();
+  }
 
   /** Load (again). Signed out or offline: the lists stay as they were (null at first). */
   refresh(): Promise<void> {
@@ -59,6 +69,32 @@ export class Friends {
   remove(fid: string) { return this.post('friends', { fid, on: false }); }
   block(fid: string, on: boolean) { return this.post('friends/block', { fid, on }); }
   nick(fid: string, nick: string) { return this.post('friends/nick', { fid, nick }); }
+  invite(fid: string, room: string) { return this.post('friends/invite', { fid, room }); }
+
+  /** My friend link's code (`fresh`: a new one, which stops the old link), or null (offline). */
+  async code(fresh = false): Promise<string | null> {
+    try {
+      const res = await fetch(`${trim(this.api)}/friends/code`, {
+        method: fresh ? 'POST' : 'GET', credentials: 'include', signal: AbortSignal.timeout(8000),
+        ...(fresh ? { headers: { 'content-type': 'application/json' }, body: '{}' } : {}),
+      });
+      return res.ok ? ((await res.json()) as { code: string }).code : null;
+    } catch { return null; }
+  }
+
+  /** Opened someone's friend link: add them. Their friend handle, or null if the link is old or wrong. */
+  async link(code: string): Promise<string | null> {
+    let fid: string | null = null;
+    try {
+      const res = await fetch(`${trim(this.api)}/friends/link`, {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code }), signal: AbortSignal.timeout(8000),
+      });
+      fid = ((await res.json()) as { fid?: string }).fid ?? null;
+    } catch { /* offline */ }
+    await this.reload();
+    return fid;
+  }
 
   /** The rooms my friends are in, or null (signed out, offline). */
   async rooms(): Promise<FriendRoom[] | null> {
@@ -78,7 +114,7 @@ export class Friends {
       });
       ok = res.ok;
     } catch { /* offline */ }
-    await this.refresh();
+    await this.reload();
     return ok;
   }
 }

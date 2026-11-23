@@ -18,6 +18,8 @@ import type { Versus } from './versus';
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 /** How long a device keeps trying to get back in while the server restarts. */
 const RESTART_TRY_MS = 10 * 60_000;
+/** How long a friend's invite waits (the server forgets it then too). */
+const INVITE_MS = 10 * 60_000;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const RULE_TEXT = { race: 'First to clear their bugs', best3: 'Best of 3', best5: 'Best of 5', last: 'Last one standing' } as const;
 const TOUR_HELP = {
@@ -76,6 +78,8 @@ export class RoomScreen {
   private friendTimer = 0;
   /** "Ann added you" notes put off with Not now (until the room is left). */
   private notNow = new Set<string>();
+  /** Friends invited to this room, and when (the button says Invited for 10 minutes). */
+  private invited = new Map<string, number>();
   constructor(private deps: RoomDeps) {
     deps.friends?.listen(() => { if (this.session?.state && this.entered) this.render(this.session.state); });
     $('roomLeave').addEventListener('click', () => { deps.audio.play('select'); this.leave(); });
@@ -206,6 +210,7 @@ export class RoomScreen {
     window.clearInterval(this.pump);
     window.clearInterval(this.friendTimer);
     this.notNow.clear();
+    this.invited.clear();
     try { this.ws?.close(); } catch { /* closed */ }
     this.ws = null;
     this.session = null;
@@ -362,6 +367,28 @@ export class RoomScreen {
       return li;
     }));
     $('roomAddForm').hidden = s.mine.length >= MAX_PER_DEVICE;
+
+    // Invite friends who aren't here (Mike, 2026-11-22): they see it in Bug Pop for 10 minutes.
+    const here = new Set(st.people.map(p => p.fid).filter(Boolean));
+    const out = (f?.lists?.friends ?? []).filter(r => !here.has(r.fid));
+    $('roomFriendsCard').hidden = !out.length;
+    $('roomFriendList').replaceChildren(...out.map(r => {
+      const li = el('li');
+      const row = el('div', 'room-row');
+      const sent = (this.invited.get(r.fid) ?? 0) > Date.now() - INVITE_MS;
+      const btn = el('button', '', sent ? 'Invited' : 'Invite');
+      btn.disabled = sent;
+      btn.addEventListener('click', () => {
+        this.deps.audio.play('select');
+        btn.disabled = true;
+        btn.textContent = 'Invited';
+        this.invited.set(r.fid, Date.now());
+        void f!.invite(r.fid, st.code);
+      });
+      row.append(el('b', '', r.nick ?? r.name), btn);
+      li.append(row);
+      return li;
+    }));
 
     // Games: rules, who's at each, and what I can do there.
     const games = st.games.filter(g => !g.tour);

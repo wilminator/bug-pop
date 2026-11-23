@@ -394,3 +394,7 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .friend-room-list li > div { text-align: left; min-width: 0; }
 .friend-room-list .who { color: var(--text); }
 .vs-hide-boards canvas { visibility: hidden; }
+/* A friend's invite or add, over whatever is showing (Mike, 2026-11-22). */
+.notice { position: fixed; z-index: 60; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); width: min(420px, calc(100vw - 32px)); background: var(--card); color: var(--text); border: 2px solid #ffb703; border-radius: 12px; padding: 12px 14px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); }
+.notice[hidden] { display: none; }
+.notice p { margin: 0 0 10px; font-size: 16px; }

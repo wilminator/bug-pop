@@ -18,6 +18,7 @@ import { scanRoom } from './scan';
 import { Versus, initSetupForm, lastHumansOnly, lastOnline, readSetup, refreshSetupForm, rememberHumansOnly, rememberOnline, type ResultPerson } from './versus';
 import { RoomScreen } from './rooms';
 import { Friends, friendButtons, type FriendRow } from './friends';
+import qrcode from 'qrcode-generator';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
@@ -699,6 +700,24 @@ async function main() {
   };
   friends?.listen(() => { if (resultShown && !$('vsCard').hidden) fillResult(); });
 
+  /**
+   * A small card over whatever is showing (an invite, a friend add): `yes` with its label, and Not
+   * now (or no second button). Closes on either; `done` runs after.
+   */
+  let noticeUp = false;
+  const friendNotice = (text: string, yes: { label: string; run?: () => void }, no?: () => void) => {
+    noticeUp = true;
+    $('noticeText').textContent = text;
+    const y = $<HTMLButtonElement>('noticeYes'), n = $<HTMLButtonElement>('noticeNo');
+    y.textContent = yes.label;
+    n.hidden = !no;
+    const close = () => { $('notice').hidden = true; noticeUp = false; y.onclick = null; n.onclick = null; };
+    y.onclick = () => { audio.play('select'); close(); yes.run?.(); };
+    n.onclick = () => { audio.play('select'); close(); no?.(); };
+    $('notice').hidden = false;
+    y.focus({ preventScroll: true });
+  };
+
   // ---- Friends' rooms on Choose a game, and the Friends screen (Mike, 2026-11-22) ----
   if (friends) {
     let poll = 0, drawing = 0;
@@ -782,8 +801,73 @@ async function main() {
       $('friendsBlocked').replaceChildren(...blocked.map(r => row(r, r.name, button('Unblock', () => void friends.block(r.fid, false)))));
     };
     friends.listen(drawScreen);
-    $('friendsOpen').addEventListener('click', () => { audio.play('select'); screen.hidden = false; drawScreen(); void friends.refresh(); });
+    // My friend link (Mike, 2026-11-22): its own random code, working until I make a new one.
+    const friendLink = (code: string) => { const u = new URL(location.pathname, location.origin); u.searchParams.set('friend', code); return u.toString(); };
+    let myCode: string | null = null;
+    const drawCode = (code: string | null) => {
+      myCode = code;
+      $('friendMeCard').hidden = !code;
+      if (!code) return;
+      const qr = qrcode(0, 'M');
+      qr.addData(friendLink(code));
+      qr.make();
+      $<HTMLImageElement>('friendMeQr').src = qr.createDataURL(5, 2);
+      $('friendMeShare').textContent = 'Share my friend link';
+    };
+    $('friendMeShare').addEventListener('click', async () => {
+      if (!myCode) return;
+      audio.play('select');
+      const link = friendLink(myCode);
+      try {
+        if (navigator.share) { await navigator.share({ title: 'Bug Pop', text: 'Add me as a friend in Bug Pop', url: link }); return; }
+        await navigator.clipboard.writeText(link);
+        $('friendMeShare').textContent = 'Link copied';
+      } catch { /* the share sheet was closed */ }
+    });
+    $('friendMeNew').addEventListener('click', async () => {
+      audio.play('select');
+      $<HTMLButtonElement>('friendMeNew').disabled = true;
+      drawCode(await friends.code(true) ?? myCode);
+      $<HTMLButtonElement>('friendMeNew').disabled = false;
+    });
+    $('friendsOpen').addEventListener('click', () => {
+      audio.play('select'); screen.hidden = false; drawScreen(); void friends.refresh();
+      if (!myCode) void friends.code().then(drawCode);
+    });
     $('friendsBack').addEventListener('click', () => { audio.play('select'); screen.hidden = true; if (mode === 'menu') void drawRooms(); });
+
+    // In-app notices (Mike, 2026-11-22; push later): a friend's room invite, or "Ann added you".
+    // They show on menus, the room screen and result cards; during play they wait for the round
+    // or level to end. Lists are read again every 15 s while the app is open and signed in.
+    const seenAdds = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('bugpop.addsSeen') ?? '[]') as string[]); } catch { return new Set<string>(); } })();
+    const saveAdds = () => { try { localStorage.setItem('bugpop.addsSeen', JSON.stringify([...seenAdds].slice(-200))); } catch { /* private mode */ } };
+    const seenInvites = new Set<string>();
+    const calm = () => {
+      if (noticeUp || document.hidden || account.kind !== 'signedIn') return false;
+      if (mode === 'menu' || mode === 'title' || mode === 'versusSetup' || mode === 'room' || mode === 'result') return true;
+      // A match: only while its card is up (between rounds), not the Leave card over a live round.
+      return mode === 'versus' && !$('vsCard').hidden && $('vsStay').hidden;
+    };
+    const nextNotice = () => {
+      const l = friends.lists;
+      if (!l || !calm()) return;
+      const inv = (l.invites ?? []).find(v => !seenInvites.has(`${v.code}:${v.fid}`) && rooms?.code !== v.code);
+      if (inv) {
+        seenInvites.add(`${inv.code}:${inv.fid}`);
+        return friendNotice(`${inv.from} invites you to room ${inv.code}.`, { label: 'Join', run: () => { pickTab('room'); goOnline(inv.code); } }, () => undefined);
+      }
+      // Adds from people in my room show in the room itself.
+      const add = mode === 'room' ? undefined : l.waiting.find(r => !seenAdds.has(r.fid));
+      if (add) {
+        seenAdds.add(add.fid);
+        saveAdds();
+        friendNotice(`${add.name} added you as a friend.`, { label: 'Add back', run: () => void friends.add(add.fid) }, () => undefined);
+      }
+    };
+    friends.listen(nextNotice);
+    window.setInterval(() => { if (!document.hidden && account.kind === 'signedIn') void friends.refresh(); }, 15_000);
+    window.setInterval(nextNotice, 1000);
+    void accountCheck.then(() => { if (account.kind === 'signedIn') void friends.refresh(); });
   }
   versus = new Versus({
     skin, images, audio, touchBar, motion, settings: () => settings, finishPauseMs: FINISH_PAUSE_MS, playUrl: cfg.play,
@@ -1345,6 +1429,21 @@ async function main() {
   const roomLink = new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '';
   const joinRoom = /^[A-Z]{4}$/.test(roomLink) && !!versus?.canPlayOnline && account.kind !== 'off';
   if (joinRoom && account.kind === 'signedOut') { location.assign(loginUrl(cfg.api!, location.pathname + location.search)); return; }
+  // A friend link (?friend=CODE, from someone's Friends screen): add them, then carry on as usual.
+  const friendCode = new URLSearchParams(location.search).get('friend') ?? '';
+  if (friends && /^[A-Za-z0-9_-]{8,40}$/.test(friendCode) && account.kind !== 'off') {
+    if (account.kind === 'signedOut') { location.assign(loginUrl(cfg.api!, location.pathname + location.search)); return; }
+    history.replaceState(null, '', location.pathname + location.hash);
+    void friends.link(friendCode).then(fid => {
+      const l = friends.lists;
+      const who = fid && l ? [...l.friends, ...l.asked].find(r => r.fid === fid) : undefined;
+      const text = fid === l?.me ? "That's your own friend link: share it with friends so they can add you."
+        : !fid ? "That friend link doesn't work any more. Ask your friend for their new one."
+        : who && l!.friends.includes(who) ? `You and ${who.nick ?? who.name} are friends.`
+        : `You added ${who?.name ?? 'your friend'}. You're friends once they add you back.`;
+      friendNotice(text, { label: 'OK' });
+    });
+  }
   // Back from signing in on the Quick play, New room or Join room card (?play=quick|new|room; 'online' from older builds).
   const playTab = new URLSearchParams(location.search).get('play');
   const backToOnline = (playTab === 'quick' || playTab === 'new' || playTab === 'room' || playTab === 'online') && !!versus?.canPlayOnline;
