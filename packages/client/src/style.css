@@ -355,4 +355,6 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 /* Scanning a room QR code: the camera picture in a square. */
 .scan-card video { width: min(320px, 75vw); aspect-ratio: 1; object-fit: cover; border-radius: 12px; background: #000; display: block; margin: 0 auto 1rem; }
 .vs-ready-row .vs-other { display: contents; }
+.vs-room-note { margin: 0; text-align: center; }
+.vs-room-note.bad { color: #ffb347; font-weight: 700; }
 #roomScreen [hidden] { display: none !important; }

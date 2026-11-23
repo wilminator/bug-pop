@@ -684,7 +684,13 @@ async function main() {
     audio.unlock();
     audio.play('select');
     // Rooms: friends gather, games of 2 to 4 or a tournament (Mike, 2026-11-22).
-    if (room && rooms) { rooms.start({ room, level: me.level, speed: me.speed, power: lastOnline(settings.speed).power }); return; }
+    if (room && rooms) {
+      // Joining waits on the Online room tab (a room link may arrive from anywhere).
+      pickTab('room');
+      show('versusSetup');
+      rooms.start({ room, level: me.level, speed: me.speed, power: lastOnline(settings.speed).power });
+      return;
+    }
     show('versus');
     // Power-ups: last time's choice; each player can change it on the match settings card.
     const humansOnly = $<HTMLInputElement>('vsHumansOnly').checked; // quick match only: rooms are always people
@@ -700,7 +706,7 @@ async function main() {
   $('vsHumansOnly').addEventListener('change', e => rememberHumansOnly((e.target as HTMLInputElement).checked));
   $('vsCreate').addEventListener('click', () => goOnline('new'));
   const code = $<HTMLInputElement>('vsCode');
-  code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });
+  code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); $('vsRoomNote').hidden = true; });
   $('vsJoin').addEventListener('click', () => { if (/^[A-Z]{4}$/.test(code.value)) goOnline(code.value); else code.focus(); });
   // Scan a friend's room QR code right here (an iPhone's Camera app would open Safari instead).
   let scanning: { stop: () => void } | null = null;

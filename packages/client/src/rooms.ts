@@ -30,7 +30,7 @@ export type RoomDeps = {
   url: string;
   audio: AudioManager;
   versus: Versus;
-  /** Show the room screen, the versus screen, or (on leaving) the Multiplayer screen. */
+  /** Show the room screen, the versus screen, or (on leaving or a failed join) the Multiplayer screen. */
   show: (m: 'room' | 'versus' | 'versusSetup') => void;
   /** Is the room screen (or a game from it) on show? */
   here: () => boolean;
@@ -57,6 +57,8 @@ export class RoomScreen {
   /** Rounds already put on screen (a game's settings card or its boards come up once each). */
   private seen = new Set<string>();
 
+  /** The server has let this device into the room (its first room state arrived). */
+  private entered = false;
   constructor(private deps: RoomDeps) {
     $('roomLeave').addEventListener('click', () => { deps.audio.play('select'); this.leave(); });
     $('roomShareBtn').addEventListener('click', () => void this.share());
@@ -82,6 +84,25 @@ export class RoomScreen {
 
   get open() { return !!this.session; }
 
+  /** The join form's line under the code: joining, or why it didn't work. */
+  private note(text: string, bad = false) {
+    const n = $('vsRoomNote');
+    n.hidden = !text;
+    n.textContent = text;
+    n.classList.toggle('bad', bad);
+    for (const id of ['vsCreate', 'vsJoin', 'vsScan']) $<HTMLButtonElement>(id).disabled = !!text && !bad;
+  }
+
+  /**
+   * Couldn't get into the room (a wrong code, a full room, an old version, no connection):
+   * stay on the join form and say why there (Mike, 2026-11-22), rather than on an empty room screen.
+   */
+  private fail(why: string) {
+    this.close();
+    this.deps.show('versusSetup');
+    this.note(why, true);
+  }
+
   /** Join a room ('new' makes one). */
   start(join: RoomJoin) {
     this.close();
@@ -95,8 +116,10 @@ export class RoomScreen {
       this.t0.set(g, performance.now() - t.clock * TICK_MS);
     };
     $('roomTitle').textContent = 'Room';
-    $('roomStatus').textContent = 'Connecting...';
-    this.deps.show('room');
+    $('roomStatus').textContent = '';
+    // The room screen opens once the server lets us in; until then the join form says what's happening.
+    this.entered = false;
+    this.note(join.room === 'new' ? 'Opening a room...' : `Joining room ${join.room}...`);
     this.connect(join.room);
     window.clearInterval(this.pump);
     this.pump = window.setInterval(() => this.tick(), 16);
@@ -123,7 +146,9 @@ export class RoomScreen {
         window.setTimeout(() => { if (this.session && !this.leaving) this.connect(code); }, 1500);
         return;
       }
-      $('roomStatus').textContent = this.session?.error ?? "Couldn't reach the game server. Check your connection and try again.";
+      const why = this.session?.error ?? "Couldn't reach the game server. Check your connection and try again.";
+      if (!this.entered) return this.fail(why);
+      $('roomStatus').textContent = why;
     });
   }
 
@@ -165,7 +190,8 @@ export class RoomScreen {
   /** The room changed: redraw it, and bring up any game of mine that needs me. */
   private changed() {
     const s = this.session;
-    if (!s?.state) { if (s?.error) $('roomStatus').textContent = s.error; return; }
+    if (!s?.state) { if (s?.error) this.fail(s.error); return; }
+    if (!this.entered) { this.entered = true; this.note(''); this.deps.show('room'); }
     this.render(s.state);
     const mine = this.mine();
     for (const game of s.state.games) {
