@@ -31,7 +31,13 @@ const RULES: readonly unknown[] = ['race', 'best3', 'best5', 'last'];
 /** Round wins that take the match: 2 for best of 3, 3 for best of 5, otherwise one game decides. */
 export const winsNeeded = (rule: string): number => (rule === 'best5' ? 3 : rule === 'best3' ? 2 : 1);
 
-export type PlayerInfo = { level: number; speed: Speed; name: string };
+/**
+ * `fid`: the player's friend handle, when the server has friends (bug-pop-server). It is an
+ * opaque id the server made up for this account, never the account id itself.
+ */
+export type PlayerInfo = { level: number; speed: Speed; name: string; fid?: string };
+/** A friend handle: letters, digits, '-' and '_', 8 to 40 of them. */
+export const isFid = (x: unknown): x is string => typeof x === 'string' && /^[A-Za-z0-9_-]{8,40}$/.test(x);
 /**
  * Once both players are Ready, the round starts this long after (Mike, 2026-11-22). Anyone
  * turning Ready off during the countdown stops it.
@@ -185,7 +191,7 @@ function start(m: Record<string, unknown>): Start | null {
   if (!int(m.round, 1, 100) || !Array.isArray(m.wins) || m.wins.length !== 2 || !m.wins.every(w => int(w, 0, 100))) return null;
   if (typeof m.power !== 'boolean') return null;
   const [a, b] = players as PlayerInfo[];
-  const clean = (p: PlayerInfo): PlayerInfo => ({ level: p.level, speed: p.speed, name: p.name.slice(0, 40) });
+  const clean = (p: PlayerInfo): PlayerInfo => ({ level: p.level, speed: p.speed, name: p.name.slice(0, 40), ...(isFid(p.fid) ? { fid: p.fid } : {}) });
   return { t: 'start', seat: m.seat, seed: m.seed, botSeed: m.botSeed, colors: m.colors, rule: m.rule as OnlineRule, players: [clean(a!), clean(b!)], round: m.round, wins: [m.wins[0] as number, m.wins[1] as number], power: m.power };
 }
 
@@ -401,7 +407,8 @@ export type RoomClientMsg = AddPerson | DropPerson | NewGame | NewTour | TourJoi
 // Server to client, in a room.
 /** An invite waiting for an answer: to game `g` (null: the tournament), from someone by name. */
 export type RoomInvite = { g: number | null; from: string };
-export type RoomPerson = { pid: string; name: string; mine: boolean; watch: boolean; here: boolean; game: number | null; invites: RoomInvite[] };
+/** `fid`: a signed-in person's friend handle (see PlayerInfo); guests typed in on a device have none. */
+export type RoomPerson = { pid: string; name: string; mine: boolean; watch: boolean; here: boolean; game: number | null; invites: RoomInvite[]; fid?: string };
 export type RoomSeat = { name: string; pid?: string; cpu?: BotName };
 /** `by`: whoever made it (or, after they left, the next person in it). */
 export type RoomGame = { g: number; seats: RoomSeat[]; round: number; wins: number[]; phase: 'lobby' | 'playing'; tour: boolean; rules: GameRules; by: string | null };
@@ -500,7 +507,7 @@ function roomState(m: Record<string, unknown>): RoomState | null {
     if (!inv || inv.length > MAX_ROOM) return null;
     const invites: RoomInvite[] = [];
     for (const v of inv) { const from = name40(v.from); if (!from || !gameOrTour(v.g)) return null; invites.push({ g: v.g, from }); }
-    ps.push({ pid: p.pid, name: n, mine: p.mine, watch: p.watch, here: p.here, game: p.game as number | null, invites });
+    ps.push({ pid: p.pid, name: n, mine: p.mine, watch: p.watch, here: p.here, game: p.game as number | null, invites, ...(isFid(p.fid) ? { fid: p.fid } : {}) });
   }
   const gs: RoomGame[] = [];
   for (const g of games) {

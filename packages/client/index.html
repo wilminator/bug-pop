@@ -123,6 +123,13 @@
             <span class="mode-desc">Type a room code or scan its QR code.</span>
           </button>
         </div>
+        <!-- The rooms my friends are in (signed-in servers only; src/main.ts, Mike 2026-11-22). -->
+        <div id="friendRooms" class="friend-rooms" hidden>
+          <h2 class="modes-head">Friends' rooms</h2>
+          <ul id="friendRoomList" class="friend-room-list"></ul>
+          <p id="friendRoomsNote" class="fine" hidden></p>
+          <button id="friendsOpen">Friends</button>
+        </div>
         <!-- Same 320 x 100 ad space as the title page; only a deployment's config.json turns it on. -->
         <div id="menuAdSlot" class="ad-slot" hidden aria-label="Advertisement"></div>
       </div>
@@ -253,7 +260,7 @@
         <div class="card room-share">
           <img id="roomQr" alt="QR code that opens this room" width="160" height="160" />
           <div>
-            <p>Friends join with the code <b id="roomCodeText"></b>: they scan this, open the link you share, or type it under Online room.</p>
+            <p>Friends join with the code <b id="roomCodeText"></b>: they scan this, open the link you share, or type it under Join room.</p>
             <button id="roomShareBtn">Share join link</button>
           </div>
         </div>
@@ -539,6 +546,23 @@
 
     <!-- Multiplayer: the leave question, and the round / match result. The game keeps running behind "Leave?". -->
     <!-- Scanning a friend's room QR code with the camera (src/scan.ts). -->
+    <!-- Friends (src/main.ts): adds waiting, friends with private nicknames, adds not back yet, blocks. -->
+    <section id="friendsScreen" class="overlay screen art" hidden>
+      <nav class="navbar"><button class="back" id="friendsBack">&lsaquo; Back</button></nav>
+      <div class="screen-body">
+        <h1 class="screen-title">Friends</h1>
+        <div id="friendsWaitingCard" class="card room-invites" hidden><h2>Added you</h2><ul id="friendsWaiting" class="friend-list"></ul></div>
+        <div class="card">
+          <h2>Friends</h2>
+          <ul id="friendsList" class="friend-list"></ul>
+          <p id="friendsNone" class="fine">No friends yet. Add people from a room's People list, or from the card after a match. You're friends once they add you back.</p>
+          <p class="fine">A nickname is only for you: nobody else sees it.</p>
+        </div>
+        <div id="friendsAskedCard" class="card" hidden><h2>Waiting for them to add you back</h2><ul id="friendsAsked" class="friend-list"></ul></div>
+        <div id="friendsBlockedCard" class="card" hidden><h2>Blocked</h2><ul id="friendsBlocked" class="friend-list"></ul></div>
+      </div>
+    </section>
+
     <section id="scanScreen" class="overlay" hidden>
       <div class="card scan-card">
         <h2>Scan a room code</h2>
@@ -562,6 +586,8 @@
           <div id="vsReadyRows"></div>
           <p id="vsPowerNote" class="fine"></p>
         </div>
+        <!-- Result cards: Add friend for the other players (signed-in servers only; src/main.ts). -->
+        <div id="vsCardFriends" class="vs-card-friends" hidden></div>
         <button id="vsCpu" class="primary">Play the computer instead</button>
         <button id="vsNext" class="primary" data-primary>Next round</button>
         <button id="vsAgain">Play again</button>

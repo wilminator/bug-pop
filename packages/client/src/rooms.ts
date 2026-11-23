@@ -12,6 +12,7 @@ import { TICKS_PER_SECOND, type Speed } from '@bug-pop/engine';
 import { MAX_PER_DEVICE, ROOM_VERSION, RoomSession, parseRoomServer, type GameRules, type RoomGame, type RoomPerson, type RoomState, type TourRules } from '@bug-pop/protocol';
 import qrcode from 'qrcode-generator';
 import type { AudioManager } from './audio';
+import { friendButtons, type Friends } from './friends';
 import type { Versus } from './versus';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -40,6 +41,8 @@ export type RoomDeps = {
   here: () => boolean;
   /** The server runs a newer version: update now, and come back to this room after. */
   outdated: () => void;
+  /** Friends (signed-in servers only): Add friend / Add back / Block in the People list. */
+  friends?: Friends;
 };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
@@ -65,7 +68,12 @@ export class RoomScreen {
 
   /** The server has let this device into the room (its first room state arrived). */
   private entered = false;
+  /** Friend lists are read again this often while in a room (someone may have added me). */
+  private friendTimer = 0;
+  /** "Ann added you" notes put off with Not now (until the room is left). */
+  private notNow = new Set<string>();
   constructor(private deps: RoomDeps) {
+    deps.friends?.listen(() => { if (this.session?.state && this.entered) this.render(this.session.state); });
     $('roomLeave').addEventListener('click', () => { deps.audio.play('select'); this.leave(); });
     $('roomShareBtn').addEventListener('click', () => void this.share());
     $('roomStart').addEventListener('click', () => { deps.audio.play('select'); this.make(); });
@@ -166,6 +174,8 @@ export class RoomScreen {
   close() {
     this.leaving = true;
     window.clearInterval(this.pump);
+    window.clearInterval(this.friendTimer);
+    this.notNow.clear();
     try { this.ws?.close(); } catch { /* closed */ }
     this.ws = null;
     this.session = null;
@@ -191,12 +201,25 @@ export class RoomScreen {
 
   private mine() { return new Set(this.session?.mine.map(p => p.pid) ?? []); }
 
+  /** The friend handle of whoever sits at seat `s` of game `g` (for a result card's Add friend). */
+  fidAt(g: number, seat: number): string | undefined {
+    const st = this.session?.state;
+    const pid = st?.games.find(x => x.g === g)?.seats[seat]?.pid;
+    return pid ? st!.people.find(p => p.pid === pid)?.fid : undefined;
+  }
+
   /** The room changed: redraw it, and bring up any game of mine that needs me. */
   private changed() {
     const s = this.session;
     // Refused at the door: the server closes the connection next, and that says what went wrong.
     if (!s?.state) return;
-    if (!this.entered) { this.entered = true; this.note(''); this.deps.show('room'); }
+    if (!this.entered) {
+      this.entered = true;
+      this.note('');
+      this.deps.show('room');
+      const f = this.deps.friends;
+      if (f) { void f.refresh(); window.clearInterval(this.friendTimer); this.friendTimer = window.setInterval(() => { if (!document.hidden) void f.refresh(); }, 15_000); }
+    }
     this.render(s.state);
     const mine = this.mine();
     for (const game of s.state.games) {
@@ -241,8 +264,21 @@ export class RoomScreen {
 
     // Invites to people on this device (Mike, 2026-11-22: invites must be accepted).
     const invites = s.mine.flatMap(p => p.invites.map(v => ({ p, v })));
-    $('roomInvites').hidden = !invites.length;
-    $('roomInvites').replaceChildren(...invites.map(({ p, v }) => {
+    // Friend adds from people in this room: "Ann added you" with Add back (Mike, 2026-11-22).
+    const f = this.deps.friends;
+    const adds = f ? st.people.filter(p => !p.mine && p.fid && f.standing(p.fid) === 'waiting' && !this.notNow.has(p.fid)) : [];
+    $('roomInvites').hidden = !invites.length && !adds.length;
+    $('roomInvites').replaceChildren(...adds.map(p => {
+      const box = el('div', 'room-invite');
+      box.append(el('p', '', `${p.name} added you as a friend.`));
+      const row = el('div', 'room-row');
+      const yes = el('button', 'primary', 'Add back'), no = el('button', '', 'Not now');
+      yes.addEventListener('click', () => { this.deps.audio.play('select'); yes.disabled = true; void f!.add(p.fid!); });
+      no.addEventListener('click', () => { this.deps.audio.play('select'); this.notNow.add(p.fid!); this.render(st); });
+      row.append(yes, no);
+      box.append(row);
+      return box;
+    }), ...invites.map(({ p, v }) => {
       const game = v.g === null ? null : st.games.find(x => x.g === v.g);
       const what = v.g === null ? (t ? `the tournament (${tourText(t.rules)})` : 'the tournament') : `game ${v.g}${game ? ` (${rulesText(game.rules, game.seats.length)})` : ''}`;
       const box = el('div', 'room-invite');
@@ -273,7 +309,7 @@ export class RoomScreen {
     // People: who's here, Watch only, and the people on this device.
     $('roomPeople').replaceChildren(...st.people.map(p => {
       const li = el('li', p.here ? '' : 'away');
-      li.append(el('b', '', p.name));
+      li.append(el('b', '', f ? f.label(p.fid, p.name) : p.name));
       const notes = [p.mine ? 'on this device' : '', !p.here ? 'away' : '', p.game !== null ? `in game ${p.game}` : inTour(p.pid) ? 'in the tournament' : p.watch ? 'watching' : 'free'].filter(Boolean);
       li.append(el('span', 'fine', notes.join(', ')));
       if (p.mine) {
@@ -289,6 +325,9 @@ export class RoomScreen {
           rm.addEventListener('click', () => { this.deps.audio.play('select'); s.dropPerson(p.pid); });
           li.append(rm);
         }
+      } else if (f?.lists && p.fid) {
+        const fb = friendButtons(f, p.fid, { block: true, play: () => this.deps.audio.play('select') });
+        if (fb) li.append(fb);
       }
       return li;
     }));

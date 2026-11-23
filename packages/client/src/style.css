@@ -372,3 +372,24 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .room-invite + .room-invite { border-top: 1px solid var(--edge); padding-top: 10px; }
 .room-invite p { margin: 0; font-weight: 700; }
 .room-game > .fine { margin: 0; }
+
+/* Friends (src/friends.ts, src/main.ts). */
+.friend-btns { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.friend-btns button { padding: 4px 10px; font-size: 14px; }
+.friend-note { color: var(--accent); font-weight: 700; font-size: 14px; }
+.vs-card-friends { display: grid; gap: 8px; margin: 4px 0 10px; }
+.vs-card-friends .room-row { align-items: center; justify-content: center; }
+.friend-rooms { width: 100%; max-width: 520px; display: grid; gap: 8px; justify-items: center; }
+@media (min-width: 820px) { .friend-rooms { max-width: none; } }
+.friend-room-list, .friend-list { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; gap: 8px; }
+.friend-room-list li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(24, 27, 36, 0.88); border: 1px solid var(--edge); border-radius: 14px; }
+.friend-room-list .who { font-weight: 700; }
+.friend-room-list .fine { display: block; margin: 2px 0 0; }
+.friend-rooms .fine { text-align: center; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); }
+.friend-list li { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--edge); }
+.friend-list li:first-child { border-top: 0; }
+.friend-list .room-row { align-items: center; }
+.friend-list input { width: 10em; }
+.card[hidden], .friend-rooms[hidden], .vs-card-friends[hidden], .friend-rooms [hidden] { display: none; }
+.friend-room-list li > div { text-align: left; min-width: 0; }
+.friend-room-list .who { color: var(--text); }

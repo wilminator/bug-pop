@@ -57,7 +57,13 @@ export type VersusDeps = {
   finishPauseMs: number;
   /** Online play's WebSocket address (config.json "play"); without it there is no online play. */
   playUrl?: string;
+  /**
+   * A result card shows these other players: fill `into` with Add friend buttons (signed-in servers
+   * only). Each has a friend handle (quick match) or is seat `s` of room game `g`.
+   */
+  resultPeople?: (people: ResultPerson[], into: HTMLElement) => void;
 };
+export type ResultPerson = { name: string; fid?: string; g?: number; s?: number };
 
 /** How to join an online match: quick match, open a room ('new'), or a friend's 4-letter code. */
 export type OnlineJoin = { level: number; speed: Speed; room?: string; power?: boolean; humansOnly?: boolean };
@@ -841,6 +847,7 @@ export class Versus {
       if (this.phase !== 'ending') return;
       this.phase = 'card';
       this.showCard(title, `${score}. The settings for the next round come up in a moment.`, ['vsMenu']);
+      this.onlinePeople();
     }, this.deps.finishPauseMs);
   }
 
@@ -858,6 +865,7 @@ export class Versus {
       if (this.phase !== 'ending') return;
       this.phase = 'card';
       this.showCard(title, text, ['vsAgain', 'vsSetupBtn', 'vsMenu']);
+      this.onlinePeople();
     }, playing ? this.deps.finishPauseMs : 0);
   }
 
@@ -1086,6 +1094,7 @@ export class Versus {
       if (this.phase !== 'ending' || this.tbl !== tb) return;
       this.phase = 'card';
       this.showCard(title, text, ['vsRoomBack']);
+      this.friendRow(tb.t.start.seats.flatMap((x, s) => (x.cpu || tb.locals.includes(s) ? [] : [{ name: x.name, g: tb.g, s }])));
     }, playing ? this.deps.finishPauseMs : 0);
   }
 
@@ -1116,9 +1125,26 @@ export class Versus {
     $('vsRoomShare').hidden = false;
   }
 
+  /** Add friend buttons for the other players on a result card. */
+  private friendRow(people: ResultPerson[]) {
+    const box = $('vsCardFriends');
+    box.replaceChildren();
+    box.hidden = true;
+    if (people.length) this.deps.resultPeople?.(people, box);
+  }
+
+  /** The quick-match opponent, on a result card. */
+  private onlinePeople() {
+    const m = this.net?.match;
+    if (!m) return;
+    const them = m.start.players[1 - m.seat]!;
+    this.friendRow([{ name: them.name, ...(them.fid ? { fid: them.fid } : {}) }]);
+  }
+
   private showCard(title: string, text: string, buttons: ('vsCpu' | 'vsNext' | 'vsAgain' | 'vsStay' | 'vsSetupBtn' | 'vsMenu' | 'vsRoomBack' | 'vsGiveUp')[]) {
     $('vsRoomShare').hidden = true;
     $('vsReadyBox').hidden = true;
+    $('vsCardFriends').hidden = true;
     this.cardBase = text;
     $('vsCardTitle').classList.remove('vs-waiting');
     $('vsCardTitle').textContent = title;

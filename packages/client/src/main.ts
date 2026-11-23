@@ -15,8 +15,9 @@ import { cleanUpdateMarker, decline, shouldOffer, updateNow } from './update';
 import { adoptSave, clearGame, loadGame, loadRecord, loadSettings, saveOwner, saveRecord, setPlayer, requestPersistence, saveGame, saveSettings, type Settings, type Motion, loadProgress, recordBeaten, sliderMax, mergeProgress, settingsChangedAt, lookNoticeSeen, markLookNotice } from './storage';
 import { Coach, createTutorialGame, markTutorialSeen, tutorialSeen, type Device } from './tutorial';
 import { scanRoom } from './scan';
-import { Versus, initSetupForm, lastHumansOnly, lastOnline, readSetup, refreshSetupForm, rememberHumansOnly, rememberOnline } from './versus';
+import { Versus, initSetupForm, lastHumansOnly, lastOnline, readSetup, refreshSetupForm, rememberHumansOnly, rememberOnline, type ResultPerson } from './versus';
 import { RoomScreen } from './rooms';
+import { Friends, friendButtons, type FriendRow } from './friends';
 import { applySynced, httpSync, noSync, pickSynced, syncedDiffer, type Sync } from './sync';
 
 // 'ending': the game is decided and the board stays on screen for a dramatic pause.
@@ -274,8 +275,11 @@ async function main() {
   };
   let versus: Versus | null = null; // made once the screens exist (below)
   let rooms: RoomScreen | null = null;
+  /** Choose a game's friends' rooms list: on while the menu shows (set up with the friends below). */
+  let menuFriends: ((on: boolean) => void) | null = null;
   const show = (m: Mode) => {
     mode = m;
+    menuFriends?.(m === 'menu');
     audio.title(titleScreens.includes(m));
     overlays.title.hidden = m !== 'title';
     overlays.menu.hidden = m !== 'menu';
@@ -673,15 +677,128 @@ async function main() {
   };
   $('newGame').addEventListener('click', () => { audio.play('select'); void singlePlayer(); });
   // ---- Multiplayer on this device: you against the computer, two people, or the computer against itself ----
+  // Friends (bug-pop-server only): lists read when signed in, used by rooms, result cards and the menu.
+  const friends = cfg.api && cfg.play ? new Friends(cfg.api) : null;
+  // The people on the result card showing now, so Add friend redraws when the lists change.
+  let resultShown: { people: ResultPerson[]; into: HTMLElement } | null = null;
+  const fillResult = () => {
+    const r = resultShown;
+    if (!r || !friends?.lists) return;
+    r.into.replaceChildren(...r.people.flatMap(p => {
+      const fid = p.fid ?? (p.g !== undefined && p.s !== undefined ? rooms?.fidAt(p.g, p.s) : undefined);
+      const btns = fid ? friendButtons(friends, fid, { block: true, play: () => audio.play('select') }) : null;
+      if (!btns) return [];
+      const row = document.createElement('div');
+      row.className = 'room-row';
+      const b = document.createElement('b');
+      b.textContent = friends.label(fid, p.name);
+      row.append(b, btns);
+      return [row];
+    }));
+    r.into.hidden = !r.into.childElementCount;
+  };
+  friends?.listen(() => { if (resultShown && !$('vsCard').hidden) fillResult(); });
+
+  // ---- Friends' rooms on Choose a game, and the Friends screen (Mike, 2026-11-22) ----
+  if (friends) {
+    let poll = 0, drawing = 0;
+    const node = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') => {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text) e.textContent = text;
+      return e;
+    };
+    const button = (text: string, run: () => void, cls = '') => {
+      const b = node('button', cls, text);
+      b.type = 'button';
+      b.addEventListener('click', () => { audio.play('select'); run(); });
+      return b;
+    };
+    /** "Ann", "Ann and Bo", "Ann, Bo and Cy", "Ann, Bo, Cy and 2 more" */
+    const names = (xs: string[]) => xs.length <= 3 ? xs.join(', ').replace(/, ([^,]*)$/, ' and $1') : `${xs.slice(0, 3).join(', ')} and ${xs.length - 3} more`;
+    const drawRooms = async () => {
+      const box = $('friendRooms'), list = $('friendRoomList'), note = $('friendRoomsNote');
+      const signedIn = account.kind === 'signedIn';
+      box.hidden = !versus?.canPlayOnline || (account.kind !== 'signedIn' && account.kind !== 'signedOut');
+      $('friendsOpen').hidden = !signedIn;
+      if (!signedIn) { list.replaceChildren(); note.hidden = false; note.textContent = "Sign in to see your friends' rooms."; return; }
+      const n = ++drawing;
+      const rooms = await friends.rooms();
+      if (n !== drawing || mode !== 'menu') return;
+      list.replaceChildren(...(rooms ?? []).map(r => {
+        const li = node('li');
+        const info = node('div');
+        info.append(node('span', 'who', names(r.friends)));
+        const bits = [`${r.people} of ${r.max} people`, r.open ? `${r.open} open seat${r.open === 1 ? '' : 's'}` : '', r.tour ? 'tournament signing up' : ''].filter(Boolean);
+        info.append(node('span', 'fine', bits.join(' \u00b7 ')));
+        li.append(info, button('Join', () => { pickTab('room'); goOnline(r.code); }, 'primary'));
+        return li;
+      }));
+      note.hidden = !!rooms?.length;
+      note.textContent = rooms ? "None of your friends are in a room right now." : "Couldn't load your friends' rooms.";
+    };
+    menuFriends = on => {
+      window.clearInterval(poll);
+      if (!on) return;
+      void drawRooms();
+      poll = window.setInterval(() => { if (!document.hidden && mode === 'menu') void drawRooms(); }, 15_000);
+    };
+    if (mode === 'menu') menuFriends(true);
+    // The sign-in check may finish after the menu is up.
+    void accountCheck.then(() => { if (mode === 'menu') menuFriends?.(true); });
+
+    // The Friends screen: adds waiting, friends (private nicknames), adds not back yet, blocks.
+    const screen = $('friendsScreen');
+    const drawScreen = () => {
+      const l = friends.lists;
+      if (screen.hidden) return;
+      const row = (r: FriendRow, label: string, ...buttons: HTMLElement[]) => {
+        const li = node('li');
+        const top = node('div', 'room-row');
+        top.append(node('b', '', label), ...buttons);
+        li.append(top);
+        return li;
+      };
+      const waiting = l?.waiting ?? [], asked = l?.asked ?? [], blocked = l?.blocked ?? [], mine = l?.friends ?? [];
+      $('friendsWaitingCard').hidden = !waiting.length;
+      $('friendsWaiting').replaceChildren(...waiting.map(r => row(r, r.name, button('Add back', () => void friends.add(r.fid), 'primary'), button('Block', () => void friends.block(r.fid, true)))));
+      $('friendsNone').hidden = !!mine.length;
+      $('friendsList').replaceChildren(...mine.map(r => {
+        const li = row(r, r.nick ? `${r.nick} (${r.name})` : r.name, button('Remove', () => void friends.remove(r.fid)), button('Block', () => void friends.block(r.fid, true)));
+        const form = node('form', 'room-row');
+        const input = node('input');
+        input.maxLength = 24;
+        input.placeholder = 'Nickname';
+        input.value = r.nick ?? '';
+        input.setAttribute('aria-label', `Your nickname for ${r.name}`);
+        form.append(input, node('button', '', 'Save'));
+        form.addEventListener('submit', e => { e.preventDefault(); audio.play('select'); void friends.nick(r.fid, input.value); });
+        li.append(form);
+        return li;
+      }));
+      $('friendsAskedCard').hidden = !asked.length;
+      $('friendsAsked').replaceChildren(...asked.map(r => row(r, r.nick ?? r.name, button('Cancel', () => void friends.remove(r.fid)))));
+      $('friendsBlockedCard').hidden = !blocked.length;
+      $('friendsBlocked').replaceChildren(...blocked.map(r => row(r, r.name, button('Unblock', () => void friends.block(r.fid, false)))));
+    };
+    friends.listen(drawScreen);
+    $('friendsOpen').addEventListener('click', () => { audio.play('select'); screen.hidden = false; drawScreen(); void friends.refresh(); });
+    $('friendsBack').addEventListener('click', () => { audio.play('select'); screen.hidden = true; if (mode === 'menu') void drawRooms(); });
+  }
   versus = new Versus({
     skin, images, audio, touchBar, motion, settings: () => settings, finishPauseMs: FINISH_PAUSE_MS, playUrl: cfg.play,
     exit: to => show(to === 'menu' ? 'menu' : 'versusSetup'),
+    resultPeople: friends ? (people, into) => {
+      resultShown = { people, into };
+      if (friends.lists) fillResult(); else void friends.refresh();
+    } : undefined,
   });
   // Online rooms (protocol 5): the same server, its /api/room socket.
   if (cfg.play) rooms = new RoomScreen({
     url: cfg.play.replace(/play\/?$/, 'room'), audio, versus,
     show: m => show(m), here: () => mode === 'room',
     outdated: () => void updateNow(rememberPlace),
+    friends: friends ?? undefined,
   });
   initSetupForm(settings.speed);
   {
