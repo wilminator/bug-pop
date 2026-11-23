@@ -101,10 +101,26 @@
             <span class="mode-desc">Fixed rules, your score is ranked.</span>
             <span class="tag-pill soon">Coming soon</span>
           </button>
-          <button id="multiGame" class="mode">
-            <span class="mode-name">Multiplayer</span>
-            <span class="mode-desc">Play the computer, or a friend on this device.</span>
-            <span class="tag-pill">New</span>
+        </div>
+        <!-- Multiplayer on the first screen (Mike, 2026-11-22): couch play, quick play, new room, join room.
+             The online three only show when the deployment has a play server (src/main.ts). -->
+        <h2 class="modes-head">Play with others</h2>
+        <div class="modes modes-multi">
+          <button id="couchGame" class="mode">
+            <span class="mode-name">Couch play</span>
+            <span class="mode-desc">Friends on this device, or the computer.</span>
+          </button>
+          <button id="quickGame" class="mode" data-online hidden>
+            <span class="mode-name">Quick play</span>
+            <span class="mode-desc">Play the next free player online.</span>
+          </button>
+          <button id="newRoomGame" class="mode" data-online hidden>
+            <span class="mode-name">New room</span>
+            <span class="mode-desc">Open a private room for friends.</span>
+          </button>
+          <button id="joinRoomGame" class="mode" data-online hidden>
+            <span class="mode-name">Join room</span>
+            <span class="mode-desc">Type a room code or scan its QR code.</span>
           </button>
         </div>
         <!-- Same 320 x 100 ad space as the title page; only a deployment's config.json turns it on. -->
@@ -141,14 +157,7 @@
     <section id="versusSetup" class="overlay screen art" hidden>
       <nav class="navbar"><button class="back" data-back>&lsaquo; Back</button><span class="nav-right"><button class="help-btn" data-help>? How to play</button><button class="gear" data-gear>&#9881; Settings</button></span></nav>
       <div class="screen-body">
-        <h1 class="screen-title">Multiplayer</h1>
-        <!-- Pick one (Mike, 2026-11-22): on this device (offline, couch or computers), quick match, or an
-             online room with friends. Only shown when online play exists (config.json "play"). -->
-        <div id="vsTabs" class="vs-tabs" role="tablist" hidden>
-          <button id="vsTabLocal" role="tab" aria-selected="true">On this device</button>
-          <button id="vsTabQuick" role="tab" aria-selected="false">Quick match</button>
-          <button id="vsTabRoom" role="tab" aria-selected="false">Online room</button>
-        </div>
+        <h1 class="screen-title" id="vsTitle">Couch play</h1>
         <div id="vsLocal" class="card vs-setup">
           <form id="vsForm">
             <label>How to win
@@ -203,7 +212,6 @@
         </div>
         <!-- Online: only when the deployment's config.json names a "play" server (src/versus.ts). -->
         <div id="vsOnline" class="card vs-setup" hidden>
-          <h2 id="vsOnlineTitle">Quick match</h2>
           <!-- Signed out: online play needs an account, so the only button is Sign in (src/main.ts). -->
           <div id="vsOnlineSignedOut" hidden>
             <p class="fine">Online play needs you to be signed in. Your single player game stays right where it is.</p>
@@ -216,17 +224,19 @@
             <label>Speed <select id="vsOnlineSpeed"><option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option></select></label>
           </form>
           <p class="fine">Pick your level and speed, then join the line for the next free player. Your opponent picks their own.</p>
-          <button id="vsQuick" class="primary">Quick match</button>
+          <button id="vsQuick" class="primary">Find a player</button>
           <label class="vs-check"><input type="checkbox" id="vsHumansOnly" /> People only: never offer me a computer opponent</label>
           </div>
-          <div id="vsRoomPart" hidden>
-          <p class="fine">Play with friends: open a room and share its code, or join a friend's room.</p>
+          <div id="vsNewPart" hidden>
+          <p class="fine">Open a private room, then share its code or QR code with friends.</p>
           <button id="vsCreate" class="primary">Create a room</button>
+          </div>
+          <div id="vsRoomPart" hidden>
           <label>Room code <input id="vsCode" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" /></label>
-          <button id="vsJoin">Join a room</button>
-          <p id="vsRoomNote" class="vs-room-note" role="status" hidden></p>
+          <button id="vsJoin" class="primary">Join the room</button>
           <button id="vsScan">Scan a room QR code</button>
           </div>
+          <p id="vsRoomNote" class="vs-room-note" role="status" hidden></p>
           </div>
         </div>
       </div>

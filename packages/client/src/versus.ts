@@ -703,7 +703,7 @@ export class Versus {
       net.over = true;
       // Dropped out of a match: try to get back in (the server rejoins us to it, Mike 2026-11-22).
       if ((net.match || net.tries) && net.tries < 3) { window.setTimeout(() => { if (this.net === net) this.startOnline(net.join, net.tries + 1); }, 1500); return; }
-      this.endOnline(null, net.match || net.tries ? 'Connection lost' : "Couldn't reach the game server", net.match || net.tries ? 'Go back into Multiplayer within a minute to rejoin the match: the computer plays your board until then.' : 'Check your connection and try again.');
+      this.endOnline(null, net.match || net.tries ? 'Connection lost' : "Couldn't reach the game server", net.match || net.tries ? 'Tap Quick play, New room or Join room within a minute to rejoin the match: the computer plays your board until then.' : 'Check your connection and try again.');
     });
   }
 
@@ -738,7 +738,7 @@ export class Versus {
       }
       case 'room':
         // Make it plain that nothing happens until the friend connects (Mike, 2026-11-22).
-        this.showCard(`Room ${msg.code}: waiting for your opponent`, `The match starts as soon as your friend connects. They can scan this code, open the link you share, or type ${msg.code} under Join a room on the Multiplayer screen.`, ['vsMenu']);
+        this.showCard(`Room ${msg.code}: waiting for your opponent`, `The match starts as soon as your friend connects. They can scan this code, open the link you share, or type ${msg.code} under Join room on the Choose a game screen.`, ['vsMenu']);
         $('vsCardTitle').classList.add('vs-waiting');
         this.showRoomShare(msg.code);
         break;

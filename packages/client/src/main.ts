@@ -677,13 +677,6 @@ async function main() {
     skin, images, audio, touchBar, motion, settings: () => settings, finishPauseMs: FINISH_PAUSE_MS, playUrl: cfg.play,
     exit: to => show(to === 'menu' ? 'menu' : 'versusSetup'),
   });
-  $('multiGame').addEventListener('click', () => {
-    audio.play('select');
-    refreshSetupForm();
-    show('versusSetup');
-    // An unfinished online match comes first: going back into Multiplayer rejoins it (Mike, 2026-11-22).
-    if (cfg.api && versus!.canPlayOnline) void activeMatch(cfg.api).then(on => { if (on && mode === 'versusSetup') goOnline(); });
-  });
   // Online rooms (protocol 5): the same server, its /api/room socket.
   if (cfg.play) rooms = new RoomScreen({
     url: cfg.play.replace(/play\/?$/, 'room'), audio, versus,
@@ -696,27 +689,39 @@ async function main() {
     r.value = String(o.level); r.closest('label')!.querySelector('output')!.value = r.value;
     $<HTMLSelectElement>('vsOnlineSpeed').value = String(o.speed);
   }
-  // On this device / Quick match / Online room: one card at a time (Mike, 2026-11-22).
-  // Phones start on Quick match (one screen is cramped for two players), computers on This device.
+  // Multiplayer starts from the first screen (Mike, 2026-11-22): Couch play, Quick play, New room and
+  // Join room each open their own card here. The online three need a play server.
   const online = versus.canPlayOnline;
-  $('vsTabs').hidden = !online;
+  document.querySelectorAll<HTMLElement>('#menu [data-online]').forEach(b => { b.hidden = !online; });
   $('vsSoon').hidden = online;
-  let tab: 'local' | 'quick' | 'room' = 'local';
+  let tab: 'local' | 'quick' | 'new' | 'room' = 'local';
+  const TAB_TITLE = { local: 'Couch play', quick: 'Quick play', new: 'New room', room: 'Join room' } as const;
   const pickTab = (t: typeof tab) => {
     tab = t;
-    $('vsTabLocal').setAttribute('aria-selected', String(t === 'local'));
-    $('vsTabQuick').setAttribute('aria-selected', String(t === 'quick'));
-    $('vsTabRoom').setAttribute('aria-selected', String(t === 'room'));
+    $('vsTitle').textContent = TAB_TITLE[t];
     $('vsLocal').hidden = t !== 'local';
     $('vsOnline').hidden = t === 'local';
     $('vsQuickPart').hidden = t !== 'quick';
+    $('vsNewPart').hidden = t !== 'new';
     $('vsRoomPart').hidden = t !== 'room';
-    $('vsOnlineTitle').textContent = t === 'room' ? 'Online room' : 'Quick match';
+    if (t !== 'room' && t !== 'new') $('vsRoomNote').hidden = true;
   };
-  pickTab(online && matchMedia('(pointer: coarse)').matches ? 'quick' : 'local');
-  $('vsTabLocal').addEventListener('click', () => { audio.play('select'); pickTab('local'); });
-  $('vsTabQuick').addEventListener('click', () => { audio.play('select'); pickTab('quick'); });
-  $('vsTabRoom').addEventListener('click', () => { audio.play('select'); pickTab('room'); });
+  const openMulti = (t: typeof tab) => {
+    audio.play('select');
+    refreshSetupForm();
+    pickTab(t);
+    $('vsRoomNote').hidden = true;
+    show('versusSetup');
+    if (t === 'local') return;
+    // An unfinished online match comes first: going back into online play rejoins it (Mike, 2026-11-22).
+    const go = () => { if (t === 'new' && account.kind !== 'signedOut' && mode === 'versusSetup') goOnline('new'); };
+    if (cfg.api && versus!.canPlayOnline) void activeMatch(cfg.api).then(on => { if (mode !== 'versusSetup') return; if (on) goOnline(); else go(); }, go);
+    else go();
+  };
+  $('couchGame').addEventListener('click', () => openMulti('local'));
+  $('quickGame').addEventListener('click', () => openMulti('quick'));
+  $('newRoomGame').addEventListener('click', () => openMulti('new'));
+  $('joinRoomGame').addEventListener('click', () => openMulti('room'));
   // Each level slider shows its number beside it.
   document.querySelectorAll<HTMLInputElement>('#versusSetup .vs-level').forEach(r => {
     const out = r.closest('label')!.querySelector('output')!;
@@ -729,8 +734,8 @@ async function main() {
     audio.play('select');
     // Rooms: friends gather, games of 2 to 4 or a tournament (Mike, 2026-11-22).
     if (room && rooms) {
-      // Joining waits on the Online room tab (a room link may arrive from anywhere).
-      pickTab('room');
+      // Joining waits on the New room or Join room card (a room link may arrive from anywhere).
+      pickTab(room === 'new' ? 'new' : 'room');
       show('versusSetup');
       rooms.start({ room, level: me.level, speed: me.speed, power: lastOnline(settings.speed).power });
       return;
@@ -1223,16 +1228,16 @@ async function main() {
   const roomLink = new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '';
   const joinRoom = /^[A-Z]{4}$/.test(roomLink) && !!versus?.canPlayOnline && account.kind !== 'off';
   if (joinRoom && account.kind === 'signedOut') { location.assign(loginUrl(cfg.api!, location.pathname + location.search)); return; }
-  // Back from signing in on the Quick match or Online room tab (?play=quick|room; 'online' from older builds).
+  // Back from signing in on the Quick play, New room or Join room card (?play=quick|new|room; 'online' from older builds).
   const playTab = new URLSearchParams(location.search).get('play');
-  const backToOnline = (playTab === 'quick' || playTab === 'room' || playTab === 'online') && !!versus?.canPlayOnline;
+  const backToOnline = (playTab === 'quick' || playTab === 'new' || playTab === 'room' || playTab === 'online') && !!versus?.canPlayOnline;
   if (roomLink || backToOnline) history.replaceState(null, '', location.pathname + location.hash);
   if (joinRoom) {
     goOnline(roomLink);
   } else if (backToOnline) {
     refreshSetupForm();
-    pickTab(playTab === 'room' ? 'room' : 'quick');
-    show('versusSetup');
+    if (playTab === 'new' && account.kind !== 'signedOut') goOnline('new');
+    else { pickTab(playTab === 'room' || playTab === 'new' ? playTab : 'quick'); show('versusSetup'); }
   } else if (backToPlace(takePlace())) {
     // back where they were before the reload
   } else if (await offerNewerCloud()) {

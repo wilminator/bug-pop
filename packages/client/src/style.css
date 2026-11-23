@@ -109,8 +109,16 @@ html.has-art .overlay.art { background: var(--title-bg) center / 100% 100% no-re
 }
 .mode[data-primary] { border: 2px solid var(--accent); }
 .mode:disabled { opacity: 0.7; cursor: default; }
+.mode[hidden] { display: none; }
 .mode-name { font-size: 20px; font-weight: 700; }
 .mode-desc { color: var(--dim); font-size: 14px; }
+/* Play with others: four smaller buttons, two by two on a phone, one row on a wide screen. */
+.modes-head { margin: 6px 0 -4px; font-size: 18px; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85); }
+.modes-multi { grid-template-columns: repeat(2, 1fr); }
+.modes-multi .mode { padding: 12px; }
+.modes-multi .mode-name { font-size: 17px; }
+.modes-multi .mode-desc { font-size: 13px; }
+@media (min-width: 820px) { .modes-multi { grid-template-columns: repeat(4, 1fr); } }
 .tag-pill { margin-top: 4px; padding: 3px 10px; border-radius: 999px; background: var(--accent); color: #0b1220; font-weight: 700; font-size: 13px; }
 .tag-pill.soon { background: transparent; border: 1px solid var(--edge); color: var(--dim); font-weight: 400; }
 .tag-pill[hidden] { display: none; }
