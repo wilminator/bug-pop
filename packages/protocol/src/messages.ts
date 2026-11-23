@@ -339,7 +339,7 @@ export function parseTableStart(raw: string): TableStart | null {
 
 // ---- Rooms (protocol 7, Mike 2026-11-22) -----------------------------------------------------
 //
-// A room is a private lobby: friends gather in it (up to 16 people; a device may bring up to 4 of
+// A room is a private lobby: friends gather in it (up to 32 people; a device may bring up to 4 of
 // them, people sharing a phone or tablet). There is no owner and no room-wide rules:
 //   A game: anyone not playing makes one (2 to 4 seats) and sets its rules. Seats nobody has taken
 //     are computers at the people's average. People not in a game join a computer's seat, or anyone
@@ -353,7 +353,7 @@ export function parseTableStart(raw: string): TableStart | null {
 /** Rooms speak protocol 7 (the 1 against 1 relay stays on PROTOCOL_VERSION until it moves to tables). */
 export const ROOM_VERSION = 7;
 /** At most this many people in a room, and on one device. */
-export const MAX_ROOM = 16;
+export const MAX_ROOM = 32;
 export const MAX_PER_DEVICE = 4;
 /** Tournament kinds: a bracket of best-of-3 or best-of-5 matches, a bracket of single games, or out at 2 losses. */
 export type TourKind = 'best3' | 'best5' | 'single' | 'double';
