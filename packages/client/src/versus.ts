@@ -432,9 +432,10 @@ export class Versus {
     });
     $('vsGiveUp').addEventListener('click', () => {
       this.deps.audio.play('select');
-      const tb = this.tbl;
+      // Playing: giving up a seat (Mike, 2026-11-22) lets someone else (or a computer) play it from
+      // the next round. On the settings card before a game: backing out of a game someone put me in.
+      const tb = this.tbl ?? (this.tlobby && { room: this.tlobby.room, g: this.tlobby.g, back: this.tlobby.back });
       if (!tb) return;
-      // Giving up a seat (Mike, 2026-11-22): someone else (or a computer) plays it from the next round.
       for (const pid of this.pidsAt(tb)) tb.room.giveUp(pid);
       const back = tb.back;
       this.stop();
@@ -942,7 +943,10 @@ export class Versus {
       this.setCapture(false);
       const game = room.state?.games.find(x => x.g === msg.g);
       const fixed = !!game?.tour && room.state?.rules.tourLevels === 'same';
-      this.showCard(msg.round === 1 ? 'Get ready' : `Round ${msg.round} next`, '', ['vsRoomBack']);
+      // Put in a game by someone else (or changed my mind): back out of it here (Mike, 2026-11-22).
+      // In a tournament that forfeits the match.
+      $('vsGiveUp').textContent = game?.tour ? 'Forfeit this match' : msg.round === 1 ? 'Not this game' : 'Give up my seat';
+      this.showCard(msg.round === 1 ? 'Get ready' : `Round ${msg.round} next`, '', ['vsRoomBack', 'vsGiveUp']);
       cancelAnimationFrame(this.raf);
       this.last = performance.now();
       this.raf = requestAnimationFrame(this.frame);
@@ -1131,6 +1135,7 @@ export class Versus {
     for (const s of this.sides) s.input.reset();
     if (this.tbl) {
       const watching = !this.tbl.locals.length;
+      $('vsGiveUp').textContent = 'Give up my seat';
       this.showCard(watching ? 'Stop watching?' : 'Leave the game?', watching ? 'The game goes on without you watching.' : 'The game keeps going while this is up. Back to the room keeps your seat; Give up my seat lets someone else play from the next round.', watching ? ['vsStay', 'vsRoomBack'] : ['vsStay', 'vsRoomBack', 'vsGiveUp']);
       return;
     }

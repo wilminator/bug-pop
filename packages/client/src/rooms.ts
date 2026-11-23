@@ -284,6 +284,14 @@ export class RoomScreen {
         const go = el('button', 'primary', 'Go to my game');
         go.addEventListener('click', () => { this.deps.audio.play('select'); this.goTo(game.g); });
         row.append(go);
+        // Back out (Mike, 2026-11-22): before it starts, someone else (or a computer) takes the seat;
+        // during a round, from the next round. In a tournament, it forfeits the match.
+        const leave = el('button', '', game.tour ? 'Forfeit this match' : game.phase === 'lobby' && game.round === 1 ? 'Not this game' : 'Give up my seat');
+        leave.addEventListener('click', () => {
+          this.deps.audio.play('select');
+          for (const x of game.seats) if (x.pid && mine.has(x.pid)) s.giveUp(x.pid);
+        });
+        row.append(leave);
       } else {
         const watch = el('button', '', 'Watch');
         watch.addEventListener('click', () => { this.deps.audio.play('select'); this.watch(game.g); });
