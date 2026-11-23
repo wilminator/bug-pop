@@ -1302,7 +1302,7 @@ export class Versus {
       render(s.ctx, s.state, skin, s.layout, { shapesOnPieces: set.shapesOnPieces, motion: motion(), time: now, images, leavers: s.leavers, arrivals: s.arrivals, floats: s.floats, bugExit: set.exit || undefined, bare: s.bare,
         matchStat: rounds(this.setup!.rule) ? ['WINS', stars(this.setup!.rule, s.wins)] : null });
       // The label over the board: name, progress, and halves on their way.
-      const info = s.state.phase === 'lost' && this.phase === 'playing' ? 'out' : this.setup!.rule === 'last' && !s.bare ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? '1 bug left' : `${s.state.bugsLeft} bugs left`;
+      const info = s.state.phase === 'lost' && this.phase === 'playing' ? 'out' : this.setup!.rule === 'last' && !s.bare ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? `1 bug${s.bare ? '' : ' left'}` : `${s.state.bugsLeft} bugs${s.bare ? '' : ' left'}`;
       const wins = rounds(this.setup!.rule) ? ` · ${stars(this.setup!.rule, s.wins)}` : '';
       // The one person's own board already shows bugs and score in its stats (Mike, 2026-11-22):
       // over it, only the halves on their way (below). Its round stars sit in the stats.

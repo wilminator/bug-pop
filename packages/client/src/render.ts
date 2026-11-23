@@ -621,21 +621,23 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
   // Side panel: next piece and stats (none on a minimap).
   if (opt.bare) return;
   const font = (px: number, weight = 600) => `${weight} ${Math.round(px)}px system-ui, -apple-system, Segoe UI, sans-serif`;
-  const stat = (label: string, value: string, x: number, y: number, align: CanvasTextAlign = 'left') => {
+  // Level says nothing in a match (Mike, 2026-11-22): the round stars go there instead.
+  const first = opt.matchStat !== undefined ? opt.matchStat : levelStat(s);
+  const stat = (label: string, value: string, x: number, y: number, align: CanvasTextAlign = 'left', scale = 1) => {
     ctx.textAlign = align;
     ctx.fillStyle = skin.textDim;
     ctx.font = font(c * 0.42, 500);
     ctx.fillText(label, x, y);
     ctx.fillStyle = skin.text;
-    ctx.font = font(c * 0.75, 700);
+    ctx.font = font(c * 0.75 * scale, 700);
     ctx.fillText(value, x, y + c * 0.85);
   };
+  // Three stars (best of 5) are wider than a number: shrink them to fit the same space.
+  const firstScale = first && first[1].length > 2 ? 2.2 / first[1].length : 1;
   const speedName = ['Low', 'Med', 'High', 'Slo'][s.config.speed]!;
-  // Level says nothing in a match (Mike, 2026-11-22): the round stars go there instead.
-  const first = opt.matchStat !== undefined ? opt.matchStat : levelStat(s);
   if (layout.portrait) {
     const y = by - c * 2.3;
-    if (first) stat(...first, bx, y);
+    if (first) stat(...first, bx, y, 'left', firstScale);
     stat('BUGS', String(s.bugsLeft), bx + c * 2, y);
     stat('SCORE', String(s.score), bx + c * W, y, 'right');
     // The multiplier sits small under the score, in the gap above the board.
