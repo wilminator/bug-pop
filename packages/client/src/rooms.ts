@@ -173,6 +173,8 @@ export class RoomScreen {
       this.ws = null;
       // Refused for an old version (4004): fetch the new one; the page comes back to this room.
       if (e.code === 4004) { this.note('Getting the new version of Bug Pop...'); return this.deps.outdated(); }
+      // This account was deleted or unlinked (4008): out of the room for good, no reconnecting.
+      if (e.code === 4008) return this.fail(this.session?.error ?? 'This account is gone, so you are out of the room.');
       const code = this.session?.state?.code;
       // The server is restarting (4007): the room is saved, so keep trying until it's back (Mike,
       // 2026-11-22). A round being played stays paused on its card meanwhile.
