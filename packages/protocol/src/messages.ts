@@ -364,6 +364,12 @@ export function parseTableStart(raw: string): TableStart | null {
 
 /** Rooms speak protocol 7 (the 1 against 1 relay stays on PROTOCOL_VERSION until it moves to tables). */
 export const ROOM_VERSION = 8;
+/**
+ * The game's rules as the engine plays them. Bump it whenever the engine plays the same moves
+ * differently (test/rules.test.ts fails and says so): a round saved before a server restart is then
+ * played again from its start rather than carried on (Mike, 2026-11-22).
+ */
+export const GAME_RULES = 1;
 /** At most this many people in a room, and on one device. */
 export const MAX_ROOM = 32;
 export const MAX_PER_DEVICE = 4;
@@ -635,4 +641,28 @@ export function parseRoomServer(raw: string): RoomServerMsg | null {
     }
     default: return null;
   }
+}
+
+/**
+ * A round's record cut back to the last tick every seat has sent moves for (the server keeps the
+ * moves it passed on; after a restart every device rebuilds the boards from this and carries on
+ * from `k`). Moves, takes and hand-backs past `k` are dropped, as if they never happened.
+ */
+export function cutRecord(steps: readonly RecordStep[], seats: number): { k: number; steps: RecordStep[] } {
+  const last = Array.from({ length: seats }, () => 0);
+  for (const st of steps) if (st.t === 'tin' && st.s < seats) last[st.s] = Math.max(last[st.s]!, st.k);
+  const k = Math.min(...last);
+  const clock = Array.from({ length: seats }, () => 0);
+  const out: RecordStep[] = [];
+  for (const st of steps) {
+    if (st.t === 'tin') {
+      if (clock[st.s]! >= k) continue;
+      const to = Math.min(st.k, k);
+      out.push({ ...st, k: to, a: st.a.filter(code => Math.floor(code / 8) < to) });
+      clock[st.s] = to;
+    } else if (st.t === 'ttook') { if (st.k < k) out.push(st); }
+    else if (st.t === 'thand') { if (st.k <= k) out.push(st); }
+    else out.push(st);
+  }
+  return { k, steps: out };
 }

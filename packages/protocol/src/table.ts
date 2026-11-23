@@ -16,7 +16,7 @@
 // and computers' moves exactly what the computer would play.
 
 import { BOT_SKILLS, Bot, createGame, receiveAttack, step, ACTIONS, type Action, type GameConfig, type GameEvent, type GameState } from '@bug-pop/engine';
-import { MAX_ACTIONS_PER_TICK, SEND_EVERY, type RecordStep, type ResumeMark, type TableDone, type TableMsg, type TableStart } from './messages';
+import { MAX_ACTIONS_PER_TICK, SEND_EVERY, type ResumeMark, type TableDone, type TableMsg, type TableStart } from './messages';
 import { STAND_IN_SKILL, TOOK_LATE } from './match';
 
 export type TableOut = TableMsg | TableDone | { t: 'flag'; why: string };
@@ -490,28 +490,4 @@ export class TableMatch {
   }
 
   private out(m: TableOut) { this.send(m); }
-}
-
-/**
- * A round's record cut back to the last tick every seat has sent moves for (the server keeps the
- * moves it passed on; after a restart every device rebuilds the boards from this and carries on
- * from `k`). Moves, takes and hand-backs past `k` are dropped, as if they never happened.
- */
-export function cutRecord(steps: readonly RecordStep[], seats: number): { k: number; steps: RecordStep[] } {
-  const last = Array.from({ length: seats }, () => 0);
-  for (const st of steps) if (st.t === 'tin' && st.s < seats) last[st.s] = Math.max(last[st.s]!, st.k);
-  const k = Math.min(...last);
-  const clock = Array.from({ length: seats }, () => 0);
-  const out: RecordStep[] = [];
-  for (const st of steps) {
-    if (st.t === 'tin') {
-      if (clock[st.s]! >= k) continue;
-      const to = Math.min(st.k, k);
-      out.push({ ...st, k: to, a: st.a.filter(code => Math.floor(code / 8) < to) });
-      clock[st.s] = to;
-    } else if (st.t === 'ttook') { if (st.k < k) out.push(st); }
-    else if (st.t === 'thand') { if (st.k <= k) out.push(st); }
-    else out.push(st);
-  }
-  return { k, steps: out };
 }
