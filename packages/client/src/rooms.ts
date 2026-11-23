@@ -16,6 +16,8 @@ import { friendButtons, type Friends } from './friends';
 import type { Versus } from './versus';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
+/** How long a device keeps trying to get back in while the server restarts. */
+const RESTART_TRY_MS = 10 * 60_000;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const RULE_TEXT = { race: 'First to clear their bugs', best3: 'Best of 3', best5: 'Best of 5', last: 'Last one standing' } as const;
 const TOUR_HELP = {
@@ -58,6 +60,8 @@ export class RoomScreen {
   private join: RoomJoin | null = null;
   private leaving = false;
   private tries = 0;
+  /** When the server said it's restarting (0: it didn't): this device keeps trying to get back. */
+  private restarting = 0;
   /** When each table's tick 0 was, by the real clock (so every device stays in step). */
   private t0 = new Map<number, number>();
   private pump = 0;
@@ -119,11 +123,20 @@ export class RoomScreen {
     this.join = join;
     this.leaving = false;
     this.tries = 0;
+    this.restarting = 0;
     this.session = new RoomSession(m => { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m)); });
     this.session.onChange = () => this.changed();
     this.session.onTable = g => {
       const t = this.session!.tables.get(g)!;
       this.t0.set(g, performance.now() - t.clock * TICK_MS);
+      // A new copy of the round (caught up after coming back): the game screen shows this one.
+      for (const key of [...this.seen]) if (key.startsWith(`${g}:`) && key.endsWith(':play')) this.seen.delete(key);
+    };
+    // A round carries on after a server restart: its clock runs from the pause again, and the
+    // game screen comes up afresh (this device may play different seats now).
+    this.session.onResume = (g, k) => {
+      this.t0.set(g, performance.now() - k * TICK_MS);
+      for (const key of [...this.seen]) if (key.startsWith(`${g}:`) && key.endsWith(':play')) this.seen.delete(key);
     };
     $('roomTitle').textContent = 'Room';
     $('roomStatus').textContent = '';
@@ -144,15 +157,30 @@ export class RoomScreen {
     // People already added on this device come back with it.
     const people = this.session?.mine.slice(1).map(p => p.name) ?? [];
     ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'hello', v: ROOM_VERSION, level: j.level, speed: j.speed, room, ...(j.power ? { power: true } : {}), ...(people.length ? { people } : {}) })));
-    ws.addEventListener('message', e => { if (this.ws === ws) { this.tries = 0; this.session?.receive(parseRoomServer(String(e.data))); } });
+    ws.addEventListener('message', e => {
+      if (this.ws !== ws) return;
+      const m = parseRoomServer(String(e.data));
+      // Back in (the server's answer to hello is the room): reconnects start counting afresh.
+      if (m?.t === 'rstate') { this.tries = 0; this.restarting = 0; }
+      this.session?.receive(m);
+    });
     ws.addEventListener('close', e => {
       if (this.ws !== ws || this.leaving) return;
       this.ws = null;
       // Refused for an old version (4004): fetch the new one; the page comes back to this room.
       if (e.code === 4004) { this.note('Getting the new version of Bug Pop...'); return this.deps.outdated(); }
-      // The server restarted (4007): the room is gone, so don't try to reconnect to it.
-      if (e.code === 4007) return this.fail(this.session?.error ?? 'The game server restarted, so the room closed. Open a new room in a minute.');
       const code = this.session?.state?.code;
+      // The server is restarting (4007): the room is saved, so keep trying until it's back (Mike,
+      // 2026-11-22). A round being played stays paused on its card meanwhile.
+      if (e.code === 4007 && code) {
+        this.restarting = this.restarting || Date.now();
+        if (Date.now() - this.restarting < RESTART_TRY_MS) {
+          $('roomStatus').textContent = 'The game server is restarting. Give it a moment to come back.';
+          window.setTimeout(() => { if (this.session && !this.leaving) this.connect(code); }, 3000);
+          return;
+        }
+      }
+      if (e.code === 4007 && !code) return this.fail(this.session?.error ?? 'The game server is restarting. Try again in a minute.');
       // Lost the connection: back in the same room (the server keeps my seats; the stand-in plays meanwhile).
       if (code && this.tries < 5) {
         this.tries++;
@@ -230,7 +258,7 @@ export class RoomScreen {
       const lobby = s.lobbies.get(game.g), table = s.tables.get(game.g);
       const ended = s.ended.get(game.g);
       if (ended && this.deps.versus.showing(game.g)) this.deps.versus.tableEnded(game.g, ended.why, ended.winner);
-      if (game.phase === 'playing' && table && !ended) {
+      if ((game.phase === 'playing' || game.phase === 'paused') && table && !ended) {
         const key = `${game.g}:${table.start.round}:${table.start.seed}:play`;
         if (!this.seen.has(key)) { this.seen.add(key); this.deps.show('versus'); this.deps.versus.playTable(s, game.g, () => this.back()); }
       } else if (game.phase === 'lobby' && lobby && seated) {

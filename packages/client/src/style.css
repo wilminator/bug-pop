@@ -393,3 +393,4 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .card[hidden], .friend-rooms[hidden], .vs-card-friends[hidden], .friend-rooms [hidden] { display: none; }
 .friend-room-list li > div { text-align: left; min-width: 0; }
 .friend-room-list .who { color: var(--text); }
+.vs-hide-boards canvas { visibility: hidden; }

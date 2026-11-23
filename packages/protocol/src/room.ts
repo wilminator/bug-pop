@@ -12,6 +12,8 @@ export class RoomSession {
   readonly ended = new Map<number, GameEnd>();
   /** Rounds paused for a server restart: who's back and Ready (Mike, 2026-11-22). */
   readonly paused = new Map<number, GamePaused>();
+  /** When each pause message came (Date.now), to count its startsIn and waitFor down from. */
+  readonly pausedAt = new Map<number, number>();
   /** When rounds being played pause for a restart (Date.now() time), while a warning is on. */
   pauseAt: number | null = null;
   error: string | null = null;
@@ -57,7 +59,7 @@ export class RoomSession {
       case 'gend': this.ended.set(m.g, m); this.paused.delete(m.g); break;
       case 'rwarn': this.pauseAt = Date.now() + m.in; break;
       case 'gpause': this.tables.get(m.g)?.pause(m.k); break;
-      case 'gpaused': this.paused.set(m.g, m); this.tables.get(m.g)?.pause(m.k); break;
+      case 'gpaused': this.paused.set(m.g, m); this.pausedAt.set(m.g, Date.now()); this.tables.get(m.g)?.pause(m.k); break;
       case 'gresume': {
         this.paused.delete(m.g);
         this.pauseAt = null;

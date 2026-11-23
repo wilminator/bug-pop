@@ -60,6 +60,8 @@ export type RenderOptions = {
   bare?: boolean;
   /** In a match, what takes Level's place in the stats: the round stars, or nothing (null). */
   matchStat?: [string, string] | null;
+  /** A notice over the stats (not the next piece), such as a server restart's countdown (Mike, 2026-11-22). */
+  banner?: { title: string; big: string } | null;
 };
 
 const ready = (img: HTMLImageElement | undefined): img is HTMLImageElement => !!img && img.complete && img.naturalWidth > 0;
@@ -669,6 +671,45 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, skin: Skin, 
     ctx.fillText(multText(s), x, by + c * 12.05);
     drawPowerHud(ctx, s, skin, layout, opt);
   }
+  if (opt.banner) drawBanner(ctx, skin, layout, opt.banner);
+}
+
+/**
+ * A notice laid over the stats: beside the board on a wide screen (under NEXT), or over Level and
+ * Bugs above it on a tall one (NEXT stays in view either way).
+ */
+function drawBanner(ctx: CanvasRenderingContext2D, skin: Skin, layout: Layout, b: { title: string; big: string }) {
+  const c = layout.cell, bx = layout.boardX, by = layout.boardY;
+  const [x, y, w, h] = layout.portrait ? [bx - c * 0.2, by - c * 2.95, c * 3.9, c * 2.75] : [bx + c * W + c * 0.9, by + c * 2.6, c * 5, c * 10];
+  ctx.save();
+  ctx.fillStyle = '#140c00';
+  ctx.strokeStyle = '#ffb703';
+  ctx.lineWidth = Math.max(1, c * 0.08);
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, c * 0.3);
+  ctx.fill();
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const font = (px: number, weight: number) => `${weight} ${Math.round(px)}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  // The title wraps onto as many lines as it needs to fit the box.
+  const size = layout.portrait ? c * 0.36 : c * 0.5;
+  ctx.font = font(size, 600);
+  const lines: string[] = [];
+  for (const word of b.title.split(' ')) {
+    const lastLine = lines[lines.length - 1];
+    if (lastLine !== undefined && ctx.measureText(`${lastLine} ${word}`).width <= w * 0.9) lines[lines.length - 1] = `${lastLine} ${word}`;
+    else lines.push(word);
+  }
+  const big = layout.portrait ? c * 0.8 : c * 1.6;
+  const total = lines.length * size * 1.2 + big * 1.1;
+  let ty = y + (h - total) / 2 + size * 0.6;
+  ctx.fillStyle = skin.text;
+  for (const line of lines) { ctx.fillText(line, x + w / 2, ty); ty += size * 1.2; }
+  ctx.fillStyle = '#ffb703';
+  ctx.font = font(big, 800);
+  ctx.fillText(b.big, x + w / 2, ty + big * 0.4);
+  ctx.restore();
 }
 
 /** The cells a bomb or drill resting at p would clear (the same rule as the engine's). */

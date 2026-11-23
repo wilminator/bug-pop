@@ -399,6 +399,13 @@ export class Versus {
   private tbl: { room: RoomSession; g: number; t: TableMatch; sideSeat: number[]; locals: number[]; done: boolean; back: () => void } | null = null;
   /** A room game's settings card: its countdown. */
   private tlobby: { g: number; until: number; room: RoomSession; back: () => void } | null = null;
+  /**
+   * A server restart in a room game (Mike, 2026-11-22): what's up now. 'stopped': paused, the
+   * server is away; 'back': it's back, waiting for Ready; null: playing. `banner` counts down over
+   * the stats before the pause.
+   */
+  private restart: 'stopped' | 'back' | null = null;
+  private banner: { title: string; big: string } | null = null;
 
   constructor(private deps: VersusDeps) {
     const make = (i: number): Side => {
@@ -654,6 +661,9 @@ export class Versus {
     if (this.tbl) this.tbl.t.onEvents = undefined;
     this.tbl = null;
     this.tlobby = null;
+    this.restart = null;
+    this.banner = null;
+    this.stage.classList.remove('vs-hide-boards');
     this.phase = 'off';
     this.local = null;
     this.lobby = null;
@@ -1011,10 +1021,19 @@ export class Versus {
     this.closeNet();
     this.tlobby = null;
     $('vsReadyBox').hidden = true;
-    const locals = t.boards.filter(b => t.start.mine.includes(b.s)).map(b => b.s);
+    // The people here play these boards (after a restart, the ones handed back to this device).
+    // While a round waits after a server restart: the seats of the people on this device.
+    const mineHere = new Set(room.mine.map(p => p.pid));
+    const seatsNow = room.state?.games.find(x => x.g === g)?.seats ?? [];
+    const locals = room.paused.has(g)
+      ? seatsNow.map((x, s) => (x.pid && mineHere.has(x.pid) ? s : -1)).filter(s => s >= 0)
+      : t.boards.filter(b => b.local && !b.bot && !t.start.seats[b.s]!.cpu).map(b => b.s);
     const others = t.boards.map(b => b.s).filter(s => !locals.includes(s));
     const sideSeat = [...locals, ...others];
     this.tbl = { room, g, t, sideSeat, locals, done: !!t.result, back };
+    this.restart = null;
+    this.banner = null;
+    this.stage.classList.remove('vs-hide-boards');
     const rule = this.roomRule(room, g, t.start.rule);
     this.setup = { rule, colors: t.start.colors, target: t.start.target, players: sideSeat.map(s => ({ level: t.start.seats[s]!.level, speed: t.start.seats[s]!.speed, control: 'remote' as Control, bot: t.start.seats[s]!.cpu ?? null })) };
     this.showSides(sideSeat.length, locals.length === 1, 0);
@@ -1064,6 +1083,79 @@ export class Versus {
     });
     if (!tb.locals.length && this.sides[0]!.input.poll(null).pause) { if (this.leaveUp) this.closeLeave(); else this.openLeave(); }
     return out;
+  }
+
+  /**
+   * A server restart (Mike, 2026-11-22): a countdown over the stats, then the round pauses (every
+   * device at the same tick) and the boards are hidden. Once the server is back: Ready on each
+   * person's row, or Forfeit. When everyone is Ready the boards come back for the countdown.
+   */
+  private tableRestart() {
+    const tb = this.tbl;
+    if (!tb || tb.done) return;
+    const { room, t, g } = tb;
+    const p = room.paused.get(g);
+    const stopped = !!p || (t.pauseAt !== null && t.clock >= t.pauseAt);
+    if (!stopped) {
+      const left = room.pauseAt ? Math.max(0, Math.ceil((room.pauseAt - Date.now()) / 1000)) : null;
+      this.banner = left === null ? null : { title: 'Server restart: the game pauses in', big: `${left} s` };
+      if (this.restart) {
+        // Carrying on (gresume): back to the boards.
+        this.restart = null;
+        this.card.hidden = true;
+        this.stage.classList.remove('vs-hide-boards');
+        if (!this.leaveUp) this.setCapture(true);
+      }
+      return;
+    }
+    this.banner = null;
+    if (this.leaveUp) { this.leaveUp = false; }
+    if (!p) {
+      if (this.restart === 'stopped') return;
+      this.restart = 'stopped';
+      this.setCapture(false);
+      for (const s of this.sides) s.input.reset();
+      this.stage.classList.add('vs-hide-boards');
+      this.showCard('Game paused', 'The server is restarting. Give it a moment to come back. You may be asked to update.', []);
+      return;
+    }
+    const mine = new Set(room.mine.map(x => x.pid));
+    const seats = room.state?.games.find(x => x.g === g)?.seats ?? [];
+    if (this.restart !== 'back') {
+      this.restart = 'back';
+      this.setCapture(false);
+      $('vsGiveUp').textContent = 'Forfeit';
+      this.showCard('The server is back', '', ['vsGiveUp']);
+      $('vsReadyBox').hidden = false;
+      $('vsPowerNote').textContent = '';
+      $('vsReadyRows').replaceChildren(...seats.map((seat, i) => {
+        const row = el('div', 'vs-ready-row');
+        row.dataset.seat = String(i);
+        row.append(el('b', '', seat.name));
+        if (!seat.pid || !mine.has(seat.pid)) { row.append(el('span', 'vs-other')); return row; }
+        const pid = seat.pid;
+        const btn = readyButton(() => { this.deps.audio.play('select'); room.ready(g, pid, !(room.paused.get(g)?.seats[i]?.ready ?? false)); });
+        row.append(btn);
+        return row;
+      }));
+      $('vsReadyRows').querySelector<HTMLButtonElement>('.vs-ready-btn')?.focus({ preventScroll: true });
+    }
+    // What changes: who is back and Ready, the countdown, and how long it waits for the rest.
+    for (const [i, st] of p.seats.entries()) {
+      const row = $('vsReadyRows').querySelector<HTMLElement>(`[data-seat="${i}"]`);
+      if (!row) continue;
+      const btn = row.querySelector<HTMLButtonElement>('.vs-ready-btn');
+      if (btn) setReady(btn, st.ready);
+      const other = row.querySelector('.vs-other');
+      if (other) setText(other as HTMLElement, seats[i]?.cpu ? 'Computer' : !st.here ? 'Not back yet' : st.ready ? 'Ready' : 'Not ready yet');
+    }
+    const elapsed = Date.now() - (room.pausedAt.get(g) ?? Date.now());
+    const counting = p.startsIn > 0 ? Math.max(0, p.startsIn - elapsed) : 0;
+    const wait = Math.max(0, p.waitFor - elapsed);
+    // The boards come back for the countdown (hidden until then: Mike).
+    this.stage.classList.toggle('vs-hide-boards', !counting);
+    const waitText = wait > 0 && p.seats.some(x => !x.here) ? ` If someone isn't back in ${Math.ceil(wait / 1000)} s, the computer plays for them until they are.` : '';
+    setText($('vsCardText'), counting ? `Starting in ${Math.ceil(counting / 1000)}...` : `Click Ready to resume!${waitText}`);
   }
 
   private tableCheck() {
@@ -1183,7 +1275,8 @@ export class Versus {
     this.last = now;
     if (this.phase === 'playing' && this.tbl) {
       // A room game: its clock is kept by the room (rooms.ts), even when this screen isn't up.
-      // Here: watch for the round being decided.
+      // Here: watch for the round being decided, or paused for a server restart.
+      this.tableRestart();
       this.tableCheck();
       if (!this.leaveUp) for (const s of this.sides.slice(this.tbl?.locals.length ?? 0, this.count)) s.input.poll(null);
     } else if (this.phase === 'playing' && this.net?.match) {
@@ -1332,7 +1425,7 @@ export class Versus {
       if (s.arrivals.size && [...s.arrivals.values()].every(t0 => now - t0 >= ARRIVE_MS)) s.arrivals = new Map();
       if (!s.state) continue;
       render(s.ctx, s.state, skin, s.layout, { shapesOnPieces: set.shapesOnPieces, motion: motion(), time: now, images, leavers: s.leavers, arrivals: s.arrivals, floats: s.floats, bugExit: set.exit || undefined, bare: s.bare,
-        matchStat: rounds(this.setup!.rule) ? ['WINS', stars(this.setup!.rule, s.wins)] : null });
+        matchStat: rounds(this.setup!.rule) ? ['WINS', stars(this.setup!.rule, s.wins)] : null, banner: this.banner });
       // The label over the board: name, progress, and halves on their way.
       const info = s.state.phase === 'lost' && this.phase === 'playing' ? 'out' : this.setup!.rule === 'last' && !s.bare ? `score ${s.state.score}` : s.state.bugsLeft === 1 ? `1 bug${s.bare ? '' : ' left'}` : `${s.state.bugsLeft} bugs${s.bare ? '' : ' left'}`;
       const wins = rounds(this.setup!.rule) ? ` · ${stars(this.setup!.rule, s.wins)}` : '';
