@@ -256,6 +256,12 @@ export function parseServer(raw: string): ServerMsg | null {
   }
 }
 
+function resumeMark(x: unknown): ResumeMark | null {
+  const q = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
+  if (!q || q.t !== 'resume' || !int(q.k, 0, 10_000_000) || !Array.isArray(q.standins) || !q.standins.every(seatNo)) return null;
+  return { t: 'resume', k: q.k, standins: q.standins as number[] };
+}
+
 // ---- Tables: online games of 2 to 4 seats (protocol 5, Mike 2026-11-22) ----------------------
 //
 // A table is one game in a room (or a quick match). Every seat is a person on some device or a
@@ -357,7 +363,7 @@ export function parseTableStart(raw: string): TableStart | null {
 // Every device can watch any game: it rebuilds every board from the moves, like the players do.
 
 /** Rooms speak protocol 7 (the 1 against 1 relay stays on PROTOCOL_VERSION until it moves to tables). */
-export const ROOM_VERSION = 7;
+export const ROOM_VERSION = 8;
 /** At most this many people in a room, and on one device. */
 export const MAX_ROOM = 32;
 export const MAX_PER_DEVICE = 4;
@@ -400,9 +406,14 @@ export type View = { t: 'rview'; g: number | null };
 export type StartTour = { t: 'rtour'; by: string };
 /** A person's choices on a game's settings card (like 'set'). */
 export type GameSet = { t: 'gset'; g: number; pid: string; level: number; speed: Speed; power: boolean; ready: boolean };
+/**
+ * Ready (or not) to carry on a round paused for a server restart (Mike, 2026-11-22). Forfeiting
+ * instead is 'rfree' (give up my seat; in a tournament that forfeits the match).
+ */
+export type GameResumeReady = { t: 'gready'; g: number; pid: string; ready: boolean };
 /** A table message for game `g` (moves, takes, hand-backs, my result). */
 export type GameMsg = { t: 'g'; g: number; m: TableMsg | TableDone | Flag };
-export type RoomClientMsg = AddPerson | DropPerson | NewGame | NewTour | TourJoin | Invite | Answer | WatchOnly | GiveUp | TakeSeat | View | StartTour | GameSet | GameMsg | Quit;
+export type RoomClientMsg = AddPerson | DropPerson | NewGame | NewTour | TourJoin | Invite | Answer | WatchOnly | GiveUp | TakeSeat | View | StartTour | GameSet | GameResumeReady | GameMsg | Quit;
 
 // Server to client, in a room.
 /** An invite waiting for an answer: to game `g` (null: the tournament), from someone by name. */
@@ -411,7 +422,8 @@ export type RoomInvite = { g: number | null; from: string };
 export type RoomPerson = { pid: string; name: string; mine: boolean; watch: boolean; here: boolean; game: number | null; invites: RoomInvite[]; fid?: string };
 export type RoomSeat = { name: string; pid?: string; cpu?: BotName };
 /** `by`: whoever made it (or, after they left, the next person in it). */
-export type RoomGame = { g: number; seats: RoomSeat[]; round: number; wins: number[]; phase: 'lobby' | 'playing'; tour: boolean; rules: GameRules; by: string | null };
+/** `phase` 'paused': a round held for a server restart (see GamePaused). */
+export type RoomGame = { g: number; seats: RoomSeat[]; round: number; wins: number[]; phase: 'lobby' | 'playing' | 'paused'; tour: boolean; rules: GameRules; by: string | null };
 export type TourPlayer = { pid: string; name: string; wins: number; losses: number; out: boolean };
 export type TourMatch = { a: string; b: string; winner: string | null; g: number | null; round: number };
 /** Before it starts, `players` are the people signed up. */
@@ -425,12 +437,30 @@ export type GameLobby = { t: 'globby'; g: number; round: number; wins: number[];
 export type GameDrop = { t: 'gdrop'; g: number; s: number; you: boolean };
 /** The person is back: stop the stand-in on seat `s` and hand it over (handOver). */
 export type GameBack = { t: 'gback'; g: number; s: number };
-/** One step of a game's record, for a device catching up: a table message or a seat dropping. */
-export type RecordStep = TableMsg | { t: 'drop'; s: number };
+/**
+ * One step of a game's record, for a device catching up: a table message, a seat dropping, or the
+ * round carrying on at tick `k` after a server restart with the stand-in playing `standins`.
+ */
+export type RecordStep = TableMsg | { t: 'drop'; s: number } | ResumeMark;
+export type ResumeMark = { t: 'resume'; k: number; standins: number[] };
 /** Catch up on a game in progress (joining late, watching, or coming back); then claim `claim` seats. */
 export type GameCatchUp = { t: 'gcatch'; g: number; start: TableStart; steps: RecordStep[]; claim: number[] };
 export type GameEnd = { t: 'gend'; g: number; why: 'result' | 'flag' | 'disagree' | 'empty'; winner: number | null };
-export type RoomServerMsg = RoomState | GameLobby | TableStart | GameMsg | GameDrop | GameBack | GameCatchUp | GameEnd | Refused;
+// A server restart (Mike, 2026-11-22). Rounds being played get time to finish; any still going are
+// paused at the same tick on every device, saved, and carried on once everyone is back and Ready.
+/** Rounds being played pause in `in` ms (a banner counts down over the stats). */
+export type PauseWarning = { t: 'rwarn'; in: number };
+/** Stop game `g` at tick `k` (send your moves up to it): the server is about to restart. */
+export type GamePause = { t: 'gpause'; g: number; k: number };
+/**
+ * Game `g` is paused at tick `k` (after a restart): who is back and Ready. `startsIn` counts down
+ * once everyone is (0 while not); `waitFor` is how long until it carries on anyway, with the
+ * stand-in computer playing whoever isn't Ready.
+ */
+export type GamePaused = { t: 'gpaused'; g: number; k: number; seats: { ready: boolean; here: boolean }[]; startsIn: number; waitFor: number };
+/** Carry on game `g` from tick `k`: this device plays `mine` (people) and `runs` (computers, stand-ins). */
+export type GameResume = { t: 'gresume'; g: number; mark: ResumeMark; mine: number[]; runs: number[] };
+export type RoomServerMsg = RoomState | GameLobby | TableStart | GameMsg | GameDrop | GameBack | GameCatchUp | GameEnd | PauseWarning | GamePause | GamePaused | GameResume | Refused;
 
 const PID = /^p[0-9]{1,4}$/;
 const pid = (x: unknown): x is string => typeof x === 'string' && PID.test(x);
@@ -468,6 +498,7 @@ export function parseRoomClient(raw: string): RoomClientMsg | null {
     case 'ranswer': return pid(m.pid) && gameOrTour(m.g) && typeof m.yes === 'boolean' ? { t: 'ranswer', pid: m.pid, g: m.g, yes: m.yes } : null;
     case 'rwatch': return pid(m.pid) && typeof m.watch === 'boolean' ? { t: 'rwatch', pid: m.pid, watch: m.watch } : null;
     case 'rfree': return pid(m.pid) ? { t: 'rfree', pid: m.pid } : null;
+    case 'gready': return gameNo(m.g) && pid(m.pid) && typeof m.ready === 'boolean' ? { t: 'gready', g: m.g, pid: m.pid, ready: m.ready } : null;
     case 'rtake': return pid(m.pid) && gameNo(m.g) && seatNo(m.s) ? { t: 'rtake', pid: m.pid, g: m.g, s: m.s } : null;
     case 'rview': return m.g === null || gameNo(m.g) ? { t: 'rview', g: m.g as number | null } : null;
     case 'rtour': return pid(m.by) ? { t: 'rtour', by: m.by } : null;
@@ -512,7 +543,7 @@ function roomState(m: Record<string, unknown>): RoomState | null {
   const gs: RoomGame[] = [];
   for (const g of games) {
     const seats = list(g.seats);
-    if (!gameNo(g.g) || !seats || seats.length < 2 || seats.length > MAX_SEATS || !int(g.round, 1, 100) || (g.phase !== 'lobby' && g.phase !== 'playing') || typeof g.tour !== 'boolean') return null;
+    if (!gameNo(g.g) || !seats || seats.length < 2 || seats.length > MAX_SEATS || !int(g.round, 1, 100) || (g.phase !== 'lobby' && g.phase !== 'playing' && g.phase !== 'paused') || typeof g.tour !== 'boolean') return null;
     if (!Array.isArray(g.wins) || g.wins.length !== seats.length || !g.wins.every(w => int(w, 0, 100))) return null;
     const ss: RoomSeat[] = [];
     for (const s of seats) {
@@ -575,6 +606,7 @@ export function parseRoomServer(raw: string): RoomServerMsg | null {
       for (const x of m.steps) {
         const q = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
         if (q?.t === 'drop') { if (!seatNo(q.s)) return null; steps.push({ t: 'drop', s: q.s }); continue; }
+        if (q?.t === 'resume') { const r = resumeMark(q); if (!r) return null; steps.push(r); continue; }
         const tm = parseTable(q);
         if (!tm || tm.t === 'tdone') return null;
         steps.push(tm);
@@ -587,6 +619,20 @@ export function parseRoomServer(raw: string): RoomServerMsg | null {
         ? { t: 'gend', g: m.g, why, winner: m.winner as number | null } : null;
     }
     case 'error': return typeof m.why === 'string' ? { t: 'error', why: m.why.slice(0, 200) } : null;
+    case 'rwarn': return int(m.in, 0, 600_000) ? { t: 'rwarn', in: m.in } : null;
+    case 'gpause': return gameNo(m.g) && int(m.k, 0, 10_000_000) ? { t: 'gpause', g: m.g, k: m.k } : null;
+    case 'gpaused': {
+      const seats = Array.isArray(m.seats) ? m.seats : null;
+      if (!gameNo(m.g) || !int(m.k, 0, 10_000_000) || !seats || seats.length < 2 || seats.length > MAX_SEATS || !int(m.startsIn, 0, 60_000) || !int(m.waitFor, 0, 600_000)) return null;
+      const ss = seats.map(x => (x && typeof x === 'object' ? (x as Record<string, unknown>) : {}));
+      if (!ss.every(x => typeof x.ready === 'boolean' && typeof x.here === 'boolean')) return null;
+      return { t: 'gpaused', g: m.g, k: m.k, seats: ss.map(x => ({ ready: x.ready as boolean, here: x.here as boolean })), startsIn: m.startsIn, waitFor: m.waitFor };
+    }
+    case 'gresume': {
+      const mark = resumeMark(m.mark);
+      if (!gameNo(m.g) || !mark || !Array.isArray(m.mine) || !m.mine.every(seatNo) || !Array.isArray(m.runs) || !m.runs.every(seatNo)) return null;
+      return { t: 'gresume', g: m.g, mark, mine: m.mine as number[], runs: m.runs as number[] };
+    }
     default: return null;
   }
 }

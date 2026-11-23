@@ -2,7 +2,7 @@
 // relay that passes every message to every other device after a delay, like the room server.
 import { describe, expect, it } from 'vitest';
 import { Bot, BOT_SKILLS, type Action } from '@bug-pop/engine';
-import { TableMatch, parseTableRaw, parseTableStart, type SeatInfo, type TableOut, type TableStart } from '../src';
+import { TableMatch, cutRecord, parseTableRaw, parseTableStart, type RecordStep, type ResumeMark, type SeatInfo, type TableOut, type TableStart } from '../src';
 
 const SEATS: SeatInfo[] = [
   { name: 'Ann', level: 4, speed: 1 }, { name: 'Bo', level: 4, speed: 1 },
@@ -18,6 +18,13 @@ function table(opts: {
   tamper?: (from: number, m: TableOut) => TableOut | null;
   /** A device drops at tick `at`; device `to` plays its seats with the stand-in; it comes `back` (a fresh device) later. */
   drop?: { device: number; at: number; to: number; back?: number };
+  /**
+   * The server restarts at tick `at`. Planned: every device is told to stop at a tick a little
+   * ahead, sends its moves up to it, and waits. Crash: everything still on its way is lost. Then
+   * every device (but device `missing`) rebuilds the round from the server's cut record and
+   * carries on; the missing device's seats go to the stand-in on device `to`.
+   */
+  restart?: { at: number; crash?: boolean; missing?: number; to?: number };
 }) {
   const seats = (opts.seats ?? SEATS.slice(0, opts.devices.flat().length + (opts.cpus?.length ?? 0))).map((p, s) => (opts.cpus?.includes(s) ? { ...p, name: 'Computer', cpu: 'medium' as const } : p));
   const delay = opts.delay ?? 6;
@@ -27,9 +34,13 @@ function table(opts: {
   type Q = { at: number; to: number; raw: string; drop?: number; back?: number };
   const queue: Q[] = [];
   const record: string[] = [];
+  /** When each record entry reached the relay (a crash loses what wasn't saved yet). */
+  const recordAt: number[] = [];
   let now = 0;
   const done: (number | null)[][] = plan.map(() => []);
   let gone = -1;
+  let restarted: { k: number; mark: ResumeMark } | null = null;
+  let pausing = false;
   const device = (d: number, p: { mine: number[]; runs: number[] }) => {
     // The start goes through the real checks, as it would from the relay.
     const start = parseTableStart(JSON.stringify({ ...base, ...p }))!;
@@ -40,6 +51,7 @@ function table(opts: {
       if (msg.t === 'tdone') { done[d]!.push(msg.winner); return; }
       if (msg.t === 'flag') return;
       record.push(JSON.stringify(msg));
+      recordAt.push(now);
       for (let to = 0; to < plan.length; to++) if (to !== d) queue.push({ at: now + delay, to, raw: JSON.stringify(msg) });
     });
   };
@@ -52,8 +64,41 @@ function table(opts: {
     else if (q.back !== undefined) { for (const s of plan[q.back]!.mine) dev.handOver(s); }
     else dev.receive(parseTableRaw(q.raw) as never);
   };
+  // The server comes back: it cuts its record to the last tick every seat reached, and every device
+  // rebuilds the boards from it (as a reconnecting device does) and carries on from there.
+  const restore = () => {
+    const rs = opts.restart!;
+    queue.length = 0;
+    // A crash: the last second of moves hadn't been saved yet.
+    if (rs.crash) { const n = recordAt.findIndex(t => t > now - 60); if (n >= 0) { record.length = n; recordAt.length = n; } }
+    const cut = cutRecord(record.map(r => JSON.parse(r) as RecordStep), seats.length);
+    const missing = rs.missing === undefined ? [] : plan[rs.missing]!.mine;
+    const mark: ResumeMark = { t: 'resume', k: cut.k, standins: [...missing] };
+    restarted = { k: cut.k, mark };
+    record.length = 0;
+    for (const st of cut.steps) record.push(JSON.stringify(st));
+    record.push(JSON.stringify(mark));
+    recordAt.length = 0;
+    recordAt.push(...record.map(() => now));
+    if (rs.missing !== undefined) gone = rs.missing;
+    plan.forEach((p, d) => {
+      if (d === gone) return;
+      const fresh = device(d, { mine: [], runs: [] });
+      for (const st of cut.steps) fresh.receive(st as never);
+      const runs = [...p.runs, ...(d === (rs.to ?? 0) ? missing : [])];
+      fresh.resume(mark, p.mine, runs);
+      devices[d] = fresh;
+    });
+  };
   const run = (ticks: number) => {
     for (let i = 0; i < ticks && !devices.every((d, n) => n === gone || d.result || d.flagged); i++, now++) {
+      const rs = opts.restart;
+      if (rs && !restarted && now === rs.at) {
+        if (rs.crash) restore();
+        else { pausing = true; for (const dev of devices) dev.pause(now + 3); }
+      }
+      // Planned restart: once every device has stopped and everything sent has arrived, the server goes down.
+      if (pausing && !queue.length && devices.every(d => d.clock >= d.pauseAt!)) { pausing = false; restore(); }
       const dr = opts.drop;
       // A device drops: it stops. After its last moves, the relay tells everyone and one device plays its seats.
       if (dr && now === dr.at) {
@@ -82,7 +127,7 @@ function table(opts: {
     // Whatever is still on its way arrives.
     while (queue.length) deliver(queue.shift()!);
   };
-  return { devices, run, done, start: base as Omit<TableStart, 'mine' | 'runs'> };
+  return { devices, run, done, start: base as Omit<TableStart, 'mine' | 'runs'>, restarted: () => restarted };
 }
 
 const boardsMatch = (devices: TableMatch[]) => {
@@ -205,5 +250,40 @@ describe('online tables (2 to 4 seats)', { timeout: 30_000 }, () => {
     const { devices, run } = table({ devices: [[0], [1], [2]], delay: 4, tamper: (from, m) => (from === 0 && m.t === 'ttook' ? null : m) });
     run(60 * 60 * 6);
     expect(devices[1]!.flagged ?? devices[2]!.flagged).toMatch(/never taken|wrong time/);
+  });
+
+  it('a planned restart: every device stops at the same tick, rebuilds from the record and carries on in step', () => {
+    const { devices, run, restarted } = table({ devices: [[0], [1], [2]], cpus: [3], delay: 6, restart: { at: 1500 } });
+    run(60 * 60 * 10);
+    expect(restarted()?.k).toBeGreaterThanOrEqual(1500);
+    expect(devices.map(d => d.flagged)).toEqual([null, null, null]);
+    expect(devices[0]!.result).not.toBeNull();
+    for (const d of devices) expect(d.result).toEqual(devices[0]!.result);
+    boardsMatch(devices);
+    // The computer carried on where it was.
+    expect(devices[0]!.boards[3]!.drivers.map(d => d.kind)).toEqual(['cpu']);
+  });
+
+  it('a crash: moves still on their way are lost, the round goes back a little and carries on', () => {
+    const { devices, run, restarted } = table({ devices: [[0], [1], [2]], delay: 6, restart: { at: 1500, crash: true } });
+    run(60 * 60 * 10);
+    const k = restarted()!.k;
+    expect(k).toBeLessThan(1500);
+    expect(k).toBeGreaterThan(1400);
+    expect(devices.map(d => d.flagged)).toEqual([null, null, null]);
+    for (const d of devices) expect(d.result).toEqual(devices[0]!.result);
+    boardsMatch(devices);
+  });
+
+  it('a crash where one person never comes back: the stand-in plays their seat from the restart on', () => {
+    const { devices, run, restarted } = table({ devices: [[0], [1], [2]], delay: 6, restart: { at: 1500, crash: true, missing: 1, to: 2 } });
+    run(60 * 60 * 10);
+    const left = [devices[0]!, devices[2]!];
+    expect(left.map(d => d.flagged)).toEqual([null, null]);
+    expect(left[0]!.result).not.toBeNull();
+    expect(left[1]!.result).toEqual(left[0]!.result);
+    boardsMatch(left);
+    expect(devices[2]!.boards[1]!.local).toBe(true);
+    expect(devices[0]!.boards[1]!.drivers).toEqual([{ from: restarted()!.k, kind: 'standin' }]);
   });
 });

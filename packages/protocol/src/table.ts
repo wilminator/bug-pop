@@ -16,7 +16,7 @@
 // and computers' moves exactly what the computer would play.
 
 import { BOT_SKILLS, Bot, createGame, receiveAttack, step, ACTIONS, type Action, type GameConfig, type GameEvent, type GameState } from '@bug-pop/engine';
-import { MAX_ACTIONS_PER_TICK, SEND_EVERY, type TableDone, type TableMsg, type TableStart } from './messages';
+import { MAX_ACTIONS_PER_TICK, SEND_EVERY, type RecordStep, type ResumeMark, type TableDone, type TableMsg, type TableStart } from './messages';
 import { STAND_IN_SKILL, TOOK_LATE } from './match';
 
 export type TableOut = TableMsg | TableDone | { t: 'flag'; why: string };
@@ -97,6 +97,8 @@ export class TableMatch {
   private unchecked: (Took & { s: number })[] = [];
   /** Seats this device is coming back to, waiting for the stand-in to hand them over. */
   private claiming = new Set<number>();
+  /** Paused for a server restart: no board here plays past this tick (see pause and resume). */
+  pauseAt: number | null = null;
 
   constructor(readonly start: TableStart, private send: (m: TableOut) => void) {
     this.boards = start.seats.map((seat, s) => {
@@ -126,6 +128,7 @@ export class TableMatch {
   tick(actions: ReadonlyMap<number, readonly Action[]> = new Map()) {
     // Once the round is decided, every board stops where it is (each copy at the same tick).
     if (this.result || this.flagged) return;
+    if (this.pauseAt !== null && this.ticks >= this.pauseAt) return;
     for (const b of this.boards) {
       if (!b.local) continue;
       const events: GameEvent[] = [];
@@ -146,7 +149,7 @@ export class TableMatch {
     this.ticks++;
     for (const b of this.boards) if (b.local) b.clock = this.ticks;
     this.resolve();
-    if (this.ticks - this.lastSend >= SEND_EVERY || this.boards.some(b => b.local && b.end && b.sentLog < b.state.log.length)) this.flush();
+    if (this.ticks - this.lastSend >= SEND_EVERY || this.ticks === this.pauseAt || this.boards.some(b => b.local && b.end && b.sentLog < b.state.log.length)) this.flush();
     this.check();
     this.decide();
   }
@@ -434,6 +437,51 @@ export class TableMatch {
     for (const o of this.boards) o.attacks.forEach((a, i) => { if (a.to?.includes(b.s) && !this.tooks.has(`${o.s}:${i}:${b.s}`)) b.incoming.push({ from: o.s, i, n: a.n, r: a.r }); });
   }
 
+  /**
+   * The server is restarting: play on to tick `k`, send everything up to it, and stop there (a
+   * device already past `k` stops now; the server cuts every board back to `k` when it saves).
+   */
+  pause(k: number) {
+    this.pauseAt = Math.max(k, this.ticks);
+    if (this.ticks >= this.pauseAt) this.flush();
+  }
+
+  /**
+   * The round carries on at tick `mark.k` after a restart (every board was rebuilt to it from the
+   * saved record). Seats in `standins` are played by the stand-in from there; a person whose seat
+   * the stand-in played before is back. Every device notes this, in the record too.
+   */
+  mark(m: ResumeMark) {
+    for (const b of this.boards) {
+      if (this.start.seats[b.s]!.cpu) continue;
+      const d = this.driving(b);
+      if (m.standins.includes(b.s)) { if (d?.kind !== 'standin') b.drivers.push({ from: m.k, kind: 'standin' }); }
+      else if (d?.kind === 'standin') (b.handedAt ??= []).push(m.k);
+    }
+  }
+
+  /** Carry on from the mark: this device plays `mine` (people here) and `runs` (computers, stand-ins). */
+  resume(m: ResumeMark, mine: readonly number[], runs: readonly number[]) {
+    this.mark(m);
+    this.pauseAt = null;
+    this.ticks = m.k;
+    this.lastSend = m.k;
+    for (const b of this.boards) {
+      b.clock = m.k;
+      b.local = mine.includes(b.s) || runs.includes(b.s);
+      if (!b.local) continue;
+      b.sentLog = b.state.log.length;
+      if (mine.includes(b.s)) b.bot = null;
+      else {
+        // The same computer that played (or checked) it up to here carries on, so every copy agrees.
+        const d = this.driving(b);
+        if (d && b.bot?.d !== d) b.bot = { bot: driverBot(this.start, b.s, d), d };
+      }
+      b.incoming = [];
+      for (const o of this.boards) o.attacks.forEach((a, i) => { if (a.to?.includes(b.s) && !this.tooks.has(`${o.s}:${i}:${b.s}`)) b.incoming.push({ from: o.s, i, n: a.n, r: a.r }); });
+    }
+  }
+
   private flag(why: string) {
     if (this.flagged) return;
     this.flagged = why;
@@ -442,4 +490,28 @@ export class TableMatch {
   }
 
   private out(m: TableOut) { this.send(m); }
+}
+
+/**
+ * A round's record cut back to the last tick every seat has sent moves for (the server keeps the
+ * moves it passed on; after a restart every device rebuilds the boards from this and carries on
+ * from `k`). Moves, takes and hand-backs past `k` are dropped, as if they never happened.
+ */
+export function cutRecord(steps: readonly RecordStep[], seats: number): { k: number; steps: RecordStep[] } {
+  const last = Array.from({ length: seats }, () => 0);
+  for (const st of steps) if (st.t === 'tin' && st.s < seats) last[st.s] = Math.max(last[st.s]!, st.k);
+  const k = Math.min(...last);
+  const clock = Array.from({ length: seats }, () => 0);
+  const out: RecordStep[] = [];
+  for (const st of steps) {
+    if (st.t === 'tin') {
+      if (clock[st.s]! >= k) continue;
+      const to = Math.min(st.k, k);
+      out.push({ ...st, k: to, a: st.a.filter(code => Math.floor(code / 8) < to) });
+      clock[st.s] = to;
+    } else if (st.t === 'ttook') { if (st.k < k) out.push(st); }
+    else if (st.t === 'thand') { if (st.k <= k) out.push(st); }
+    else out.push(st);
+  }
+  return { k, steps: out };
 }

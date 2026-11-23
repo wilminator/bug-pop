@@ -2,7 +2,7 @@
 // TableMatch for every game this device plays in or watches. No network code: the caller sends
 // what `send` gets and hands every server message to receive().
 
-import type { GameEnd, GameLobby, GameRules, RoomClientMsg, RoomServerMsg, RoomState, TourRules } from './messages';
+import type { GameEnd, GameLobby, GamePaused, GameRules, RoomClientMsg, RoomServerMsg, RoomState, TourRules } from './messages';
 import { TableMatch } from './table';
 
 export class RoomSession {
@@ -10,11 +10,17 @@ export class RoomSession {
   readonly lobbies = new Map<number, GameLobby>();
   readonly tables = new Map<number, TableMatch>();
   readonly ended = new Map<number, GameEnd>();
+  /** Rounds paused for a server restart: who's back and Ready (Mike, 2026-11-22). */
+  readonly paused = new Map<number, GamePaused>();
+  /** When rounds being played pause for a restart (Date.now() time), while a warning is on. */
+  pauseAt: number | null = null;
   error: string | null = null;
   /** Something changed (redraw the room screen). */
   onChange?: () => void;
   /** A game's table was made (to hook up sounds and drawing). */
   onTable?: (g: number, t: TableMatch) => void;
+  /** A paused round carries on from tick `k` (keep its clock in step from now). */
+  onResume?: (g: number, k: number) => void;
 
   constructor(private send: (m: RoomClientMsg) => void) {}
 
@@ -36,19 +42,29 @@ export class RoomSession {
     switch (m.t) {
       case 'rstate': this.state = m; break;
       case 'globby': this.lobbies.set(m.g, m); break;
-      case 'tstart': this.lobbies.delete(m.table); this.table(m.table, this.makeTable(m.table, m)); break;
+      case 'tstart': this.lobbies.delete(m.table); this.paused.delete(m.table); this.table(m.table, this.makeTable(m.table, m)); break;
       case 'g': if (m.m.t !== 'tdone' && m.m.t !== 'flag') this.tables.get(m.g)?.receive(m.m); break;
       case 'gdrop': { const t = this.tables.get(m.g); if (m.you) t?.takeOver(m.s); else t?.away(m.s); break; }
       case 'gback': this.tables.get(m.g)?.handOver(m.s); break;
       case 'gcatch': {
         const t = this.makeTable(m.g, m.start);
-        for (const st of m.steps) { if (st.t === 'drop') t.away(st.s); else t.receive(st); }
+        for (const st of m.steps) { if (st.t === 'drop') t.away(st.s); else if (st.t === 'resume') t.mark(st); else t.receive(st); }
         for (const s of m.claim) t.rejoin(s);
         this.lobbies.delete(m.g);
         this.table(m.g, t);
         break;
       }
-      case 'gend': this.ended.set(m.g, m); break;
+      case 'gend': this.ended.set(m.g, m); this.paused.delete(m.g); break;
+      case 'rwarn': this.pauseAt = Date.now() + m.in; break;
+      case 'gpause': this.tables.get(m.g)?.pause(m.k); break;
+      case 'gpaused': this.paused.set(m.g, m); this.tables.get(m.g)?.pause(m.k); break;
+      case 'gresume': {
+        this.paused.delete(m.g);
+        this.pauseAt = null;
+        const t = this.tables.get(m.g);
+        if (t) { t.resume(m.mark, m.mine, m.runs); this.onResume?.(m.g, m.mark.k); }
+        break;
+      }
       case 'error': this.error = m.why; break;
     }
     this.onChange?.();
@@ -72,6 +88,8 @@ export class RoomSession {
   takeSeat(pid: string, g: number, s: number) { this.send({ t: 'rtake', pid, g, s }); }
   view(g: number | null) { this.send({ t: 'rview', g }); }
   startTour(by: string) { this.send({ t: 'rtour', by }); }
+  /** Ready (or not) to carry on a round paused for a restart. */
+  ready(g: number, pid: string, ready: boolean) { this.send({ t: 'gready', g, pid, ready }); }
   set(g: number, pid: string, c: { level: number; speed: 0 | 1 | 2 | 3; power: boolean; ready: boolean }) { this.send({ t: 'gset', g, pid, ...c }); }
   quit() { this.send({ t: 'quit' }); }
 }
