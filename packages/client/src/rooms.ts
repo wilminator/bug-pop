@@ -9,7 +9,7 @@
 // and rebuilds the rest (packages/protocol table.ts and room.ts).
 
 import { TICKS_PER_SECOND, type Speed } from '@bug-pop/engine';
-import { MAX_PER_DEVICE, ROOM_VERSION, RoomSession, parseRoomServer, type RoomRules, type RoomState } from '@bug-pop/protocol';
+import { MAX_PER_DEVICE, ROOM_VERSION, RoomSession, parseRoomServer, type GameRules, type RoomGame, type RoomPerson, type RoomState, type TourRules } from '@bug-pop/protocol';
 import qrcode from 'qrcode-generator';
 import type { AudioManager } from './audio';
 import type { Versus } from './versus';
@@ -24,6 +24,10 @@ const TOUR_HELP = {
   double: 'Double elimination: out after 2 losses; players with the same losses meet first.',
 } as const;
 const TOUR_TEXT = { best3: 'Bracket, best of 3 matches', best5: 'Bracket, best of 5 matches', single: 'Single elimination', double: 'Double elimination' } as const;
+const TARGET_TEXT = { leader: 'attacks go to the leader', random: 'attacks go to someone at random', everyone: 'attacks go to everyone' } as const;
+/** A game's rules in a few words, e.g. "Best of 3, 3 colors, attacks go to the leader". */
+const rulesText = (r: GameRules, seats: number) => [RULE_TEXT[r.rule], `${r.colors} colors`, seats > 2 ? TARGET_TEXT[r.target] : ''].filter(Boolean).join(', ');
+const tourText = (r: TourRules) => [TOUR_TEXT[r.kind], `${r.colors} colors`, r.levels === 'same' ? `everyone at level ${r.level}` : 'players choose level and speed'].join(', ');
 
 export type RoomJoin = { room: string; level: number; speed: Speed; power: boolean };
 export type RoomDeps = {
@@ -64,13 +68,7 @@ export class RoomScreen {
   constructor(private deps: RoomDeps) {
     $('roomLeave').addEventListener('click', () => { deps.audio.play('select'); this.leave(); });
     $('roomShareBtn').addEventListener('click', () => void this.share());
-    $('roomStart').addEventListener('click', () => {
-      const s = this.session, by = $<HTMLSelectElement>('roomBy').value;
-      if (!s || !by) return;
-      deps.audio.play('select');
-      s.newGame(by, Number($<HTMLSelectElement>('roomSize').value));
-    });
-    $('roomTourStart').addEventListener('click', () => { deps.audio.play('select'); this.session?.startTour(); });
+    $('roomStart').addEventListener('click', () => { deps.audio.play('select'); this.make(); });
     $('roomAddForm').addEventListener('submit', e => {
       e.preventDefault();
       const input = $<HTMLInputElement>('roomAddName'), name = input.value.trim();
@@ -80,7 +78,7 @@ export class RoomScreen {
       input.value = '';
     });
     const rules = $<HTMLFormElement>('roomRules');
-    rules.addEventListener('change', () => this.sendRules());
+    rules.addEventListener('change', () => { if (this.session?.state) this.fillForm(this.session.state); });
     $<HTMLInputElement>('rrLevel').addEventListener('input', () => { $<HTMLOutputElement>('rrLevelOut').value = $<HTMLInputElement>('rrLevel').value; });
   }
 
@@ -230,18 +228,53 @@ export class RoomScreen {
   private render(st: RoomState) {
     const s = this.session!;
     const mine = this.mine();
-    const owner = s.isOwner;
     $('roomTitle').textContent = `Room ${st.code}`;
     $('roomCodeText').textContent = st.code;
     this.drawQr(st.code);
-    const ownerName = st.people.find(p => p.pid === st.owner)?.name ?? 'someone';
-    $('roomStatus').textContent = owner ? 'You own this room: you set the rules.' : `${ownerName} owns this room and sets the rules.`;
+    $('roomStatus').textContent = 'Make a game, join one, or watch. Anyone in a game can invite the others.';
+    const name = (pid: string | null) => st.people.find(p => p.pid === pid)?.name ?? 'Someone';
+    const t = st.tour;
+    // People here who could play something now: not in a game, not playing in a running tournament.
+    const inTour = (pid: string) => !!t && t.started && !t.champion && t.players.some(p => p.pid === pid && !p.out);
+    const isFree = (p: RoomPerson) => p.game === null && !inTour(p.pid);
+    const free = s.mine.filter(isFree);
+
+    // Invites to people on this device (Mike, 2026-11-22: invites must be accepted).
+    const invites = s.mine.flatMap(p => p.invites.map(v => ({ p, v })));
+    $('roomInvites').hidden = !invites.length;
+    $('roomInvites').replaceChildren(...invites.map(({ p, v }) => {
+      const game = v.g === null ? null : st.games.find(x => x.g === v.g);
+      const what = v.g === null ? (t ? `the tournament (${tourText(t.rules)})` : 'the tournament') : `game ${v.g}${game ? ` (${rulesText(game.rules, game.seats.length)})` : ''}`;
+      const box = el('div', 'room-invite');
+      box.append(el('p', '', `${v.from} invites ${s.mine.length > 1 ? p.name : 'you'} to ${what}.`));
+      const row = el('div', 'room-row');
+      const yes = el('button', 'primary', 'Accept'), no = el('button', '', 'Decline');
+      yes.addEventListener('click', () => { this.deps.audio.play('select'); s.answer(p.pid, v.g, true); });
+      no.addEventListener('click', () => { this.deps.audio.play('select'); s.answer(p.pid, v.g, false); });
+      row.append(yes, no);
+      box.append(row);
+      return box;
+    }));
+
+    // Invite: someone of mine in this game (or signed up) asks a free person who isn't already asked.
+    const inviteRow = (from: string | undefined, g: number | null, taken: (pid: string) => boolean) => {
+      const can = st.people.filter(p => isFree(p) && !taken(p.pid) && !p.invites.some(v => v.g === g));
+      if (!from || !can.length) return null;
+      const row = el('div', 'room-row');
+      const pick = el('select');
+      pick.setAttribute('aria-label', 'Who to invite');
+      pick.append(...can.map(p => { const o = el('option', '', p.name); o.value = p.pid; return o; }));
+      const go = el('button', '', 'Invite');
+      go.addEventListener('click', () => { this.deps.audio.play('select'); s.invite(from, pick.value, g); });
+      row.append(pick, go);
+      return row;
+    };
 
     // People: who's here, Watch only, and the people on this device.
     $('roomPeople').replaceChildren(...st.people.map(p => {
       const li = el('li', p.here ? '' : 'away');
       li.append(el('b', '', p.name));
-      const notes = [p.pid === st.owner ? 'owner' : '', p.mine ? 'on this device' : '', !p.here ? 'away' : '', p.game !== null ? `in game ${p.game}` : p.watch ? 'watching' : 'free'].filter(Boolean);
+      const notes = [p.mine ? 'on this device' : '', !p.here ? 'away' : '', p.game !== null ? `in game ${p.game}` : inTour(p.pid) ? 'in the tournament' : p.watch ? 'watching' : 'free'].filter(Boolean);
       li.append(el('span', 'fine', notes.join(', ')));
       if (p.mine) {
         const box = el('label', 'vs-check');
@@ -261,112 +294,138 @@ export class RoomScreen {
     }));
     $('roomAddForm').hidden = s.mine.length >= MAX_PER_DEVICE;
 
-    // Games: who's at each, and what I can do there.
-    const free = s.mine.filter(p => p.game === null);
-    $('roomGames').replaceChildren(...(st.games.length ? st.games.map(game => {
+    // Games: rules, who's at each, and what I can do there.
+    const games = st.games.filter(g => !g.tour);
+    const tourGames = st.games.filter(g => g.tour);
+    const gameBox = (game: RoomGame) => {
       const box = el('div', 'room-game');
-      box.append(el('b', '', `Game ${game.g}${game.tour ? ' (tournament)' : ''}: ${game.phase === 'playing' ? `playing round ${game.round}` : 'getting ready'}`));
+      const title = game.tour ? `Tournament game ${game.g}` : `Game ${game.g} by ${name(game.by)}`;
+      box.append(el('b', '', `${title}: ${game.phase === 'playing' ? `playing round ${game.round}` : 'getting ready'}`));
+      if (!game.tour) box.append(el('span', 'fine', rulesText(game.rules, game.seats.length)));
       const seats = el('div', 'room-seats');
       game.seats.forEach((seat, i) => {
-        const chip = el('span', `room-seat${seat.pid && mine.has(seat.pid) ? ' me' : ''}`, `${seat.name}${game.wins[i] ? ` (${game.wins[i]})` : ''}`);
-        seats.append(chip);
-        // A person can take a computer's seat (from its next round).
+        seats.append(el('span', `room-seat${seat.pid && mine.has(seat.pid) ? ' me' : ''}`, `${seat.name}${game.wins[i] ? ` (${game.wins[i]})` : ''}`));
+        // Join: take a computer's seat (on the settings card now, or from the next round).
         if (seat.cpu && free.length && !game.tour) {
-          const take = el('button', '', free.length === 1 ? 'Take this seat' : `Take this seat for ${free[0]!.name}`);
+          const take = el('button', '', free.length === 1 ? 'Join' : `Join as ${free[0]!.name}`);
           take.addEventListener('click', () => { this.deps.audio.play('select'); s.takeSeat(free[0]!.pid, game.g, i); });
           seats.append(take);
         }
       });
       box.append(seats);
-      const seated = game.seats.some(x => x.pid && mine.has(x.pid));
+      const mySeat = game.seats.find(x => x.pid && mine.has(x.pid));
       const row = el('div', 'room-row');
-      if (seated) {
+      if (mySeat) {
         const go = el('button', 'primary', 'Go to my game');
         go.addEventListener('click', () => { this.deps.audio.play('select'); this.goTo(game.g); });
-        row.append(go);
-        // Back out (Mike, 2026-11-22): before it starts, someone else (or a computer) takes the seat;
-        // during a round, from the next round. In a tournament, it forfeits the match.
+        // Back out (Mike, 2026-11-22): a computer takes the seat. In a tournament, it forfeits the match.
         const leave = el('button', '', game.tour ? 'Forfeit this match' : game.phase === 'lobby' && game.round === 1 ? 'Not this game' : 'Give up my seat');
         leave.addEventListener('click', () => {
           this.deps.audio.play('select');
           for (const x of game.seats) if (x.pid && mine.has(x.pid)) s.giveUp(x.pid);
         });
-        row.append(leave);
+        row.append(go, leave);
       } else {
         const watch = el('button', '', 'Watch');
         watch.addEventListener('click', () => { this.deps.audio.play('select'); this.watch(game.g); });
         row.append(watch);
       }
       box.append(row);
+      if (mySeat && !game.tour && game.seats.some(x => x.cpu)) {
+        const inv = inviteRow(mySeat.pid, game.g, pid => game.seats.some(x => x.pid === pid));
+        if (inv) box.append(inv);
+      }
       return box;
-    }) : [el('p', 'fine', st.rules.mode === 'tour' ? 'No tournament games yet.' : 'No games yet. Start one below.')]));
+    };
+    $('roomGames').replaceChildren(...(games.length || t ? games.map(gameBox) : [el('p', 'fine', 'No games yet. Make one below.')]));
 
-    // Starting a game (open pool only).
-    const pool = st.rules.mode === 'pool';
-    $('roomNew').hidden = !pool || !free.length;
-    $('roomNewNote').hidden = !pool;
+    // The tournament: sign-up (Sign up, Invite, Start for whoever made it), then standings and its games.
+    $('roomTour').hidden = !t;
+    if (t) {
+      $('roomTourTitle').textContent = t.champion ? `${name(t.champion)} won the tournament` : t.started ? 'Tournament' : `Tournament by ${name(t.by)}: signing up`;
+      $('roomTourText').textContent = tourText(t.rules) + '. Always 1 against 1, two games at a time; the others watch.';
+      const rows: HTMLTableRowElement[] = [];
+      const head = el('tr');
+      head.append(el('th', '', 'Player'), ...(t.started ? [el('th', '', 'Won'), el('th', '', 'Lost')] : []));
+      rows.push(head);
+      for (const p of t.players) {
+        const tr = el('tr', p.out ? 'out' : '');
+        tr.append(el('td', '', p.name), ...(t.started ? [el('td', '', String(p.wins)), el('td', '', String(p.losses))] : []));
+        rows.push(tr);
+      }
+      $('roomTourTable').replaceChildren(...rows);
+      const row = $('roomTourRow');
+      row.replaceChildren();
+      if (!t.started) {
+        const signed = s.mine.filter(p => t.players.some(x => x.pid === p.pid));
+        const could = free.filter(p => !signed.includes(p));
+        if (could.length) {
+          const join = el('button', 'primary', s.mine.length > 1 ? `Sign up ${could[0]!.name}` : 'Sign up');
+          join.addEventListener('click', () => { this.deps.audio.play('select'); s.signUp(could[0]!.pid, true); });
+          row.append(join);
+        }
+        for (const p of signed) {
+          const off = el('button', '', s.mine.length > 1 ? `Take ${p.name} off` : 'Take my name off');
+          off.addEventListener('click', () => { this.deps.audio.play('select'); s.signUp(p.pid, false); });
+          row.append(off);
+        }
+        if (t.by && mine.has(t.by)) {
+          const start = el('button', 'primary', 'Start the tournament');
+          start.disabled = t.players.length < 2;
+          start.addEventListener('click', () => { this.deps.audio.play('select'); s.startTour(t.by!); });
+          row.append(start);
+        }
+        const inv = inviteRow(signed[0]?.pid, null, pid => t.players.some(x => x.pid === pid));
+        if (inv) row.append(...inv.childNodes);
+      }
+    }
+    $('roomGames').append(...tourGames.map(gameBox));
+
+    // Making a game or a tournament: for someone on this device who isn't playing.
+    $('roomNewCard').hidden = !free.length;
     const by = $<HTMLSelectElement>('roomBy');
     const keep = by.value;
     by.replaceChildren(...free.map(p => { const o = el('option', '', p.name); o.value = p.pid; return o; }));
     if (free.some(p => p.pid === keep)) by.value = keep;
     $('roomByRow').hidden = free.length < 2;
-
-    // The tournament: standings, matches, and the owner's Start.
-    $('roomTour').hidden = pool;
-    if (!pool) {
-      const t = st.tour;
-      $('roomTourTitle').textContent = t ? (t.champion ? `${st.people.find(p => p.pid === t.champion)?.name ?? 'Someone'} won the tournament` : `Tournament: ${TOUR_TEXT[t.kind]}`) : `Tournament: ${TOUR_TEXT[st.rules.tour]}`;
-      const rows: HTMLTableRowElement[] = [];
-      if (t) {
-        const head = el('tr');
-        head.append(el('th', '', 'Player'), el('th', '', 'Won'), el('th', '', 'Lost'));
-        rows.push(head);
-        for (const p of t.players) {
-          const tr = el('tr', p.out ? 'out' : '');
-          tr.append(el('td', '', p.name), el('td', '', String(p.wins)), el('td', '', String(p.losses)));
-          rows.push(tr);
-        }
-      }
-      $('roomTourTable').replaceChildren(...rows);
-      $('roomTourStart').hidden = !owner || (!!t && !t.champion) || st.games.length > 0;
-      $('roomTourStart').textContent = t?.champion ? 'Start another tournament' : 'Start the tournament';
-    }
-
-    // The rules: the owner changes them while no game is going.
-    const locked = !owner || st.games.length > 0 || (!!st.tour && !st.tour.champion);
-    $('roomRulesNote').textContent = !owner ? `${ownerName} sets these.` : locked ? "The rules can't change while a game is going." : 'Every game in the room uses these.';
-    this.fillRules(st.rules, locked);
+    this.fillForm(st);
   }
 
-  private fillRules(r: RoomRules, locked: boolean) {
-    const set = (id: string, v: string) => { const e = $<HTMLSelectElement | HTMLInputElement>(id); if (document.activeElement !== e) e.value = v; e.disabled = locked; };
-    set('rrMode', r.mode); set('rrRule', r.rule); set('rrRotation', r.rotation); set('rrTarget', r.target); set('rrColors', String(r.colors));
-    set('rrTour', r.tour); set('rrLevels', r.tourLevels); set('rrLevel', String(r.level)); set('rrSpeed', String(r.speed));
-    $<HTMLOutputElement>('rrLevelOut').value = String(r.level);
-    const tour = r.mode === 'tour';
+  /** The make-a-game form: show the choices that fit a game or a tournament, and say what they mean. */
+  private fillForm(st: RoomState) {
+    const v = (id: string) => $<HTMLSelectElement | HTMLInputElement>(id).value;
+    const modeSel = $<HTMLSelectElement>('rrMode');
+    // One tournament at a time.
+    const tourOpen = !!st.tour && !st.tour.champion;
+    modeSel.querySelector<HTMLOptionElement>('option[value=tour]')!.disabled = tourOpen;
+    if (tourOpen && modeSel.value === 'tour') modeSel.value = 'pool';
+    const tour = modeSel.value === 'tour';
     for (const e of document.querySelectorAll<HTMLElement>('#roomRules .rr-pool')) e.hidden = tour;
     for (const e of document.querySelectorAll<HTMLElement>('#roomRules .rr-tour')) e.hidden = !tour;
-    for (const e of document.querySelectorAll<HTMLElement>('#roomRules .rr-same')) e.hidden = !tour || r.tourLevels !== 'same';
-    // What the choices mean, in a line.
-    $('roomRulesHelp').textContent = tour
-      ? `${TOUR_HELP[r.tour]} Always 1 against 1, two games at a time; everyone else watches.`
-      : `Open pool: anyone not playing starts a game of 2 to 4, computers fill empty seats. ${r.rotation === 'winner' ? 'Winner stays: the winner keeps their seat and the others come from whoever is waiting.' : 'Random draw: the next players are drawn at random, and people who sat out the last game go first.'} ${r.target === 'leader' ? 'Attacks go to the leader (fewest bugs left).' : r.target === 'random' ? 'Attacks go to someone at random.' : 'Attacks go to everyone.'}`;
-    // A tournament's best of 3 or 5 is its own setting; How to win picks the rule for each game.
+    for (const e of document.querySelectorAll<HTMLElement>('#roomRules .rr-same')) e.hidden = !tour || v('rrLevels') !== 'same';
+    // A tournament's best of 3 or 5 is its kind; How to win picks the rule for each game.
     const rule = $<HTMLSelectElement>('rrRule');
     for (const o of rule.querySelectorAll<HTMLOptionElement>('option[value^=best]')) o.hidden = tour;
+    if (tour && rule.value.startsWith('best')) rule.value = 'race';
+    $<HTMLOutputElement>('rrLevelOut').value = v('rrLevel');
+    $('roomStart').textContent = tour ? 'Make the tournament' : 'Make the game';
+    const target = v('rrTarget') as GameRules['target'];
+    $('roomRulesHelp').textContent = tour
+      ? `${TOUR_HELP[v('rrTour') as TourRules['kind']]} People sign up or accept an invite; you start it when everyone's in.`
+      : `You play in the first seat; the others start as computers at the players' average. Friends join a computer's seat, or you invite them. With 3 or 4 seats, ${TARGET_TEXT[target]}.`;
   }
 
-  private sendRules() {
-    const s = this.session;
-    if (!s?.state || !s.isOwner) return;
+  private make() {
+    const s = this.session, by = $<HTMLSelectElement>('roomBy').value;
+    if (!s || !by) return;
     const v = (id: string) => $<HTMLSelectElement | HTMLInputElement>(id).value;
-    const mode = v('rrMode') as RoomRules['mode'];
-    let rule = v('rrRule') as RoomRules['rule'];
-    if (mode === 'tour' && (rule === 'best3' || rule === 'best5')) rule = 'race';
-    s.rules({
-      mode, rule, rotation: v('rrRotation') as RoomRules['rotation'], target: v('rrTarget') as RoomRules['target'], colors: Number(v('rrColors')),
-      tour: v('rrTour') as RoomRules['tour'], tourLevels: v('rrLevels') as RoomRules['tourLevels'], level: Number(v('rrLevel')), speed: Number(v('rrSpeed')) as Speed,
-    });
+    const colors = Number(v('rrColors'));
+    if (v('rrMode') === 'tour') {
+      const rule = v('rrRule') === 'last' ? 'last' : 'race';
+      s.newTour(by, { kind: v('rrTour') as TourRules['kind'], rule, colors, levels: v('rrLevels') as TourRules['levels'], level: Number(v('rrLevel')), speed: Number(v('rrSpeed')) as Speed });
+    } else {
+      s.newGame(by, Number(v('roomSize')), { rule: v('rrRule') as GameRules['rule'], target: v('rrTarget') as GameRules['target'], colors });
+    }
   }
 
   /** Back to my game: its settings card or its boards. */

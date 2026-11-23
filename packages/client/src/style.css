@@ -358,3 +358,9 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .vs-room-note { margin: 0; text-align: center; }
 .vs-room-note.bad { color: #ffb347; font-weight: 700; }
 #roomScreen [hidden] { display: none !important; }
+/* Invites waiting for an answer, at the top of the room screen. */
+.room-invites { border: 2px solid var(--accent); }
+.room-invite { display: grid; gap: 8px; }
+.room-invite + .room-invite { border-top: 1px solid var(--edge); padding-top: 10px; }
+.room-invite p { margin: 0; font-weight: 700; }
+.room-game > .fine { margin: 0; }

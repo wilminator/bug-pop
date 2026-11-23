@@ -2,7 +2,7 @@
 // TableMatch for every game this device plays in or watches. No network code: the caller sends
 // what `send` gets and hands every server message to receive().
 
-import type { GameEnd, GameLobby, RoomClientMsg, RoomServerMsg, RoomState } from './messages';
+import type { GameEnd, GameLobby, GameRules, RoomClientMsg, RoomServerMsg, RoomState, TourRules } from './messages';
 import { TableMatch } from './table';
 
 export class RoomSession {
@@ -20,7 +20,6 @@ export class RoomSession {
 
   /** The people this device brought. */
   get mine() { return this.state?.people.filter(p => p.mine) ?? []; }
-  get isOwner() { return this.mine.some(p => p.pid === this.state?.owner); }
 
   private table(g: number, t: TableMatch) {
     this.tables.set(g, t);
@@ -61,15 +60,18 @@ export class RoomSession {
   }
 
   // What people on this device can do (each is checked again by the server).
-  rules(rules: RoomState['rules']) { this.send({ t: 'rrules', rules }); }
   addPerson(name: string) { this.send({ t: 'radd', name }); }
   dropPerson(pid: string) { this.send({ t: 'rdel', pid }); }
-  newGame(by: string, size: number) { this.send({ t: 'rnew', by, size }); }
+  newGame(by: string, size: number, rules: GameRules) { this.send({ t: 'rnew', by, size, rules }); }
+  newTour(by: string, rules: TourRules) { this.send({ t: 'rtnew', by, rules }); }
+  signUp(pid: string, on: boolean) { this.send({ t: 'rtjoin', pid, on }); }
+  invite(from: string, to: string, g: number | null) { this.send({ t: 'rinvite', from, to, g }); }
+  answer(pid: string, g: number | null, yes: boolean) { this.send({ t: 'ranswer', pid, g, yes }); }
   watchOnly(pid: string, watch: boolean) { this.send({ t: 'rwatch', pid, watch }); }
   giveUp(pid: string) { this.send({ t: 'rfree', pid }); }
   takeSeat(pid: string, g: number, s: number) { this.send({ t: 'rtake', pid, g, s }); }
   view(g: number | null) { this.send({ t: 'rview', g }); }
-  startTour() { this.send({ t: 'rtour' }); }
+  startTour(by: string) { this.send({ t: 'rtour', by }); }
   set(g: number, pid: string, c: { level: number; speed: 0 | 1 | 2 | 3; power: boolean; ready: boolean }) { this.send({ t: 'gset', g, pid, ...c }); }
   quit() { this.send({ t: 'quit' }); }
 }

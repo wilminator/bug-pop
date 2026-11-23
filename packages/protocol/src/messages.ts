@@ -337,50 +337,51 @@ export function parseTableStart(raw: string): TableStart | null {
   };
 }
 
-// ---- Rooms (protocol 5, Mike 2026-11-22) -----------------------------------------------------
+// ---- Rooms (protocol 7, Mike 2026-11-22) -----------------------------------------------------
 //
-// Friends gather in a room of up to 16 people; a device may bring up to 4 of them (people sharing
-// a phone or tablet). The room's owner (whoever made it) sets the room rules; every game in the
-// room uses them, and they can't change while a game is going. Two ways to play:
-//   Open pool: anyone not playing starts a game of 2 to 4; seats left over get computers at the
-//     people's average. Between rounds the rotation picks who plays next. Several games at once.
-//   Tournament: always 1 against 1, up to two games at once, everyone else watches.
-// Each person can give up their seat or say Watch only at any time, and take a computer's seat.
+// A room is a private lobby: friends gather in it (up to 16 people; a device may bring up to 4 of
+// them, people sharing a phone or tablet). There is no owner and no room-wide rules:
+//   A game: anyone not playing makes one (2 to 4 seats) and sets its rules. Seats nobody has taken
+//     are computers at the people's average. People not in a game join a computer's seat, or anyone
+//     in the game invites them and they accept or decline. Several games at once.
+//   A tournament is a kind of game: anyone makes one and sets its rules, people sign up (or accept
+//     an invite), and whoever made it starts it. Always 1 against 1, up to two games at once, the
+//     other players watch. One tournament at a time in a room.
+// Each person can back out of a game or give up their seat, or say Watch only, at any time.
 // Every device can watch any game: it rebuilds every board from the moves, like the players do.
 
-/** Rooms speak protocol 5 (the 1 against 1 relay stays on PROTOCOL_VERSION until it moves to tables). */
-export const ROOM_VERSION = 6;
+/** Rooms speak protocol 7 (the 1 against 1 relay stays on PROTOCOL_VERSION until it moves to tables). */
+export const ROOM_VERSION = 7;
 /** At most this many people in a room, and on one device. */
 export const MAX_ROOM = 16;
 export const MAX_PER_DEVICE = 4;
-/** Who plays the next round of a game: the winner keeps their seat, or a draw that favours who sat out. */
-export type Rotation = 'winner' | 'random';
 /** Tournament kinds: a bracket of best-of-3 or best-of-5 matches, a bracket of single games, or out at 2 losses. */
 export type TourKind = 'best3' | 'best5' | 'single' | 'double';
 const TOUR_KINDS: readonly unknown[] = ['best3', 'best5', 'single', 'double'];
-export type RoomRules = {
-  mode: 'pool' | 'tour';
-  /** How a game is won (a tournament's best3 or best5 plays rounds of 'race'). */
-  rule: OnlineRule;
-  rotation: Rotation;
-  target: Target;
-  colors: number;
-  tour: TourKind;
-  /** Tournament level and speed: the same for everyone (below), or each player chooses. */
-  tourLevels: 'same' | 'choose';
-  level: number;
-  speed: Speed;
-};
-export const DEFAULT_RULES: RoomRules = { mode: 'pool', rule: 'race', rotation: 'winner', target: 'leader', colors: 3, tour: 'single', tourLevels: 'choose', level: 5, speed: 1 };
+/** A game's rules, set by whoever made it. */
+export type GameRules = { rule: OnlineRule; target: Target; colors: number };
+export const DEFAULT_GAME_RULES: GameRules = { rule: 'race', target: 'leader', colors: 3 };
+/**
+ * A tournament's rules, set by whoever made it. `rule` is how each game is won (a best3 or best5
+ * kind plays rounds of 'race'). Level and speed: the same for everyone (below), or each player chooses.
+ */
+export type TourRules = { kind: TourKind; rule: 'race' | 'last'; colors: number; levels: 'same' | 'choose'; level: number; speed: Speed };
+export const DEFAULT_TOUR_RULES: TourRules = { kind: 'single', rule: 'race', colors: 3, levels: 'choose', level: 5, speed: 1 };
 
 // Client to server, in a room. People are named by `pid`, which the server hands out.
-/** The owner changes the room rules (refused while a game is going). */
-export type SetRules = { t: 'rrules'; rules: RoomRules };
 /** Add someone else on this device (a name typed on it), or take them out of the room. */
 export type AddPerson = { t: 'radd'; name: string };
 export type DropPerson = { t: 'rdel'; pid: string };
-/** `by` starts a new game of `size` seats in the open pool. */
-export type NewGame = { t: 'rnew'; by: string; size: number };
+/** `by` makes a game of `size` seats with these rules (the other seats start as computers). */
+export type NewGame = { t: 'rnew'; by: string; size: number; rules: GameRules };
+/** `by` makes a tournament with these rules and signs up for it. */
+export type NewTour = { t: 'rtnew'; by: string; rules: TourRules };
+/** Sign up for the tournament, or take my name off it (before it starts). */
+export type TourJoin = { t: 'rtjoin'; pid: string; on: boolean };
+/** Someone in game `g` (null: the tournament) asks `to`, who isn't playing, to join it. */
+export type Invite = { t: 'rinvite'; from: string; to: string; g: number | null };
+/** Yes or no to an invite to game `g` (null: the tournament). */
+export type Answer = { t: 'ranswer'; pid: string; g: number | null; yes: boolean };
 /** Watch only (never picked to play), or not. */
 export type WatchOnly = { t: 'rwatch'; pid: string; watch: boolean };
 /** Give up my seat: from the next round someone else (or a computer) plays it. */
@@ -389,23 +390,27 @@ export type GiveUp = { t: 'rfree'; pid: string };
 export type TakeSeat = { t: 'rtake'; pid: string; g: number; s: number };
 /** Which game this device watches (it gets that game's moves), or none. */
 export type View = { t: 'rview'; g: number | null };
-/** The owner starts the tournament with everyone not on Watch only. */
-export type StartTour = { t: 'rtour' };
+/** Whoever made the tournament starts it with everyone signed up. */
+export type StartTour = { t: 'rtour'; by: string };
 /** A person's choices on a game's settings card (like 'set'). */
 export type GameSet = { t: 'gset'; g: number; pid: string; level: number; speed: Speed; power: boolean; ready: boolean };
 /** A table message for game `g` (moves, takes, hand-backs, my result). */
 export type GameMsg = { t: 'g'; g: number; m: TableMsg | TableDone | Flag };
-export type RoomClientMsg = SetRules | AddPerson | DropPerson | NewGame | WatchOnly | GiveUp | TakeSeat | View | StartTour | GameSet | GameMsg | Quit;
+export type RoomClientMsg = AddPerson | DropPerson | NewGame | NewTour | TourJoin | Invite | Answer | WatchOnly | GiveUp | TakeSeat | View | StartTour | GameSet | GameMsg | Quit;
 
 // Server to client, in a room.
-export type RoomPerson = { pid: string; name: string; mine: boolean; watch: boolean; here: boolean; game: number | null };
+/** An invite waiting for an answer: to game `g` (null: the tournament), from someone by name. */
+export type RoomInvite = { g: number | null; from: string };
+export type RoomPerson = { pid: string; name: string; mine: boolean; watch: boolean; here: boolean; game: number | null; invites: RoomInvite[] };
 export type RoomSeat = { name: string; pid?: string; cpu?: BotName };
-export type RoomGame = { g: number; seats: RoomSeat[]; round: number; wins: number[]; phase: 'lobby' | 'playing'; tour: boolean };
+/** `by`: whoever made it (or, after they left, the next person in it). */
+export type RoomGame = { g: number; seats: RoomSeat[]; round: number; wins: number[]; phase: 'lobby' | 'playing'; tour: boolean; rules: GameRules; by: string | null };
 export type TourPlayer = { pid: string; name: string; wins: number; losses: number; out: boolean };
 export type TourMatch = { a: string; b: string; winner: string | null; g: number | null; round: number };
-export type TourInfo = { kind: TourKind; players: TourPlayer[]; matches: TourMatch[]; champion: string | null };
+/** Before it starts, `players` are the people signed up. */
+export type TourInfo = { kind: TourKind; by: string | null; rules: TourRules; started: boolean; players: TourPlayer[]; matches: TourMatch[]; champion: string | null };
 /** Everything about the room, sent whenever it changes. */
-export type RoomState = { t: 'rstate'; code: string; owner: string; rules: RoomRules; people: RoomPerson[]; games: RoomGame[]; tour: TourInfo | null };
+export type RoomState = { t: 'rstate'; code: string; people: RoomPerson[]; games: RoomGame[]; tour: TourInfo | null };
 export type LobbySeat = { name: string; level: number; speed: Speed; power: boolean; ready: boolean; pid?: string; cpu?: BotName };
 /** A game's settings card before each round (like 'lobby'). */
 export type GameLobby = { t: 'globby'; g: number; round: number; wins: number[]; seats: LobbySeat[]; startsIn: number };
@@ -426,28 +431,39 @@ const gameNo = (x: unknown): x is number => int(x, 0, 1_000_000);
 const botName = (x: unknown): x is BotName => x === 'easy' || x === 'medium' || x === 'hard';
 const name40 = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim().slice(0, 40) : null);
 
-/** Read room rules, or null. */
-export function parseRules(x: unknown): RoomRules | null {
+/** Read a game's rules, or null. */
+export function parseGameRules(x: unknown): GameRules | null {
   const m = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
-  if (!m || (m.mode !== 'pool' && m.mode !== 'tour') || !RULES.includes(m.rule) || (m.rotation !== 'winner' && m.rotation !== 'random')) return null;
-  if (!TARGETS.includes(m.target as Target) || !int(m.colors, 2, 5) || !TOUR_KINDS.includes(m.tour)) return null;
-  if ((m.tourLevels !== 'same' && m.tourLevels !== 'choose') || !int(m.level, 1, 100) || !speed(m.speed)) return null;
-  return { mode: m.mode, rule: m.rule as OnlineRule, rotation: m.rotation, target: m.target as Target, colors: m.colors, tour: m.tour as TourKind, tourLevels: m.tourLevels, level: m.level, speed: m.speed };
+  if (!m || !RULES.includes(m.rule) || !TARGETS.includes(m.target as Target) || !int(m.colors, 2, 5)) return null;
+  return { rule: m.rule as OnlineRule, target: m.target as Target, colors: m.colors };
 }
+
+/** Read a tournament's rules, or null. */
+export function parseTourRules(x: unknown): TourRules | null {
+  const m = x && typeof x === 'object' ? (x as Record<string, unknown>) : null;
+  if (!m || !TOUR_KINDS.includes(m.kind) || (m.rule !== 'race' && m.rule !== 'last') || !int(m.colors, 2, 5)) return null;
+  if ((m.levels !== 'same' && m.levels !== 'choose') || !int(m.level, 1, 100) || !speed(m.speed)) return null;
+  return { kind: m.kind as TourKind, rule: m.rule, colors: m.colors, levels: m.levels, level: m.level, speed: m.speed };
+}
+
+const gameOrTour = (x: unknown): x is number | null => x === null || gameNo(x);
 
 /** Read a room message from a client, or null. */
 export function parseRoomClient(raw: string): RoomClientMsg | null {
   const m = obj(raw);
   switch (m?.t) {
-    case 'rrules': { const rules = parseRules(m.rules); return rules && { t: 'rrules', rules }; }
     case 'radd': { const n = name40(m.name); return n ? { t: 'radd', name: n } : null; }
     case 'rdel': return pid(m.pid) ? { t: 'rdel', pid: m.pid } : null;
-    case 'rnew': return pid(m.by) && int(m.size, 2, MAX_SEATS) ? { t: 'rnew', by: m.by, size: m.size } : null;
+    case 'rnew': { const rules = parseGameRules(m.rules); return rules && pid(m.by) && int(m.size, 2, MAX_SEATS) ? { t: 'rnew', by: m.by, size: m.size, rules } : null; }
+    case 'rtnew': { const rules = parseTourRules(m.rules); return rules && pid(m.by) ? { t: 'rtnew', by: m.by, rules } : null; }
+    case 'rtjoin': return pid(m.pid) && typeof m.on === 'boolean' ? { t: 'rtjoin', pid: m.pid, on: m.on } : null;
+    case 'rinvite': return pid(m.from) && pid(m.to) && gameOrTour(m.g) ? { t: 'rinvite', from: m.from, to: m.to, g: m.g } : null;
+    case 'ranswer': return pid(m.pid) && gameOrTour(m.g) && typeof m.yes === 'boolean' ? { t: 'ranswer', pid: m.pid, g: m.g, yes: m.yes } : null;
     case 'rwatch': return pid(m.pid) && typeof m.watch === 'boolean' ? { t: 'rwatch', pid: m.pid, watch: m.watch } : null;
     case 'rfree': return pid(m.pid) ? { t: 'rfree', pid: m.pid } : null;
     case 'rtake': return pid(m.pid) && gameNo(m.g) && seatNo(m.s) ? { t: 'rtake', pid: m.pid, g: m.g, s: m.s } : null;
     case 'rview': return m.g === null || gameNo(m.g) ? { t: 'rview', g: m.g as number | null } : null;
-    case 'rtour': return { t: 'rtour' };
+    case 'rtour': return pid(m.by) ? { t: 'rtour', by: m.by } : null;
     case 'gset':
       return gameNo(m.g) && pid(m.pid) && int(m.level, 1, 100) && speed(m.speed) && typeof m.power === 'boolean' && typeof m.ready === 'boolean'
         ? { t: 'gset', g: m.g, pid: m.pid, level: m.level, speed: m.speed, power: m.power, ready: m.ready } : null;
@@ -472,8 +488,7 @@ function lobbySeat(x: unknown): LobbySeat | null {
 }
 
 function roomState(m: Record<string, unknown>): RoomState | null {
-  const rules = parseRules(m.rules);
-  if (!rules || typeof m.code !== 'string' || !/^[A-Z]{4}$/.test(m.code) || !pid(m.owner)) return null;
+  if (typeof m.code !== 'string' || !/^[A-Z]{4}$/.test(m.code)) return null;
   const list = (x: unknown) => (Array.isArray(x) ? (x as unknown[]).map(v => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {})) : null);
   const people = list(m.people), games = list(m.games);
   if (!people || people.length > MAX_ROOM || !games || games.length > MAX_ROOM) return null;
@@ -481,7 +496,11 @@ function roomState(m: Record<string, unknown>): RoomState | null {
   for (const p of people) {
     const n = name40(p.name);
     if (!pid(p.pid) || !n || typeof p.mine !== 'boolean' || typeof p.watch !== 'boolean' || typeof p.here !== 'boolean' || !(p.game === null || gameNo(p.game))) return null;
-    ps.push({ pid: p.pid, name: n, mine: p.mine, watch: p.watch, here: p.here, game: p.game as number | null });
+    const inv = list(p.invites);
+    if (!inv || inv.length > MAX_ROOM) return null;
+    const invites: RoomInvite[] = [];
+    for (const v of inv) { const from = name40(v.from); if (!from || !gameOrTour(v.g)) return null; invites.push({ g: v.g, from }); }
+    ps.push({ pid: p.pid, name: n, mine: p.mine, watch: p.watch, here: p.here, game: p.game as number | null, invites });
   }
   const gs: RoomGame[] = [];
   for (const g of games) {
@@ -494,13 +513,17 @@ function roomState(m: Record<string, unknown>): RoomState | null {
       if (!n || (s.pid !== undefined && !pid(s.pid)) || (s.cpu !== undefined && !botName(s.cpu))) return null;
       ss.push({ name: n, ...(s.pid ? { pid: s.pid as string } : {}), ...(s.cpu ? { cpu: s.cpu as BotName } : {}) });
     }
-    gs.push({ g: g.g, seats: ss, round: g.round, wins: g.wins as number[], phase: g.phase, tour: g.tour });
+    const rules = parseGameRules(g.rules);
+    if (!rules || !(g.by === null || pid(g.by))) return null;
+    gs.push({ g: g.g, seats: ss, round: g.round, wins: g.wins as number[], phase: g.phase, tour: g.tour, rules, by: g.by as string | null });
   }
   let tour: TourInfo | null = null;
   if (m.tour !== null) {
     const t = m.tour && typeof m.tour === 'object' ? (m.tour as Record<string, unknown>) : null;
     const players = list(t?.players), matches = list(t?.matches);
-    if (!t || !TOUR_KINDS.includes(t.kind) || !players || !matches || !(t.champion === null || pid(t.champion))) return null;
+    const trules = parseTourRules(t?.rules);
+    if (!t || !trules || !TOUR_KINDS.includes(t.kind) || !players || !matches || !(t.champion === null || pid(t.champion))) return null;
+    if (!(t.by === null || pid(t.by)) || typeof t.started !== 'boolean') return null;
     const tp: TourPlayer[] = [];
     for (const p of players) {
       const n = name40(p.name);
@@ -512,9 +535,9 @@ function roomState(m: Record<string, unknown>): RoomState | null {
       if (!pid(x.a) || !pid(x.b) || !(x.winner === null || pid(x.winner)) || !(x.g === null || gameNo(x.g)) || !int(x.round, 1, 100)) return null;
       tm.push({ a: x.a, b: x.b, winner: x.winner as string | null, g: x.g as number | null, round: x.round });
     }
-    tour = { kind: t.kind as TourKind, players: tp, matches: tm, champion: t.champion as string | null };
+    tour = { kind: t.kind as TourKind, by: t.by as string | null, rules: trules, started: t.started, players: tp, matches: tm, champion: t.champion as string | null };
   }
-  return { t: 'rstate', code: m.code, owner: m.owner, rules, people: ps, games: gs, tour };
+  return { t: 'rstate', code: m.code, people: ps, games: gs, tour };
 }
 
 /** Read a room message from the server, or null. */

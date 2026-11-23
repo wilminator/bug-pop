@@ -477,12 +477,12 @@ export class Versus {
    * to bottom and the others are small minimaps beside it. `main` is that person's board.
    */
   /**
-   * The rule a room game shows: a best of 3 or 5 (from the room rules, or the tournament kind)
+   * The rule a room game shows: a best of 3 or 5 (from the game's rules, or the tournament kind)
    * plays its rounds as 'race', but the card, the title and the stars count the match.
    */
   private roomRule(room: RoomSession, g: number, fallback: WinRule): WinRule {
-    const r = room.state?.rules, game = room.state?.games.find(x => x.g === g);
-    const shown = !r ? fallback : game?.tour ? r.tour : r.rule;
+    const game = room.state?.games.find(x => x.g === g);
+    const shown = !game ? fallback : game.tour ? room.state?.tour?.rules.kind ?? fallback : game.rules.rule;
     return shown === 'best3' || shown === 'best5' ? shown : fallback;
   }
 
@@ -934,15 +934,16 @@ export class Versus {
     this.tbl = null;
     this.tlobby = { g: msg.g, until: msg.startsIn ? performance.now() + msg.startsIn : 0, room, back };
     const mine = new Set(room.mine.map(p => p.pid));
-    const rule = this.roomRule(room, msg.g, room.state?.rules.rule ?? 'race');
-    this.setup = { rule, colors: room.state?.rules.colors ?? 3, target: room.state?.rules.target ?? 'leader', players: msg.seats.map(s => ({ level: s.level, speed: s.speed, control: 'remote' as Control, bot: s.cpu ?? null })) };
+    const gr = room.state?.games.find(x => x.g === msg.g)?.rules;
+    const rule = this.roomRule(room, msg.g, gr?.rule ?? 'race');
+    this.setup = { rule, colors: gr?.colors ?? 3, target: gr?.target ?? 'leader', players: msg.seats.map(s => ({ level: s.level, speed: s.speed, control: 'remote' as Control, bot: s.cpu ?? null })) };
     this.stage.hidden = false;
     this.showSides(msg.seats.length, msg.seats.filter(s => s.pid && mine.has(s.pid)).length === 1);
     if (first) {
       this.phase = 'card';
       this.setCapture(false);
       const game = room.state?.games.find(x => x.g === msg.g);
-      const fixed = !!game?.tour && room.state?.rules.tourLevels === 'same';
+      const fixed = !!game?.tour && room.state?.tour?.rules.levels === 'same';
       // Put in a game by someone else (or changed my mind): back out of it here (Mike, 2026-11-22).
       // In a tournament that forfeits the match.
       $('vsGiveUp').textContent = game?.tour ? 'Forfeit this match' : msg.round === 1 ? 'Not this game' : 'Give up my seat';
