@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, endlessGame, endlessRound, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, deserialize, emptyBoard, findMatches, idx,
+  BOARD_HEIGHT as H, BOARD_WIDTH as W, AFTER_CLEAR_TICKS, LAND_TICKS, fallSpeed, HELD_EXTRA_ROWS_PER_SECOND, bugCount, bugZoneRows, packLog, unpackLog, addBugs, currentLevel, endlessGame, endlessRound, ARRIVE_TICKS, FULL_BOARD_LEVEL, createGame, FINAL_LEVEL, MAX_LEVEL, isEndless, gravityInterval, softDropInterval, LOCK_TICKS, LOCK_RESETS, lockTicks, deserialize, emptyBoard, findMatches, idx,
   removeCells, pieceCells, SAVE_VERSION, fits, type Piece, cleanSweepBonus, scoreMultiplier, replay, SLO_MO, serialize, settleStep, step, type Action, type GameEvent, type Cell, type GameState,
 } from '../src';
 
@@ -102,6 +102,65 @@ describe('board rules', () => {
     expect(b[idx(2, 10)]).toMatchObject({ l: 'R' });
     expect(b[idx(5, H - 1)]).toMatchObject({ l: 'U' });
     expect(b[idx(5, H - 2)]).toMatchObject({ l: 'D' });
+  });
+});
+
+describe('lock grace (a resting piece can still slide)', () => {
+  /** An empty board with a flat piece resting on the floor at x 0-1, just landed. */
+  function resting(extra: Partial<typeof cfg> & { classicLock?: boolean } = {}) {
+    const s = createGame({ ...cfg, level: 1, ...extra });
+    s.board = emptyBoard();
+    s.bugsLeft = 99;
+    s.piece = { x: 0, y: H - 1, rot: 0, a: 0, b: 1 };
+    s.phase = 'falling'; s.dropTimer = 0;
+    return s;
+  }
+  const until = (s: GameState, ticks: number, actions: (i: number) => Action[] = () => []) => {
+    for (let i = 0; i < ticks && s.phase === 'falling'; i++) step(s, actions(i));
+  };
+
+  it('waits 0.5 s, or one fall step if longer, before placing a resting piece', () => {
+    const s = resting();
+    expect(lockTicks(s)).toBe(Math.max(LOCK_TICKS, Math.ceil(gravityInterval(s)))); // low level 1: one step, 40 ticks
+    until(s, lockTicks(s) - 1);
+    expect(s.phase).toBe('falling');
+    step(s);
+    expect(s.phase).toBe('waiting');
+    // Holding down: the held step is shorter, so the 0.5 s floor applies.
+    const h = resting(); step(h, ['softOn']);
+    expect(lockTicks(h)).toBe(LOCK_TICKS);
+  });
+
+  it('a move while resting starts the wait again, at most LOCK_RESETS times', () => {
+    const s = resting();
+    let t = 0;
+    // Slide right every 20 ticks: always resting, never placed until the resets run out.
+    until(s, 10_000, i => { t = i; return i % 20 === 19 && s.piece!.x < 6 ? ['right'] : i % 20 === 19 ? ['left'] : []; });
+    expect(s.phase).toBe('waiting');
+    expect(t).toBeGreaterThanOrEqual(LOCK_RESETS * 20);
+    expect(t).toBeLessThan(LOCK_RESETS * 20 + lockTicks(s) + 1);
+  });
+
+  it('sliding off a ledge at the last moment: it falls into the gap instead of being placed', () => {
+    const s = resting();
+    // A ledge under x 0-1 only; the piece sits on it, one row up.
+    s.board[idx(0, H - 1)] = { t: 'half', c: 2, l: null };
+    s.board[idx(1, H - 1)] = { t: 'half', c: 2, l: null };
+    s.piece = { x: 0, y: H - 2, rot: 0, a: 0, b: 1 };
+    until(s, lockTicks(s) - 2);
+    expect(s.phase).toBe('falling');
+    step(s, ['right']); step(s, ['right']); // now over the empty floor
+    until(s, 200);
+    expect(s.board[idx(2, H - 1)]?.t).toBe('half'); // it fell to the floor
+    expect(s.board[idx(3, H - 1)]?.t).toBe('half');
+  });
+
+  it('classicLock: placed at the first fall step it cannot make', () => {
+    const s = resting({ classicLock: true });
+    until(s, Math.ceil(gravityInterval(s)) - 1);
+    expect(s.phase).toBe('falling');
+    step(s);
+    expect(s.phase).toBe('waiting');
   });
 });
 
@@ -623,7 +682,7 @@ describe('more than one line at once', () => {
   function land(s: GameState, piece: Piece) {
     expect(fits(s.board, piece)).toBe(true);
     expect(fits(s.board, { ...piece, y: piece.y + 1 })).toBe(false); // it's resting on something
-    s.piece = piece; s.phase = 'falling'; s.dropTimer = 1e12; // lock on the next tick
+    s.piece = piece; s.phase = 'falling'; s.dropTimer = 1e12; s.lockTimer = 1e6; // lock on the next tick
     const matches: Extract<GameEvent, { type: 'match' }>[] = [];
     for (let i = 0; i < 2000; i++) {
       for (const e of step(s)) if (e.type === 'match') matches.push(e);

@@ -1309,7 +1309,7 @@ async function main() {
         const actions = pendingActions.length ? [...pendingActions, ...f.actions] : f.actions;
         pendingActions = [];
         onEvents(step(state, actions));
-        if (coach?.frozen && state.phase === 'falling') state.dropTimer = 0; // hold the piece still while practising
+        if (coach?.frozen && state.phase === 'falling') { state.dropTimer = 0; delete state.lockTimer; } // hold the piece still while practising
         acc -= TICK_MS;
       }
     } else {

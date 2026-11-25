@@ -20,6 +20,6 @@ const hash = (s: string) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; 
 describe('game rules fingerprint', { timeout: 30_000 }, () => {
   it(`matches GAME_RULES ${GAME_RULES}`, () => {
     const h = hash(play(false, 'leader') + play(true, 'random'));
-    expect(h, 'The engine plays differently now: bump GAME_RULES and update this fingerprint').toBe('2fbb1a85');
+    expect(h, 'The engine plays differently now: bump GAME_RULES and update this fingerprint').toBe('792fd1bd');
   });
 });

@@ -96,6 +96,12 @@ export type GameConfig = {
    */
   classicScoring?: boolean;
   /**
+   * true: the classic lock, where a piece is placed at the first fall step it can't make (one
+   * step's time on the ground, as short as 1/6 s holding down). Absent or false: the grace
+   * before a resting piece is placed (see LOCK_TICKS), so it can still slide at the last moment.
+   */
+  classicLock?: boolean;
+  /**
    * true: bugs fill the classic tall area from level 1 (10 rows or more). Absent or
    * false: early levels keep their bugs low, from the bottom third on level 1 up to
    * the normal height by the mid-40s (see bugZoneRows).
@@ -153,6 +159,13 @@ export type GameState = {
   next: { a: Color; b: Color };
   soft: boolean; // soft drop held
   dropTimer: number; // in thousandths of a tick (see SOFT_DROP_TICKS)
+  /**
+   * Ticks the piece has rested on something (it can't fall). It is placed once this reaches
+   * lockTicks(). Absent while it can still fall, and in older saves.
+   */
+  lockTimer?: number;
+  /** Moves and turns that restarted lockTimer for this piece (at most LOCK_RESETS). */
+  lockResets?: number;
   phaseTimer: number;
   clearing: number[]; // board indices being cleared right now
   piecesSpawned: number;

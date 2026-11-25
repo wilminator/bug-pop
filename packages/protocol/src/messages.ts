@@ -12,7 +12,7 @@
 
 import type { Speed } from '@bug-pop/engine';
 
-export const PROTOCOL_VERSION = 4; // 2: rounds (best of 3), rejoining a match. 3: the stand-in computer runs on the other player's device. 4: the match settings card (lobby), Ready and power-ups
+export const PROTOCOL_VERSION = 5; // 2: rounds (best of 3), rejoining a match. 3: the stand-in computer runs on the other player's device. 4: the match settings card (lobby), Ready and power-ups. 5: GAME_RULES 2 (lock grace)
 /** Moves go out in small batches: every this many ticks (50 ms at 60 ticks a second). */
 export const SEND_EVERY = 3;
 /** A message bigger than this is refused (a batch of moves is a few dozen bytes). */
@@ -363,13 +363,13 @@ export function parseTableStart(raw: string): TableStart | null {
 // Every device can watch any game: it rebuilds every board from the moves, like the players do.
 
 /** Rooms speak protocol 7 (the 1 against 1 relay stays on PROTOCOL_VERSION until it moves to tables). */
-export const ROOM_VERSION = 8;
+export const ROOM_VERSION = 9; // 9: GAME_RULES 2 (lock grace): old and new builds would play the same moves differently
 /**
  * The game's rules as the engine plays them. Bump it whenever the engine plays the same moves
  * differently (test/rules.test.ts fails and says so): a round saved before a server restart is then
  * played again from its start rather than carried on (Mike, 2026-11-22).
  */
-export const GAME_RULES = 1;
+export const GAME_RULES = 2; // 2: a resting piece waits before it is placed (lock grace, 2026-11-25)
 /** At most this many people in a room, and on one device. */
 export const MAX_ROOM = 32;
 export const MAX_PER_DEVICE = 4;

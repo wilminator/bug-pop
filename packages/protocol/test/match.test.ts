@@ -3,6 +3,17 @@ import { describe, expect, it } from 'vitest';
 import { Bot, BOT_SKILLS, replay, type Action } from '@bug-pop/engine';
 import { OnlineMatch, parseClient, parseServer, seatConfig, type ClientMsg, type SeatLog, type StandIn, type Start } from '../src';
 
+/**
+ * My copy of your board is your board, as it was at the last tick you sent me. Your own board may
+ * have played on a few ticks since (messages were still on their way when the test stopped), so
+ * your board is replayed to the same tick before comparing.
+ */
+function matches(copy: OnlineMatch['them'], side: OnlineMatch, seat: 0 | 1) {
+  const at = replay(seatConfig(side.start, seat), side.me.log, copy.tick, undefined, side.me.versus!.received);
+  expect(at.tick).toBe(copy.tick);
+  expect(copy.board).toEqual(at.board);
+}
+
 const start = (seat: 0 | 1, seed = 4242, rule: 'race' | 'last' = 'race', power = false, levels: [number, number] = [3, 5]): Start => ({
   t: 'start', seat, seed, colors: 3, rule,
   players: [{ level: levels[0], speed: 1, name: 'Ann' }, { level: levels[1], speed: 2, name: 'Bo' }], round: 1, wins: [0, 0], botSeed: 777, power,
@@ -94,8 +105,8 @@ describe('online match', () => {
     expect(a.flagged).toBeNull();
     expect(b.flagged).toBeNull();
     expect(a.result).toEqual(b.result);
-    expect(a.them.board).toEqual(b.me.board);
-    expect(b.them.board).toEqual(a.me.board);
+    matches(a.them, b, 1);
+    matches(b.them, a, 0);
   });
 
   it('attacks really cross over in a long match', () => {
@@ -122,7 +133,7 @@ describe('online match', () => {
     expect(sides[0]!.result).not.toBeNull();
     expect(sides[0]!.result).toEqual(b.result);
     expect(done[0]!.at(-1)!.winner).toBe(done[1]!.at(-1)!.winner);
-    expect(sides[0]!.them.board).toEqual(b.me.board);
+    matches(sides[0]!.them, b, 1);
   });
 
   it('the stand-in plays a dropped board on the other device, and the player checks it on rejoining', () => {

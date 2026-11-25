@@ -21,6 +21,13 @@ const TIMER_UNITS = 1000; // drop timer counts in thousandths of a tick, so any 
 // Beats before the next piece appears.
 export const LAND_TICKS = 30; // after a piece lands: 0.5 s, past the 1/3 s landing sound
 export const AFTER_CLEAR_TICKS = 75; // after a clear: 1.25 s
+/**
+ * Lock grace (Mike and Jeanne, 2026-11-25): a piece that rests on something waits at least this
+ * long (0.5 s) before it is placed, or one fall step if that is longer, so it can still slide.
+ */
+export const LOCK_TICKS = 30;
+/** Each move or turn while resting starts the wait again, this many times per piece at most. */
+export const LOCK_RESETS = 15;
 /** Endless: the beat while a new round's bugs crawl in, before the next piece. */
 export const ARRIVE_TICKS = 75;
 const SPAWN_X = 3;
@@ -66,6 +73,7 @@ export function normalizeConfig(c: GameConfig): GameConfig {
     ...(c.cleanSweep === false ? { cleanSweep: false } : {}),
     ...(c.classicScoring ? { classicScoring: true } : {}),
     ...(c.classicBugZone ? { classicBugZone: true } : {}),
+    ...(c.classicLock ? { classicLock: true } : {}),
     ...(c.endless ? { endless: true } : {}),
     ...(c.powerUps ? { powerUps: true } : {}),
     ...(c.versus ? { versus: true } : {}),
@@ -133,6 +141,11 @@ function dropLimit(s: GameState): number {
   return Math.round((s.soft ? softDropInterval(s) : gravityInterval(s)) * TIMER_UNITS);
 }
 
+/** How long a resting piece waits before it is placed: 0.5 s, or one fall step if that is longer. */
+export function lockTicks(s: GameState): number {
+  return Math.max(LOCK_TICKS, Math.ceil(dropLimit(s) / TIMER_UNITS));
+}
+
 /**
  * Press or release "down". The drop timer keeps the same fraction of the way through the
  * current row, so pressing down never lets the time saved up at the slow speed spill out as
@@ -156,6 +169,8 @@ function spawn(s: GameState, events: GameEvent[]) {
   } else s.next = randomPair(s);
   s.piecesSpawned++;
   s.dropTimer = 0;
+  delete s.lockTimer;
+  delete s.lockResets;
   s.dropBugs = 0;
   s.chain = 0;
   if (s.versus) s.versus.lines = 0;
@@ -313,7 +328,13 @@ function applyAction(s: GameState, a: Action, events: GameEvent[]) {
     a === 'right' ? tryMove(s, 1) :
     a === 'rotCW' ? tryRotate(s, -1) :
     tryRotate(s, 1);
-  if (ok) events.push({ type: a === 'left' || a === 'right' ? 'move' : 'rotate' });
+  if (!ok) return;
+  events.push({ type: a === 'left' || a === 'right' ? 'move' : 'rotate' });
+  // Resting: a move or turn starts the wait again (a few times), so the player can keep sliding.
+  if (s.lockTimer !== undefined && (s.lockResets ?? 0) < LOCK_RESETS) {
+    s.lockTimer = 0;
+    s.lockResets = (s.lockResets ?? 0) + 1;
+  }
 }
 
 /** Advance one tick. Mutates `s` and returns what happened, for sound and visuals. */
@@ -330,14 +351,23 @@ export function step(s: GameState, actions: readonly Action[] = []): GameEvent[]
   switch (s.phase) {
     case 'falling': {
       if (s.power && s.power.freeze > 0 && !s.soft) break; // Freeze: the piece hangs still unless held down
+      const p = s.piece!;
+      const lower = { ...p, y: p.y + 1 };
+      const free = fits(s.board, lower);
+      if (!free && !s.config.classicLock) {
+        // Resting on something: wait out the grace, then place it. A move or turn that opens
+        // space below lets it fall again from the next tick (Mike and Jeanne, 2026-11-25).
+        s.lockTimer = (s.lockTimer ?? 0) + 1;
+        if (s.lockTimer >= lockTicks(s)) lock(s, events);
+        break;
+      }
+      delete s.lockTimer;
       s.dropTimer += TIMER_UNITS;
       const limit = dropLimit(s);
       if (s.dropTimer >= limit) {
         s.dropTimer -= limit; // keep any leftover (only matters for fractional intervals)
-        const p = s.piece!;
-        const lower = { ...p, y: p.y + 1 };
-        if (fits(s.board, lower)) s.piece = lower;
-        else lock(s, events);
+        if (free) s.piece = lower;
+        else lock(s, events); // classic lock: the first fall step it can't make
       }
       break;
     }
