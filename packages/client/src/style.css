@@ -337,6 +337,9 @@ button.link { border: none; background: none; padding: 4px; min-height: 0; color
 .vs-setup label { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .vs-setup input[type=number] { width: 5em; }
 .vs-skill-row[hidden] { display: none; }
+/* The rules above set display on every fieldset and label, which beats the hidden attribute: put it back,
+   so only as many player cards show as players picked (and Who gets attacked only with 3 or 4). */
+.vs-setup fieldset[hidden], .vs-setup label[hidden] { display: none; }
 /* Multiplayer: On this device / Online selector (src/main.ts), one card shown at a time. */
 .vs-tabs { display: flex; gap: 0; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; width: min(420px, 100%); }
 .vs-tabs[hidden] { display: none; }
