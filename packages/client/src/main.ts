@@ -37,6 +37,8 @@ type Mode = 'title' | 'menu' | 'setup' | 'versusSetup' | 'versus' | 'room' | 'se
  *   looks    [{ id, name, skin, season? }] extra looks offered in Settings, e.g. seasonal ones
  *            (season { from: 'MM-DD', to: 'MM-DD' }; they are only listed while in season)
  *   allLooks true lists every look in Settings whatever the date (for testing on staging)
+ *   testLook true lists the plain "Test pattern" look in Settings (dev and staging sites;
+ *            production leaves it out, so players never see it, Mike 2026-11-26)
  *   play     online versus server (WebSocket address, may be relative like "/api/play"); without it
  *            the Multiplayer screen has no online play
  */
@@ -50,6 +52,8 @@ type SiteConfig = {
   looks?: SiteLook[];
   /** List every look whatever the season (a staging site, so all of them can be checked). */
   allLooks?: boolean;
+  /** List the plain "Test pattern" look in Settings (a dev or staging site). */
+  testLook?: boolean;
   /** Online versus: the relay's WebSocket address (see packages/relay, or the hosted server). */
   play?: string;
 };
@@ -77,7 +81,8 @@ async function loadConfig(): Promise<SiteConfig> {
 
 async function loadSkin(cfg: SiteConfig): Promise<Skin> {
   const look = loadSettings().look;
-  if (look === 'test' || new URLSearchParams(location.search).get('skin') === 'test') return testSkin;
+  // The test pattern on purpose only where the site offers it; elsewhere it is just the fallback.
+  if (cfg.testLook && (look === 'test' || new URLSearchParams(location.search).get('skin') === 'test')) return testSkin;
   // A picked look that is in season; if its files fail to load, fall back to the site's own skin.
   const picked = lookChoices(cfg.looks, new Date(), cfg.allLooks).find(l => l.id === look);
   if (picked) {
@@ -147,7 +152,8 @@ async function main() {
   let settings: Settings = loadSettings();
   // A seasonal look whose season has ended (or a look the site no longer offers) goes back to the default.
   const looks = lookChoices(cfg.looks, new Date(), cfg.allLooks);
-  if (settings.look !== 'site' && settings.look !== 'test' && !looks.some(l => l.id === settings.look)) {
+  // So does Test pattern on a site that does not offer it (production).
+  if (settings.look !== 'site' && !(settings.look === 'test' && cfg.testLook) && !looks.some(l => l.id === settings.look)) {
     settings.look = 'site';
     saveSettings(settings);
   }
@@ -417,9 +423,11 @@ async function main() {
   siteOption.textContent = siteName;
   let prev: Element = siteOption;
   for (const l of looks) { const o = Object.assign(document.createElement('option'), { value: l.id, textContent: inWindow(l.season) ? l.name : `${l.name} (out of season)` }); prev.after(o); prev = o; }
-  // Keep the order: Default, then the looks as config.json lists them, then Test pattern last.
+  // Keep the order: Default, then the looks as config.json lists them, then Test pattern last,
+  // and only on a site that offers it (dev and staging, not production).
   const testOption = look.querySelector('option[value="test"]')!;
-  look.append(testOption);
+  if (cfg.testLook) look.append(testOption);
+  else testOption.remove();
   look.value = settings.look;
   look.addEventListener('change', () => { settings.look = look.value; saveSettings(settings); location.reload(); });
 
